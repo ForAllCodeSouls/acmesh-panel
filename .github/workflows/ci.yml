@@ -1,0 +1,55 @@
+name: CI
+
+# 每次推送到 main/master 或提 PR 都运行，也可手动触发。
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  backend-and-ui:
+    name: Go 构建 + 端到端测试
+    runs-on: ubuntu-latest
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+
+      - name: 安装 Go 1.26
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.26'
+          cache: false # 依赖较少，关闭缓存避免首次构建卡在缓存恢复
+
+      - name: 格式 / 静态检查 / 构建
+        run: |
+          test -z "$(gofmt -l .)" || { echo "gofmt 未通过"; gofmt -l .; exit 1; }
+          go vet ./...
+          mkdir -p /tmp/build
+          CGO_ENABLED=0 go build -trimpath -buildvcs=false \
+            -ldflags "-s -w -X main.appVersion=ci" -o /tmp/build/acmesh-panel .
+
+      - name: 安装 Python / Node
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: 安装 Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: 前端选择器一致性检查
+        run: node tests/ui-check.js
+
+      - name: 确保测试脚本有执行权限（git 有时不保留 x 位）
+        run: chmod +x tests/fake-acme.sh
+
+      - name: 端到端测试（真实进程 + 假 acme.sh，79 项断言）
+        run: E2E_BIN=/tmp/build/acmesh-panel python3 tests/e2e.py
+
+      - name: 确认产物为静态链接
+        run: file /tmp/build/acmesh-panel | grep -i 'statically linked'
