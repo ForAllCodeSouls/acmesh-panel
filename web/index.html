@@ -1,0 +1,299 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>acmesh panel · 证书管理</title>
+<link rel="icon" type="image/png" href="/assets/logo.png">
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+
+<!-- ============ 登录 ============ -->
+<section id="login-view" class="login hidden">
+  <form id="login-form" class="login-card" autocomplete="on">
+    <div class="brand">
+      <img class="brand-mark-img" src="/assets/logo.png" alt="" width="48" height="48">
+      <div>
+        <h1>acmesh panel</h1>
+        <p>acme.sh 证书管理台</p>
+      </div>
+    </div>
+    <div class="field">
+      <label for="login-user">账号</label>
+      <input id="login-user" name="username" autocomplete="username" spellcheck="false" required>
+    </div>
+    <div class="field">
+      <label for="login-pass">密码</label>
+      <input id="login-pass" name="password" type="password" autocomplete="current-password" required>
+    </div>
+    <button class="btn primary block" type="submit" id="login-btn">登录</button>
+    <label class="check"><input type="checkbox" id="login-remember"> 保持登录状态（30 天免登录）</label>
+    <p id="login-error" class="form-error" role="alert"></p>
+    <p class="tiny muted center">连续 5 次失败会临时锁定来源 IP · 所有操作均记入审计日志</p>
+  </form>
+
+  <form id="setup-form" class="login-card hidden" autocomplete="on">
+    <div class="brand">
+      <img class="brand-mark-img" src="/assets/logo.png" alt="" width="48" height="48">
+      <div>
+        <h1>首次使用</h1>
+        <p>设置管理员账号与密码</p>
+      </div>
+    </div>
+    <p class="hint">当前尚未设置登录密码。设置完成后注册入口会永久关闭，请牢记账号密码。</p>
+    <div class="field">
+      <label for="setup-user">账号</label>
+      <input id="setup-user" autocomplete="username" spellcheck="false" required>
+    </div>
+    <div class="field">
+      <label for="setup-pass">密码</label>
+      <input id="setup-pass" type="password" autocomplete="new-password" required>
+      <p class="hint">至少 12 位，同时包含大写字母、小写字母和数字。</p>
+    </div>
+    <div class="field">
+      <label for="setup-confirm">确认密码</label>
+      <input id="setup-confirm" type="password" autocomplete="new-password" required>
+    </div>
+    <button class="btn primary block" type="submit" id="setup-btn">设置账号并登录</button>
+    <p id="setup-error" class="form-error" role="alert"></p>
+  </form>
+</section>
+
+<!-- ============ 主界面 ============ -->
+<div id="main-view" class="app hidden">
+  <aside class="sidebar">
+    <div class="brand small">
+      <img class="brand-mark-img" src="/assets/logo.png" alt="" width="32" height="32">
+      <div><h1>acmesh</h1><p id="sb-acme" class="tiny muted">acme.sh</p></div>
+    </div>
+    <nav id="nav">
+      <button class="nav-item active" data-view="certs"><span>▤</span>证书</button>
+      <button class="nav-item" data-view="jobs"><span>⟳</span>任务<span id="job-badge" class="badge hidden">0</span></button>
+      <button class="nav-item" data-view="notify"><span>🔔</span>通知</button>
+      <button class="nav-item" data-view="creds"><span>☁</span>DNS 凭证</button>
+      <button class="nav-item" data-view="sync"><span>⇄</span>证书同步</button>
+      <button class="nav-item" data-view="settings"><span>⚙</span>设置</button>
+    </nav>
+    <div class="sidebar-foot">
+      <div class="tiny muted" id="sb-user">-</div>
+      <button class="btn ghost small" id="logout-btn">退出登录</button>
+    </div>
+  </aside>
+
+  <main class="main">
+    <header class="topbar">
+      <div>
+        <h2 id="page-title">证书</h2>
+        <p class="tiny muted" id="page-sub">—</p>
+      </div>
+      <div class="topbar-actions">
+        <button class="btn ghost" id="refresh-btn" title="刷新">↻ 刷新</button>
+        <button class="btn primary" id="issue-btn">＋ 签发证书</button>
+      </div>
+    </header>
+
+    <!-- 证书 -->
+    <section id="view-certs" class="view">
+      <div class="stats">
+        <div class="stat"><span class="stat-num" id="st-total">0</span><span class="stat-label">证书总数</span></div>
+        <div class="stat ok"><span class="stat-num" id="st-valid">0</span><span class="stat-label">有效</span></div>
+        <div class="stat warn"><span class="stat-num" id="st-warning">0</span><span class="stat-label">30 天内到期</span></div>
+        <div class="stat bad"><span class="stat-num" id="st-expired">0</span><span class="stat-label">已过期</span></div>
+      </div>
+      <div class="toolbar">
+        <button class="btn ghost small" id="renew-all-btn">检查全部续期</button>
+        <span class="grow"></span>
+        <input id="cert-filter" class="input search" placeholder="搜索域名…" spellcheck="false">
+      </div>
+      <div id="cert-list" class="cert-grid"></div>
+      <div id="cert-empty" class="empty hidden">
+        <p>还没有证书</p>
+        <p class="tiny muted">点击右上角「签发证书」，用 DNS API 自动申请第一张证书</p>
+      </div>
+    </section>
+
+    <!-- 任务 -->
+    <section id="view-jobs" class="view hidden">
+      <div id="job-list" class="job-list scroll-area"></div>
+      <div id="job-empty" class="empty hidden"><p>暂无任务</p></div>
+    </section>
+
+    <!-- 通知 -->
+    <section id="view-notify" class="view hidden">
+      <div class="panel">
+        <h3>默认 ACME 通知邮箱</h3>
+        <p class="tiny muted">Let's Encrypt 等 CA 的到期提醒会发到这个邮箱。签发单张证书时可以单独指定，留空则使用这里配置的默认值。</p>
+        <div class="row mt12">
+          <input id="default-email" class="grow" type="email" placeholder="you@example.com" spellcheck="false">
+          <button class="btn small" id="save-default-email">保存</button>
+        </div>
+        <p class="hint" id="default-email-source">未设置时，签发不带 --accountemail，使用 acme.sh 安装时配置的账户。</p>
+      </div>
+
+      <div class="panel">
+        <div class="panel-head">
+          <h3>通知渠道</h3>
+          <button class="btn primary small" id="add-notifier">＋ 添加渠道</button>
+        </div>
+        <div id="notifier-list" class="list"></div>
+      </div>
+
+      <div class="panel">
+        <h3>可订阅的事件</h3>
+        <div id="event-help" class="chip-wrap"></div>
+      </div>
+    </section>
+
+    <!-- 凭证 -->
+    <section id="view-creds" class="view hidden">
+      <div class="toolbar">
+        <p class="muted tiny">凭证使用 AES-256-GCM 加密后存储在 <code id="cred-path">/data</code>，明文永不落盘；接口只返回掩码。</p>
+        <span class="grow"></span>
+        <button class="btn primary small" id="add-cred-btn">＋ 添加凭证</button>
+      </div>
+      <div id="cred-list" class="list"></div>
+    </section>
+
+    <!-- 证书同步 -->
+    <section id="view-sync" class="view hidden">
+      <div class="panel">
+        <div class="panel-head">
+          <h3>挂载目录</h3>
+          <div class="head-actions">
+            <label class="sync-force-label" title="忽略证书指纹记录，重新覆盖所有匹配到的文件"><input type="checkbox" id="sync-force"> 强制同步</label>
+            <button class="btn small" id="sync-run" type="button">立即同步</button>
+          </div>
+        </div>
+        <p class="tiny muted" id="sync-dir-info">—</p>
+        <p class="hint hidden" id="sync-dir-warn"></p>
+        <p class="tiny muted mt8" id="sync-dedupe-info">默认只在证书续签或文件首次匹配时同步一次；内容未变化的文件会自动跳过，不重复覆盖。需要重写全部文件时，勾选「强制同步」再点「立即同步」。</p>
+        <div class="mt8">
+          <div class="tiny muted">目录里的证书文件（同步的目标）：</div>
+          <div id="sync-file-list" class="list mt8 scroll-area"></div>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="panel-head">
+          <h3>同步规则</h3>
+          <button class="btn primary small" id="sync-add">＋ 新建规则</button>
+        </div>
+        <p class="tiny muted">面板签发或续期成功后，把新证书和私钥写到下面规则匹配到的文件里。写入时先写临时文件再替换，过程中断也不会留下坏文件；证书文件所有人可读写、其他人只读，私钥文件只有面板自己能读写。</p>
+        <p class="tiny muted mt8">匹配方式：先看目录里已有证书的名字或内容，找到对应的文件，再按规则把新内容写进去。下面预设一步创建，也可以用「新建规则」自己配，创建前可点「预览匹配」确认会覆盖哪些文件。</p>
+        <div class="chip-wrap mt8" id="sync-presets"></div>
+        <div id="sync-rule-list" class="list mt8"></div>
+      </div>
+
+      <div class="panel">
+        <div class="panel-head">
+          <h3>远程主机同步</h3>
+          <button class="btn primary small" id="remote-add" type="button">＋ 添加主机</button>
+        </div>
+        <p class="tiny muted">把本地同步好的证书文件，通过 SSH 推送到其他主机。使用 SSH 私钥认证，私钥加密保存在面板数据目录里，不会明文出现在网页或日志中。镜像需包含 <code>openssh-client</code>（本项目镜像已内置）。</p>
+        <p class="tiny muted mt8">推送发生在每次本地同步成功之后：只有本次真正被覆盖的文件才会推送到已启用的远程主机。远程目录需提前在目标主机上创建好并有写入权限。</p>
+        <div id="remote-list" class="list mt8"></div>
+      </div>
+
+      <div class="panel">
+        <div class="panel-head">
+          <h3>最近同步记录</h3>
+          <button class="btn ghost small" id="sync-clear-events" type="button">清空记录</button>
+        </div>
+        <div id="sync-event-list" class="list scroll-area"></div>
+      </div>
+    </section>
+
+    <!-- 设置 -->
+    <section id="view-settings" class="view hidden">
+      <div class="settings-grid">
+        <div class="panel">
+          <h3>修改密码</h3>
+          <form id="pwd-form" class="stack">
+            <div class="field"><label for="pwd-old">当前密码</label><input id="pwd-old" type="password" autocomplete="current-password" required></div>
+            <div class="field"><label for="pwd-new">新密码（至少 8 位）</label><input id="pwd-new" type="password" autocomplete="new-password" minlength="8" required></div>
+            <div class="field"><label for="pwd-new2">确认新密码</label><input id="pwd-new2" type="password" autocomplete="new-password" minlength="8" required></div>
+            <button class="btn primary" type="submit">更新密码</button>
+            <p class="tiny muted">修改后其它登录会话会立即失效。</p>
+          </form>
+        </div>
+        <div class="panel">
+          <h3>运行信息</h3>
+          <dl class="kv" id="sys-info"></dl>
+          <div class="field mt12">
+            <label for="cron-hour">每日自动检测时间</label>
+            <div class="row">
+              <select id="cron-hour" class="grow"></select>
+              <button class="btn small" id="cron-hour-save" type="button">保存</button>
+            </div>
+            <p class="hint" id="cron-hour-hint">每天到点自动检查证书续期与临期；同一天只执行一次，重启不会重复检测。</p>
+          </div>
+          <div class="field mt12">
+            <label for="retention-days">数据保留天数</label>
+            <div class="row">
+              <input id="retention-days" type="number" min="0" max="3650" class="grow" placeholder="30">
+              <button class="btn small" id="retention-save" type="button">保存</button>
+              <button class="btn small ghost" id="cleanup-now" type="button">立即清理</button>
+            </div>
+            <p class="hint">任务记录、审计日志与同步记录每天自动清理超过这个天数的旧数据；填 0 表示永不清理。凭证与配置不受影响。「立即清理」按当前保留天数执行一次。</p>
+          </div>
+        </div>
+      </div>
+      <div class="panel">
+        <div class="panel-head">
+          <h3>支持本项目</h3>
+          <span class="tiny muted">自愿赞赏 · 不影响任何功能</span>
+        </div>
+        <p class="tiny muted">如果这个项目帮你省过一次续期的麻烦，欢迎扫码支持一杯咖啡 ☕。赞赏完全自愿。</p>
+        <div class="support-qr">
+          <figure>
+            <img src="/assets/wechat-pay.png" alt="微信赞赏码" class="qr-zoom" data-title="微信赞赏码" data-src="/assets/wechat-pay.png">
+            <figcaption>微信赞赏码</figcaption>
+          </figure>
+          <figure>
+            <img src="/assets/alipay.png" alt="支付宝收款码" class="qr-zoom" data-title="支付宝收款码" data-src="/assets/alipay.png">
+            <figcaption>支付宝</figcaption>
+          </figure>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="panel-head">
+          <h3>审计日志</h3>
+          <button class="btn ghost small" id="audit-refresh">刷新</button>
+        </div>
+        <div class="table-wrap scroll-area">
+          <table class="table" id="audit-table">
+            <thead><tr><th>时间</th><th>用户</th><th>来源</th><th>动作</th><th>详情</th></tr></thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+  </main>
+</div>
+
+<!-- ============ 抽屉 / 弹窗容器 ============ -->
+<div id="overlay" class="overlay hidden"></div>
+<aside id="drawer" class="drawer hidden">
+  <div class="drawer-head">
+    <div><h3 id="drawer-title">证书详情</h3><p class="tiny muted" id="drawer-sub"></p></div>
+    <button class="icon-btn" id="drawer-close" aria-label="关闭">✕</button>
+  </div>
+  <div class="drawer-body" id="drawer-body"></div>
+</aside>
+
+<div id="modal" class="modal hidden">
+  <div class="modal-card" id="modal-card">
+    <div class="modal-head"><h3 id="modal-title"></h3><button class="icon-btn" id="modal-close" aria-label="关闭">✕</button></div>
+    <div class="modal-body" id="modal-body"></div>
+    <div class="modal-foot" id="modal-foot"></div>
+  </div>
+</div>
+
+<div id="toasts" class="toasts"></div>
+
+<script src="/app.js"></script>
+</body>
+</html>
