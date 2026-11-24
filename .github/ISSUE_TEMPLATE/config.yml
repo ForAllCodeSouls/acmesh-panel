@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: 安全漏洞（请私有报告）
+    url: https://github.com/ForAllCodeSouls/acmesh-panel/security/advisories/new
+    about: 漏洞披露请使用私有渠道，不要在公开 Issue 里贴细节
+  - name: 使用问题与讨论
+    url: https://github.com/ForAllCodeSouls/acmesh-panel/discussions
+    about: 部署、DNS 凭证、续期失败等使用问题请到 Discussions
