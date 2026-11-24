@@ -1,0 +1,72 @@
+# 默认用法：直接拉取 GitHub Actions 构建并发布到 GHCR 的镜像。
+# 想从源码本地构建：见 docker-compose.build.yml 和 README「docker compose 使用手册」。
+
+services:
+  acmesh-panel:
+    image: ghcr.io/forallcodesouls/acmesh-panel:${ACMESH_IMAGE_TAG:-latest}
+    container_name: acmesh-panel
+    restart: unless-stopped
+
+    # 端口映射：宿主 0.0.0.0:8800 → 容器 8080，改端口只需改冒号左边的数字
+    ports:
+      - "0.0.0.0:8800:8080"
+
+    environment:
+      # 账号密码：密码必须通过 .env 提供，缺失时 compose 会直接报错
+      ACME_PANEL_USER: "${ACME_PANEL_USER:-admin}"
+      ACME_PANEL_PASSWORD: "${ACME_PANEL_PASSWORD:?请在 .env 中设置 ACME_PANEL_PASSWORD（至少 12 位）}"
+      # 走 HTTPS 反代后改为 1，Cookie 会带上 Secure + HSTS
+      ACME_PANEL_COOKIE_SECURE: "${ACME_PANEL_COOKIE_SECURE:-0}"
+      # 反代在同一 docker 网络内时可设为 1，从 X-Forwarded-For 取真实 IP
+      ACME_PANEL_TRUST_PROXY: "${ACME_PANEL_TRUST_PROXY:-0}"
+      # 自动续期：面板内置调度（每 12 小时 acme.sh --cron），不依赖 cron 守护进程
+      ACME_PANEL_CRON: "${ACME_PANEL_CRON:-1}"
+      # 证书同步目录：多个用逗号或分号分隔，留空禁用
+      ACME_PANEL_SYNC_DIR: "${ACME_PANEL_SYNC_DIR:-}"
+      # 可选：同时运行的 acme.sh 任务数，默认 2
+      # ACME_PANEL_PARALLEL: "2"
+      # 可选：面板自己终结 TLS（需挂载证书文件，两个都要填）
+      # ACME_PANEL_TLS_CERT: /certs/fullchain.pem
+      # ACME_PANEL_TLS_KEY: /certs/key.pem
+      # 可选：容器内监听地址，改这里也要改上面的 ports
+      # ACME_PANEL_LISTEN: 0.0.0.0:8080
+      # 可选：acme.sh home 与数据目录，一般不用改
+      # ACME_HOME: /acme.sh
+      # ACME_PANEL_DATA: /data
+      # 默认 CA 与 ACME 账号邮箱（也可在 Web 界面里改）
+      ACME_PANEL_CA: "${ACME_PANEL_CA:-letsencrypt}"
+      ACME_PANEL_EMAIL: "${ACME_PANEL_EMAIL:-}"
+      TZ: "${TZ:-Asia/Shanghai}"
+
+    volumes:
+      - acme_home:/acme.sh   # acme.sh 脚本、证书、账户密钥、续期配置
+      - panel_data:/data     # 面板状态：密码哈希、加密凭证、审计日志、部署输出
+      # 证书同步：把宿主机目录挂进来，并在 .env 里设 ACME_PANEL_SYNC_DIR=/certs,/srv/ssl
+      # - /home/web/certs:/certs
+      # - /srv/ssl:/srv/ssl
+
+    # ---- 加固 ----
+    read_only: true
+    tmpfs:
+      - /tmp:size=16m,mode=1777
+    cap_drop:
+      - ALL
+    # 启动时用 root 修复挂载目录属主，再降权到 uid 10001 运行面板；面板本身始终非 root
+    cap_add:
+      - CHOWN
+      - FOWNER
+      - SETUID
+      - SETGID
+    security_opt:
+      - no-new-privileges:true
+
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O-", "http://127.0.0.1:8080/api/health"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+      start_period: 5s
+
+volumes:
+  acme_home:
+  panel_data:
