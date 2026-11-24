@@ -1,0 +1,9 @@
+# GitHub 仓库页「Sponsor」按钮的可选配置。
+# 填你自己的链接后取消注释即可；留空时 GitHub 不会显示无效按钮。
+#
+# 例如（使用你自己的赞赏说明页 / 博客文章）：
+# custom:
+#   - https://example.com/support
+
+# 若开通了 GitHub Sponsors，也可以写：
+# github: [ForAllCodeSouls]

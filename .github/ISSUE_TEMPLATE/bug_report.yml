@@ -1,0 +1,59 @@
+name: Bug 报告
+description: 报告功能异常、安全问题或文档错误
+title: "[Bug] "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        感谢反馈！**不要在 Issue 里贴真实私钥、证书、API Token、密码或审计日志原文。**
+  - type: input
+    id: version
+    attributes:
+      label: 版本
+      description: 面板版本 / 镜像 tag / commit
+      placeholder: "0.1.5"
+    validations:
+      required: true
+  - type: textarea
+    id: what
+    attributes:
+      label: 发生了什么
+      description: 期望行为与实际行为
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: 复现步骤
+      description: 尽量给出最小步骤；可附脱敏后的命令与任务日志
+      render: shell
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: 涉及模块
+      options:
+        - 登录 / 会话
+        - 证书签发 / 续期 / 吊销
+        - 私钥查看 / 下载
+        - DNS 凭证
+        - 部署输出
+        - 前端 UI
+        - Docker / 编排
+        - 文档
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: 相关日志（请脱敏）
+      render: shell
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: 确认
+      options:
+        - label: 已确认不包含任何真实凭证、私钥或个人信息
+          required: true
