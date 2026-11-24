@@ -1,0 +1,11 @@
+.git
+.gitignore
+bin/
+.dev/
+tests/
+*.md
+docker-compose.yml
+.env
+.env.example
+.dockerignore
+.DS_Store
