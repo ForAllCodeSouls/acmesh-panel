@@ -199,6 +199,20 @@ def main():
         check("API 响应 no-store", hd.get("cache-control") == ["no-store"])
         check("纯 HTTP 访问不下发 HSTS", "strict-transport-security" not in hd, hd.get("strict-transport-security"))
 
+        # ---- 同源校验（反代端口差异）----
+        # nginx 反代常把 Host 设为不带端口的主机名，浏览器 Origin 带端口；
+        # 按主机名比较才不会把合法登录误判为跨站（登录登不进的根因）。
+        origin_port = f"http://{BASE_HOST}:{PORT}"
+        rp = Client()
+        st, _, j = rp.j("POST", "/api/login", {"username": "admin", "password": PASSWORD},
+                        headers={"Host": BASE_HOST, "Origin": origin_port})
+        check("反代 Host 无端口+Origin 带端口仍可登录", st == 200, (st, j))
+
+        cross = Client()
+        st, _, j = cross.j("POST", "/api/login", {"username": "admin", "password": PASSWORD},
+                           headers={"Host": BASE_HOST, "Origin": "http://evil.example.net"})
+        check("跨站 Origin 登录被拒", st == 403, (st, j))
+
         # ---- 登录失败 ----
         st, _, j = anon.j("POST", "/api/login", {"username": "admin", "password": "wrong-pass"})
         check("错误密码 → 401", st == 401, st)

@@ -211,5 +211,7 @@ const goAuth = fs.readFileSync(path.join(root, 'auth.go'), 'utf8');
 check('HSTS 开关 ACME_PANEL_HSTS', goMain.includes('ACME_PANEL_HSTS') && goMain.includes('HSTS:'));
 check('HSTS 仅真实 HTTPS 下发', goMain.includes('s.cfg.HSTS && requestIsHTTPS(r, s.cfg.TrustProxy)'));
 check('真实 HTTPS 判断含反代协议头', goAuth.includes('func requestIsHTTPS') && goAuth.includes('X-Forwarded-Proto'));
+check('同源校验忽略端口（反代登录不误判）', goAuth.includes('func hostNoPort')
+  && goAuth.includes('hostNoPort(strings.TrimPrefix(origin, p)) == want'));
 
 console.log(`web UI checks: ${passed} passed`);

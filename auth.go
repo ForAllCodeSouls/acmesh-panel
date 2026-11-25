@@ -260,15 +260,45 @@ func requestIsHTTPS(r *http.Request, trustProxy bool) bool {
 	return strings.EqualFold(strings.TrimSpace(parts[idx]), "https")
 }
 
-// sameOrigin 校验 Origin/Referer 与 Host 一致，抵御跨站表单提交（登录接口的第一道闸）。
+// hostNoPort 把 host 归一到「主机名」：去掉端口、统一小写、去方括号。
+// nginx 反代常用 proxy_set_header Host $host（不带端口），而浏览器 Origin
+// 带端口（如 http://example.com:8800）。按主机名比较才能兼容反代，否则
+// 同源校验会把合法登录误判为跨站，导致「登录登不进」。
+func hostNoPort(h string) string {
+	h = strings.TrimSpace(h)
+	// [IPv6] 或 [IPv6]:port —— 方括号内整体是主机名，不按冒号切端口。
+	if strings.HasPrefix(h, "[") {
+		if end := strings.IndexByte(h, ']'); end >= 0 {
+			return strings.ToLower(h[1:end])
+		}
+	}
+	if i := strings.LastIndexByte(h, ':'); i >= 0 {
+		// 仅当冒号后全是数字时视为端口。
+		port := h[i+1:]
+		allDigit := port != ""
+		for _, c := range port {
+			if c < '0' || c > '9' {
+				allDigit = false
+				break
+			}
+		}
+		if allDigit {
+			h = h[:i]
+		}
+	}
+	return strings.ToLower(h)
+}
+
+// sameOrigin 校验 Origin/Referer 与目标主机一致，抵御跨站表单提交（登录接口的第一道闸）。
+// 比较按「主机名」进行，忽略端口差异，兼容 nginx 反代把 Host 去掉端口的场景。
 func sameOrigin(r *http.Request) bool {
+	want := hostNoPort(r.Host)
 	origin := r.Header.Get("Origin")
-	host := r.Host
 	if origin != "" {
 		origin = strings.TrimSuffix(origin, "/")
 		for _, p := range []string{"http://", "https://"} {
-			if strings.HasPrefix(origin, p) && strings.TrimPrefix(origin, p) == host {
-				return true
+			if strings.HasPrefix(origin, p) {
+				return hostNoPort(strings.TrimPrefix(origin, p)) == want
 			}
 		}
 		return false
@@ -284,7 +314,7 @@ func sameOrigin(r *http.Request) bool {
 			if i := strings.IndexByte(rest, '/'); i >= 0 {
 				rest = rest[:i]
 			}
-			return rest == host
+			return hostNoPort(rest) == want
 		}
 	}
 	return false
