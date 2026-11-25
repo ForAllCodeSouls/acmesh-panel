@@ -315,6 +315,12 @@ def main():
         st, _, j = c.j("POST", "/api/issue", {"domains": ["example.com"], "code": "dns_ali",
                                              "env": {"Ali_Key": "k", "Ali_Secret": "s", "PATH": "/evil"}})
         check("未知环境变量字段被拒绝", st == 400, (st, j))
+        st, _, j = c.j("POST", "/api/issue", {"domains": ["example.com"], "code": "dns_ali",
+                                             "env": {"Ali_Key": "a", "Ali_Secret": "b"}, "dns_sleep": 601})
+        check("dns_sleep 超上限 → 400", st == 400, (st, j))
+        st, _, j = c.j("POST", "/api/issue", {"domains": ["example.com"], "code": "dns_ali",
+                                             "env": {"Ali_Key": "a", "Ali_Secret": "b"}, "dns_sleep": -1})
+        check("dns_sleep 负数 → 400", st == 400, (st, j))
 
         # ---- 默认邮箱与通知渠道 ----
         st, _, _ = c.j("POST", "/api/notify/default-email", {"email": "default@example.com"})
@@ -376,6 +382,7 @@ def main():
             "ca": "letsencrypt",
             "save_as": "ali-test",
             "email": "domain@example.com",
+            "dns_sleep": 30,
         })
         check("签发请求被接受", st == 202, (st, j))
         notifications.clear()
@@ -390,6 +397,9 @@ def main():
                 issue_args = fh.read()
             check("签发使用域名专属邮箱",
                   "--accountemail" in issue_args and "domain@example.com" in issue_args,
+                  issue_args.splitlines())
+            check("签发传递 dnssleep 跳过公共 DNS 轮询",
+                  "--dnssleep" in issue_args and "30" in issue_args,
                   issue_args.splitlines())
         else:
             # 签发失败时给出任务日志，避免只看到 FileNotFoundError 无从定位

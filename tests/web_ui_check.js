@@ -182,6 +182,9 @@ check('服务商目录源码按 code 排序', (() => {
   const codes = [...goAcme.matchAll(/^\t\{"(dns_[a-z0-9_]+)"/gm)].map((m) => m[1]);
   return codes.length >= 43 && codes.join() === [...codes].sort().join();
 })());
+check('签发弹窗有 DNS 等待秒数并默认 30', app.includes('id="iss-dnssleep"')
+  && app.includes('type="number" min="0" max="600" value="30"')
+  && app.includes('dns_sleep: parseInt($(\'#iss-dnssleep\').value, 10) || 0'));
 check('README 引用全部四张示意图', readme.includes('docs/01-overview.svg')
   && readme.includes('docs/02-dns-credential.svg')
   && readme.includes('docs/03-domain-matching.svg')

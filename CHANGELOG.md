@@ -2,6 +2,11 @@
 
 本文件遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)。
 
+## [0.1.53] - 2026-11-25
+
+### 新增
+- 签发弹窗新增「DNS 生效等待（秒）」，默认 30。该值传给 acme.sh 的 `--dnssleep`，跳过其新版默认的公共 DNS（DoH）轮询预检——动态 DNS（如 DuckDNS）的 TXT 在权威端已生效但公共解析器查不到时，acme.sh 会卡在「Not valid yet, let's wait for 10 seconds」循环最多 20 分钟。填 0 可恢复 acme.sh 默认行为；后端限制 0～600 秒。
+
 ## [0.1.52] - 2026-11-25
 
 ### 变更

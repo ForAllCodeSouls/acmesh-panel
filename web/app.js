@@ -702,6 +702,11 @@
         <input id="iss-email" type="email" placeholder="留空使用默认邮箱" spellcheck="false">
         <p class="hint" id="iss-email-hint">${state.defaultEmail ? '默认：' + esc(state.defaultEmail) + ' · CA 的到期提醒会发到这里' : '未设置默认邮箱：将使用 acme.sh 安装时配置的账户'}</p>
       </div>
+      <div class="field">
+        <label for="iss-dnssleep">DNS 生效等待（秒）</label>
+        <input id="iss-dnssleep" type="number" min="0" max="600" value="30">
+        <p class="hint">默认 30 秒：跳过 acme.sh 的公共 DNS 轮询，避免动态 DNS（如 DuckDNS）一直卡在「Not valid yet」检查。填 0 则沿用 acme.sh 默认行为。</p>
+      </div>
       <div class="grid2">
         <div class="field">
           <label for="iss-ca">CA</label>
@@ -740,6 +745,7 @@
         keylength: $('#iss-keysize').value,
         ca: $('#iss-ca').value,
         force: $('#iss-force').checked,
+        dns_sleep: parseInt($('#iss-dnssleep').value, 10) || 0,
       };
       const certEmail = $('#iss-email').value.trim();
       if (certEmail) body.email = certEmail;

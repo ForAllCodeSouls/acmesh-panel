@@ -479,7 +479,8 @@ type issueReq struct {
 	KeyLength  string            `json:"keylength"`
 	CA         string            `json:"ca"`
 	Force      bool              `json:"force"`
-	Email      string            `json:"email"` // 该域名专用的 ACME 通知邮箱；留空用默认
+	Email      string            `json:"email"`     // 该域名专用的 ACME 通知邮箱；留空用默认
+	DNSSleep   int               `json:"dns_sleep"` // 跳过 acme.sh 公共 DNS 轮询的固定等待秒数；0 表示沿用 acme.sh 默认
 }
 
 func normalizeDomains(in []string) ([]string, error) {
@@ -555,6 +556,10 @@ func (s *Server) handleIssue(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "不支持的密钥类型")
 		return
 	}
+	if req.DNSSleep < 0 || req.DNSSleep > 600 {
+		writeErr(w, http.StatusBadRequest, "DNS 生效等待需在 0～600 秒之间")
+		return
+	}
 	ca := req.CA
 	if ca == "" {
 		ca = s.cfg.DefaultCA
@@ -621,6 +626,10 @@ func (s *Server) handleIssue(w http.ResponseWriter, r *http.Request) {
 	}
 
 	args := []string{"--issue", "--dns", code}
+	if req.DNSSleep > 0 {
+		// 指定秒数会让 acme.sh 跳过公共 DNS(DoH) 轮询，避免动态 DNS 长时间卡在预检。
+		args = append(args, "--dnssleep", strconv.Itoa(req.DNSSleep))
+	}
 	if email != "" {
 		args = append(args, "--accountemail", email)
 	}
@@ -638,6 +647,9 @@ func (s *Server) handleIssue(w http.ResponseWriter, r *http.Request) {
 	}
 
 	preview := "acme.sh --issue --dns " + code
+	if req.DNSSleep > 0 {
+		preview += " --dnssleep " + strconv.Itoa(req.DNSSleep)
+	}
 	for _, d := range domains {
 		preview += " -d " + d
 	}

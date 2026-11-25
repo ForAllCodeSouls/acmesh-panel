@@ -597,6 +597,8 @@ Windows 上 acme.sh 需要 WSL / Git Bash 环境；只想用面板的话建议�
 
 Dynu 免费账户对 DNS 记录条数、以及新建域名的 TXT 记录可能有时间限制，具体以 Dynu 当前政策为准；若 TXT 记录创建失败，可检查该域名下的记录是否已达上限或域名是否刚创建。
 
+**签发卡在「Not valid yet, let's wait for 10 seconds」循环怎么办**：这是 acme.sh 新版默认的公共 DNS（DoH）预检在轮询 TXT 记录，最多会等 20 分钟。动态 DNS（如 DuckDNS）的 TXT 记录在权威端已生效、但公共解析器查不到，就会一直重复「Checking … for _acme-challenge… / Already succeeded, continuing」。签发弹窗里的「DNS 生效等待（秒）」默认 30，会传 `--dnssleep 30` 让 acme.sh 跳过该预检、固定等 30 秒后直接让 CA 验证，通常几秒到几十秒就能出证书。填 0 则恢复 acme.sh 默认行为（可能再次卡住）；一般无需改动默认值。
+
 泛域名 `*.example.com` 必须走 DNS API 验证。想先测试可选 CA 的「Let's Encrypt (测试环境)」。
 
 ### 5.3 邮箱：全局默认 + 按域名覆盖
