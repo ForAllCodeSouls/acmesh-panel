@@ -31,10 +31,10 @@ var syncModes = []struct {
 	Hint string `json:"hint"`
 }{
 	{syncExact, "精确域名", "文件名里的域名与证书域名完全一样。例：sub.example.com_cert.pem 对应证书 example.com 时，需证书本身包含 sub.example.com"},
-	{syncSubdomain, "子域名（推荐）", "文件名里的域名是证书的子域即可。例：面板证书 *.example.com，命中 sub.example.com_cert.pem"},
-	{syncWildcard, "仅通配符", "只按证书里 *. 开头的域名匹配，精确域名不算。适合严格限制泛域名证书"},
+	{syncSubdomain, "子域名（推荐）", "文件名里的域名是证书的子域即可。例：面板证书 *.example.com，命中 sub.example.com_cert.pem。已有独立证书的子域文件只归那张证书：文件名域名与某张证书完全同名时，泛域证书不会抢写"},
+	{syncWildcard, "仅通配符", "只按证书里 *. 开头的域名匹配，精确域名不算。适合严格限制泛域名证书；文件名域名已有同名独立证书时不抢写"},
 	{syncFilename, "文件名模式", "用 * 或 ? 匹配文件名，不解析域名。例：*_cert.pem 匹配所有以 _cert.pem 结尾的文件"},
-	{syncSAN, "按现有证书内容（推荐）", "读取目录里已有证书，比对里面的域名。适合目标文件名与域名不一致的情况"},
+	{syncSAN, "按现有证书内容（推荐）", "读取目录里已有证书，比对里面的域名。适合目标文件名与域名不一致的情况；文件名域名已有同名独立证书时不抢写"},
 }
 
 var syncModeCodes = func() map[string]bool {
@@ -185,6 +185,7 @@ func (e *SyncEngine) run(trigger string, force bool) SyncRunResult {
 		seen:    e.store.SyncSeens(),
 		updates: map[string]string{},
 	}
+	claims := certExactClaims(all)
 	// 按「规则 + 目录」聚合本次成功写入的文件，自动推送只发给该规则选中的主机。
 	type ruleDirKey struct{ rule, dir string }
 	byRuleDir := map[ruleDirKey][]string{}
@@ -206,7 +207,7 @@ func (e *SyncEngine) run(trigger string, force bool) SyncRunResult {
 				if rule.Source != "" && rule.Source != "*" && rule.Source != ci.Name {
 					continue
 				}
-				ev := e.apply(rule, ci, dir, trigger, ctx)
+				ev := e.apply(rule, ci, dir, trigger, ctx, claims)
 				// 未命中、或证书内容未变化时不写记录，避免每天刷屏。
 				if ev.Result == "skip" {
 					continue
@@ -273,8 +274,8 @@ func syncFingerprint(fullchain string, fullOK bool, key string, keyOK bool) (str
 	return hex.EncodeToString(sum[:]), true
 }
 
-// apply 对单张证书应用一条规则。
-func (e *SyncEngine) apply(rule SyncRule, ci CertInfo, dir, trigger string, ctx *syncRunCtx) SyncEvent {
+// apply 对单张证书应用一条规则。claims 为精确归属映射（见 certExactClaims）。
+func (e *SyncEngine) apply(rule SyncRule, ci CertInfo, dir, trigger string, ctx *syncRunCtx, claims map[string]string) SyncEvent {
 	ev := SyncEvent{
 		Time:   time.Now().Format(time.RFC3339),
 		Rule:   rule.Name,
@@ -306,7 +307,7 @@ func (e *SyncEngine) apply(rule SyncRule, ci CertInfo, dir, trigger string, ctx 
 	for _, name := range candidates {
 		target := filepath.Join(dir, name)
 		domain := certFileDomain(name)
-		if !e.match(rule, ci, name, domain, target) {
+		if !e.match(rule, ci, name, domain, target, claims) {
 			continue
 		}
 		// 同一证书已经同步过且内容未变化：跳过。手动勾选强制同步时才重写。
@@ -395,8 +396,42 @@ func syncFileKind(name string) string {
 	}
 }
 
-// match 判断目标文件是否命中规则。
-func (e *SyncEngine) match(rule SyncRule, ci CertInfo, filename, domain, fullPath string) bool {
+// certExactClaims 建立「文件名域名 -> 拥有该域名证书的目录名」映射（主域名 + 非通配 SAN）。
+// 用于同步匹配的精确归属判定：目标文件名里的域名与某张证书完全同名时，
+// 只允许那张证书写入该文件，泛域名/子域匹配不得抢写，
+// 避免同一文件被多张证书轮流覆盖（表现为文件内容与文件名域名对不上）。
+func certExactClaims(all []CertInfo) map[string]string {
+	claims := map[string]string{}
+	for _, ci := range all {
+		if ci.Status == "invalid" || ci.Status == "expired" {
+			continue
+		}
+		if d := strings.ToLower(ci.Domain); d != "" {
+			if _, exists := claims[d]; !exists {
+				claims[d] = ci.Name
+			}
+		}
+		for _, san := range ci.SANs {
+			s := strings.ToLower(san)
+			if s == "" || strings.HasPrefix(s, "*.") {
+				continue
+			}
+			if _, exists := claims[s]; !exists {
+				claims[s] = ci.Name
+			}
+		}
+	}
+	return claims
+}
+
+// match 判断目标文件是否命中规则。claims 为精确归属映射（见 certExactClaims），
+// 目标文件已归属其它证书时，本证书不得通过子域/通配/SAN 途径认领。
+func (e *SyncEngine) match(rule SyncRule, ci CertInfo, filename, domain, fullPath string, claims map[string]string) bool {
+	if domain != "" && len(claims) > 0 {
+		if owner, ok := claims[strings.ToLower(domain)]; ok && !strings.EqualFold(owner, ci.Name) {
+			return false
+		}
+	}
 	switch rule.Mode {
 	case syncExact:
 		return domain != "" && strings.EqualFold(domain, ci.Domain)
@@ -607,6 +642,7 @@ func (e *SyncEngine) Preview(rule SyncRule) []SyncPreviewItem {
 	if err != nil {
 		return out
 	}
+	claims := certExactClaims(all)
 	for _, dir := range e.dirs {
 		candidates, err := certCandidates(dir)
 		if err != nil {
@@ -622,7 +658,7 @@ func (e *SyncEngine) Preview(rule SyncRule) []SyncPreviewItem {
 			for _, name := range candidates {
 				full := filepath.Join(dir, name)
 				domain := certFileDomain(name)
-				if !e.match(rule, ci, name, domain, full) {
+				if !e.match(rule, ci, name, domain, full, claims) {
 					continue
 				}
 				kind := syncFileKind(name)
@@ -648,6 +684,7 @@ func (e *SyncEngine) RuleMatchedFiles(rule SyncRule) map[string][]string {
 	if err != nil {
 		return out
 	}
+	claims := certExactClaims(all)
 	for _, dir := range e.dirs {
 		if _, err := os.Stat(dir); err != nil {
 			continue
@@ -666,7 +703,7 @@ func (e *SyncEngine) RuleMatchedFiles(rule SyncRule) map[string][]string {
 			}
 			for _, name := range candidates {
 				full := filepath.Join(dir, name)
-				if !e.match(rule, ci, name, certFileDomain(name), full) {
+				if !e.match(rule, ci, name, certFileDomain(name), full, claims) {
 					continue
 				}
 				if seen[name] {

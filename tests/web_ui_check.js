@@ -75,6 +75,7 @@ check('证书同步四个分区且顺序正确', ['local', 'rules', 'remote', 'r
 check('同步规则独立页签且同时用于本地与远程', html.indexOf('data-subtab="local"') < html.indexOf('data-subtab="rules"')
   && html.indexOf('data-subtab="rules"') < html.indexOf('data-subtab="remote"')
   && html.includes('data-subpanel="rules"') && html.includes('这套规则同时用于「本地同步」和「远程同步」'));
+check('精确归属优先说明存在', html.includes('精确归属优先') && html.includes('泛域名/子域匹配不会抢写已有独立证书的子域文件'));
 check('设置五个分区', ['security', 'system', 'audit', 'backup', 'support'].every((k) => html.includes(`data-subtab="${k}"`)));
 check('确认弹窗先关闭再展示结果', /closeModal\(\);\s*\n\s*if \(typeof onSuccess/.test(app));
 check('SSE 统一关闭钩子挂到 closeModal', app.includes('state.closeJobLog') && app.includes("if (typeof state.closeJobLog === 'function') state.closeJobLog()"));
