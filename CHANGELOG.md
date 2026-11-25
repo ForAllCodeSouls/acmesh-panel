@@ -2,6 +2,11 @@
 
 本文件遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)。
 
+## [0.1.58] - 2026-11-26
+
+### 变更
+- 会话 Cookie 进一步简化为普通 Cookie：只带 `HttpOnly` / `Path` / `MaxAge`，不再显式写 `SameSite` 属性（浏览器默认按 Lax 处理），也不带 `Secure`。行为和常见面板一致，HTTP 直连与 nginx HTTPS 反代都不需要任何额外设置。
+
 ## [0.1.57] - 2026-11-26
 
 ### 修复

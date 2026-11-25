@@ -239,7 +239,7 @@ def main():
         c.csrf = j.get("csrf")
         sc = " ".join(hd.get("set-cookie", []))
         check("Cookie HttpOnly", "HttpOnly" in sc, sc)
-        check("Cookie SameSite=Lax", "SameSite=Lax" in sc, sc)
+        check("Cookie 为普通 Cookie（不带 SameSite）", "SameSite" not in sc and "samesite" not in sc, sc)
         check("Cookie 不带 Secure（HTTP/HTTPS 反代通用）", "; Secure" not in sc and "; secure" not in sc, sc)
         check("登录返回 CSRF token", bool(c.csrf))
 

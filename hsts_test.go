@@ -35,8 +35,8 @@ func TestSessionCookieHTTPFriendly(t *testing.T) {
 	if strings.Contains(strings.ToLower(raw), "secure") {
 		t.Fatalf("面板只提供 HTTP，Cookie 不应带 Secure：%s", raw)
 	}
-	if !strings.Contains(raw, "SameSite=Lax") {
-		t.Fatalf("Cookie 应为 SameSite=Lax，兼容 HTTP/HTTPS 反代：%s", raw)
+	if strings.Contains(strings.ToLower(raw), "samesite") {
+		t.Fatalf("Cookie 应为普通 Cookie，不显式写 SameSite：%s", raw)
 	}
 	if !strings.Contains(raw, "HttpOnly") || !strings.Contains(raw, "Path=/") {
 		t.Fatalf("Cookie 缺少 HttpOnly/Path：%s", raw)

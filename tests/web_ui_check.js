@@ -213,8 +213,8 @@ check('面板不下发 HSTS（交给反代）', goMain.includes('HSTS 由反代�
   && !goMain.includes('Strict-Transport-Security'));
 check('面板固定纯 HTTP', goMain.includes('httpSrv.ListenAndServe()')
   && !goMain.includes('ListenAndServeTLS'));
-check('Cookie 为 SameSite=Lax 且无 Secure', goApi.includes('SameSite: http.SameSiteLaxMode')
-  && !goApi.includes('Secure:'));
+check('Cookie 为普通 Cookie（无 SameSite/Secure）', !goApi.includes('SameSite:')
+  && !goApi.includes('Secure:') && goApi.includes('HttpOnly: true'));
 check('同源校验忽略端口（反代登录不误判）', goAuth.includes('func hostNoPort')
   && goAuth.includes('func originHost') && goAuth.includes('X-Forwarded-Host'));
 

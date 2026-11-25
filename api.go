@@ -78,9 +78,9 @@ func (s *Server) requireAuth(h http.HandlerFunc) http.HandlerFunc {
 	}
 }
 
-// setCookie 始终下发无 Secure、SameSite=Lax 的会话 Cookie：
-// 面板只监听 HTTP，HTTPS 由用户自己的 nginx 终结。带 Secure 会导致 HTTP 侧
-// 登录失败，Strict 会让 HTTP→HTTPS 跨协议访问丢 Cookie；Lax 两种部署都能用。
+// setCookie 写普通会话 Cookie：只带 HttpOnly / Path / MaxAge，
+// 不带 Secure，也不显式写 SameSite 属性（浏览器默认按 Lax 处理）。
+// 面板只提供 HTTP，HTTPS 由用户自己的 nginx 终结，Cookie 在两种部署下都不需要特殊属性。
 func (s *Server) setCookie(w http.ResponseWriter, id string, longLived bool) {
 	maxAge := int(12 * time.Hour / time.Second)
 	if longLived {
@@ -91,7 +91,6 @@ func (s *Server) setCookie(w http.ResponseWriter, id string, longLived bool) {
 		Value:    id,
 		Path:     "/",
 		HttpOnly: true,
-		SameSite: http.SameSiteLaxMode,
 		MaxAge:   maxAge,
 	})
 }
@@ -102,7 +101,6 @@ func (s *Server) clearCookie(w http.ResponseWriter) {
 		Value:    "",
 		Path:     "/",
 		HttpOnly: true,
-		SameSite: http.SameSiteLaxMode,
 		MaxAge:   -1,
 	})
 }
