@@ -53,6 +53,28 @@ func TestVersionNewer(t *testing.T) {
 	}
 }
 
+// CI 构建注入的非语义版本号（如 "ci"、"dev"）不应触发"有新版本"，
+// 否则 CI 上 e2e 的「默认未检测时无新版本」断言会因仓库存在 Release 而必挂。
+func TestIsSemanticVersion(t *testing.T) {
+	cases := []struct {
+		v    string
+		want bool
+	}{
+		{"0.1.40", true},
+		{"v0.1.40", true},
+		{"ci", false},
+		{"dev", false},
+		{"", false},
+		{"v", false},
+		{"1", true},
+	}
+	for _, c := range cases {
+		if got := isSemanticVersion(c.v); got != c.want {
+			t.Fatalf("isSemanticVersion(%q)=%v，期望 %v", c.v, got, c.want)
+		}
+	}
+}
+
 func TestUpdateConfigDefaultsAndPersistence(t *testing.T) {
 	dir := t.TempDir()
 	s, err := NewStore(dir)

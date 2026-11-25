@@ -48,7 +48,7 @@ jobs:
       - name: 确保测试脚本有执行权限（git 有时不保留 x 位）
         run: chmod +x tests/fake-acme.sh
 
-      - name: 端到端测试（真实进程 + 假 acme.sh，79 项断言）
+      - name: 端到端测试（真实进程 + 假 acme.sh，全量断言）
         run: E2E_BIN=/tmp/build/acmesh-panel python3 tests/e2e.py
 
       - name: 确认产物为静态链接

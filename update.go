@@ -7,6 +7,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"strings"
 	"time"
 )
 
@@ -45,6 +46,18 @@ func fetchRelease(ctx context.Context) (releaseInfo, error) {
 	return rel, nil
 }
 
+// isSemanticVersion 判断版本号是否为语义化版本（至少含一个数字段）。
+// CI / 本地开发构建会注入 "ci"、"dev" 等非语义版本号，
+// 此类构建不做"有新版本"判定（解析出来恒为 0，任何 Release 都会被误报为更新）。
+func isSemanticVersion(v string) bool {
+	for _, c := range strings.TrimPrefix(v, "v") {
+		if c >= '0' && c <= '9' {
+			return true
+		}
+	}
+	return false
+}
+
 // runUpdateCheck 执行一次检测，持久化结果，并在发现新版本时去重通知。
 // 返回本次检测的结果摘要，供 API 直接响应，避免重复请求 GitHub。
 func (s *Server) runUpdateCheck(ctx context.Context) UpdateState {
@@ -58,7 +71,7 @@ func (s *Server) runUpdateCheck(ctx context.Context) UpdateState {
 		return s.store.UpdateConfig()
 	}
 
-	need := versionNewer(rel.TagName, appVersion)
+	need := isSemanticVersion(appVersion) && versionNewer(rel.TagName, appVersion)
 	if err := s.store.RecordUpdateCheck(rel.TagName, need, "", rel.HTMLURL); err != nil {
 		log.Printf("保存版本检测结果失败: %v", err)
 	}
