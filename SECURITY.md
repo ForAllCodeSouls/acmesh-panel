@@ -26,6 +26,7 @@
 | 单账号模型 | 不提供 RBAC / 多租户。拿到账号即拥有全部证书管理权限，包括查看私钥 |
 | 私钥可见 | 按设计允许明文查看/复制/下载，但有二次确认、审计与 60 秒自动清除。若不需要，可删除 `handleCertKey` 的响应逻辑 |
 | acme.sh 账户文件 | acme.sh 会把 DNS API 凭证写入 `/acme.sh/account.conf`（明文，续期需要），请像保护私钥一样保护该卷 |
+| 合规使用 | 面板仅限管理自己拥有或已获明确授权的域名与服务器，禁止用于未经授权访问、证书劫持、钓鱼、欺诈或任何违法活动；完整条款见 [DISCLAIMER.md](DISCLAIMER.md)，面板登录页与「设置 → 免责声明」也可见 |
 | HTTPS / HSTS | 面板只提供 HTTP，HTTPS 由 Caddy/Nginx 终结。Cookie 智能加固：HTTP 下为普通 `HttpOnly` Cookie；反代透传 `X-Forwarded-Proto: https` 或直连 TLS 时自动带 `Secure` + `SameSite=Lax`。HSTS 仅在确认 HTTPS 时下发，纯 HTTP 不下发，Cookie/HSTS 无开关 |
 | 仅允许 HTTPS（可选） | 设置页可开启后拒绝一切 HTTP 直连（`/api/health` 例外）；反代必须传递 `X-Forwarded-Proto: https`。这是显式策略开关，与上面的智能识别互不依赖。`ACME_PANEL_FORCE_HTTPS=0` + 重启是反代误配时的应急恢复入口，启动日志会打印当前状态 |
 | 反代可信度 | `ACME_PANEL_TRUST_PROXY` 仅影响登录限流按哪个 IP 统计，不影响登录本身。仅在反代可控时开启，否则攻击者可伪造 `X-Forwarded-For` 绕过登录限流。`X-Forwarded-Proto` 即使被客户端伪造，也只会让自己拿不到 Cookie，不会越权 |

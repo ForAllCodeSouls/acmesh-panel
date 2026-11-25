@@ -13,6 +13,8 @@
 
 **A lightweight certificate management panel for acme.sh, protected by a single username/password login.** One Go binary with an embedded web UI, shipped as a ~45 MB Alpine image. All state is stored in SQLite (transactional writes). Supports DNS API issuance (including wildcard certificates), per-domain ACME e-mail overrides, webhook notifications, and viewing / copying / downloading certificates and private keys from the web UI.
 
+> **Lawful use**: only manage domains and servers you own or are explicitly authorized to manage. Illegal or unauthorized use is prohibited. Read the [Terms of Use & Disclaimer](DISCLAIMER.md) before use.
+
 ---
 
 ## Why use it
@@ -173,6 +175,14 @@ Requires Go 1.26+ (pure Go, no CGO; dependencies: `modernc.org/sqlite`, `golang.
 go build -o acmesh-panel .
 go vet ./... && go test ./...
 ```
+
+---
+
+## Terms of use & disclaimer
+
+Only manage domains, servers, and certificates you own or are explicitly authorized to manage. Do not use this tool for unauthorized access, certificate replacement or hijacking, identity forgery, phishing, fraud, malware distribution, evasion of security controls, or any other activity violating applicable law, provider terms, or CA/Browser Forum Baseline Requirements. You are responsible for protecting credentials, restricting panel access, and reviewing audit logs.
+
+The software is provided "as is", without warranties of any kind. The authors and maintainers are not liable for losses, penalties, claims, or legal liability arising from credential exposure, misconfiguration, operator error, third-party intrusion, or misuse. This is not legal advice. Full multilingual terms: [DISCLAIMER.md](DISCLAIMER.md); also available in the panel under Settings → Disclaimer.
 
 ---
 

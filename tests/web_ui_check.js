@@ -317,4 +317,17 @@ check('环境变量覆盖与恢复说明已文档化',
   fs.readFileSync(path.join(root, '.env.example'), 'utf8').includes('ACME_PANEL_FORCE_HTTPS=1')
   && fs.readFileSync(path.join(root, 'README.md'), 'utf8').includes('ACME_PANEL_FORCE_HTTPS=0'));
 
+// ---- 免责声明 ----
+check('登录页提示仅限授权与违法禁用', html.includes('已获明确授权的域名与主机')
+  && html.includes('禁止用于任何违法用途') && html.includes('使用者自负合规责任'));
+check('设置页有独立免责声明分区', html.includes('data-subtab="legal"')
+  && html.includes('data-subpanel="legal"') && html.includes('使用条款与免责声明'));
+const disclaimerMd = fs.readFileSync(path.join(root, 'DISCLAIMER.md'), 'utf8');
+check('独立声明含三语与责任边界', disclaimerMd.includes('合法使用')
+  && disclaimerMd.includes('Lawful use') && disclaimerMd.includes('適法な利用')
+  && disclaimerMd.includes('不构成法律意见') && disclaimerMd.includes('No legal advice'));
+for (const f of ['README.md', 'README.en.md', 'README.ja.md', 'SECURITY.md']) {
+  check(`${f} 链接独立声明`, fs.readFileSync(path.join(root, f), 'utf8').includes('DISCLAIMER.md'));
+}
+
 console.log(`web UI checks: ${passed} passed`);

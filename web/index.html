@@ -31,7 +31,7 @@
     <button class="btn primary block" type="submit" id="login-btn">登录</button>
     <label class="check"><input type="checkbox" id="login-remember"> 保持登录状态（30 天免登录）</label>
     <p id="login-error" class="form-error" role="alert"></p>
-    <p class="tiny muted center">首次启动用环境变量 ACME_PANEL_USER / ACME_PANEL_PASSWORD 初始化账号密码；之后在设置页修改会持久保存。未设密码时启动日志会打印一个随机初始密码。连续 5 次失败会临时锁定来源 IP · 所有操作均记入审计日志</p>
+    <p class="tiny muted center">仅限管理自己拥有或已获明确授权的域名与主机，禁止用于任何违法用途，使用者自负合规责任。首次启动用环境变量 ACME_PANEL_USER / ACME_PANEL_PASSWORD 初始化账号密码；之后在设置页修改会持久保存。未设密码时启动日志会打印一个随机初始密码。连续 5 次失败会临时锁定来源 IP · 所有操作均记入审计日志</p>
   </form>
 
 </section>
@@ -260,6 +260,7 @@
         <button class="view-tab" data-subtab="audit" type="button">审计日志</button>
         <button class="view-tab" data-subtab="backup" type="button">备份恢复</button>
         <button class="view-tab" data-subtab="support" type="button">支持项目</button>
+        <button class="view-tab" data-subtab="legal" type="button">免责声明</button>
       </div>
       <div class="subpanel" data-subpanel="security">
       <div class="panel panel-flat">
@@ -406,6 +407,18 @@
         </div>
       </div>
       </div><!-- /支持项目 -->
+      <div class="subpanel hidden" data-subpanel="legal">
+      <div class="panel">
+        <div class="panel-head">
+          <h3>使用条款与免责声明</h3>
+          <span class="tiny muted">使用前请阅读</span>
+        </div>
+        <p class="tiny muted">本工具仅用于管理你拥有，或已获得域名持有人 / 服务器所有者明确授权的域名、服务器与证书。不得用于未经授权的访问、证书替换或劫持、身份伪造、钓鱼、欺诈、恶意软件分发、规避安全检测，或任何违反适用法律、服务商条款、证书颁发机构政策（含 CA/Browser Forum 基线要求）的行为。</p>
+        <p class="tiny muted mt8">你须自行确认对目标域名、DNS 凭证、私钥、远程主机与同步目录具有合法权限，并自行承担配置与操作后果。证书与私钥属于敏感凭证：请限制面板访问范围、保护登录密码与 <code>secret.key</code>，并定期审计操作记录。</p>
+        <p class="tiny muted mt8">本软件按「原样」提供，不附带任何明示或默示担保。作者与维护者不对因凭证暴露、错误配置、误操作、第三方入侵或滥用造成的任何损失、行政处罚、第三方索赔或法律责任负责。本页说明不构成法律意见。使用本软件即表示你已阅读并同意上述条款；不同意请立即停止使用。</p>
+        <p class="tiny muted mt8">完整声明见源码仓库的 <code>DISCLAIMER.md</code>（中 / 英 / 日）。</p>
+      </div>
+      </div><!-- /免责声明 -->
     </section>
   </main>
 </div>
