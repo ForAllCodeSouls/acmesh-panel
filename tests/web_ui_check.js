@@ -32,19 +32,19 @@ function check(name, ok, extra) {
   console.log(`  ok - ${name}`);
 }
 
-const failDetail = '读取本地文件失败: baihu.loveli.de5.net_cert.pem（路径 /certs/baihu.loveli.de5.net_cert.pem 不存在）。请检查面板容器内 ACME_PANEL_SYNC_DIR 的挂载路径，不要填写宿主机路径';
+const failDetail = '读取本地文件失败: demo1.example.net_cert.pem（路径 /certs/demo1.example.net_cert.pem 不存在）。请检查面板容器内 ACME_PANEL_SYNC_DIR 的挂载路径，不要填写宿主机路径';
 const list = [
   { time: '2026-11-25T08:12:16+08:00', scope: 'local', rule: '本地覆盖', source: 'example.com', target: '/certs/x.pem', result: 'ok', detail: '写入成功', files: ['example.com_cert.pem'] },
-  { time: '2026-11-25T08:12:16+08:00', scope: 'remote', rule: '远程同步 · pyworker.de5.net', source: '/certs', target: 'root@156.233.226.94:/home/web/certs', result: 'fail', detail: failDetail },
+  { time: '2026-11-25T08:12:16+08:00', scope: 'remote', rule: '远程同步 · remote1.example.net', source: '/certs', target: 'deploy@203.0.113.10:/home/web/certs', result: 'fail', detail: failDetail },
   { time: '2026-11-25T08:13:00+08:00', scope: 'remote', rule: '远程同步 · NAS', source: '/certs', target: 'deploy@nas:/srv/certs', result: 'ok', detail: '同步 2 个文件到远程主机', count: 2, files: ['a_cert.pem', 'a_key.pem'] },
 ];
 sandbox.renderSyncEvents(list);
 const merged = boxes['#sync-event-list'].innerHTML;
-check('合并列表同时含本地与远程结果', merged.includes('本地覆盖') && merged.includes('pyworker.de5.net') && merged.includes('NAS'), merged.slice(0, 160));
+check('合并列表同时含本地与远程结果', merged.includes('本地覆盖') && merged.includes('remote1.example.net') && merged.includes('NAS'), merged.slice(0, 160));
 check('每条标注本地/远程范围', merged.includes('<span class="chip">本地同步</span>') && merged.includes('<span class="chip">远程同步</span>'));
 check('失败原因完整展示', merged.includes(failDetail));
 check('失败样式标记', merged.includes('event-detail is-error'));
-check('路由清晰展示', merged.includes('root@156.233.226.94:/home/web/certs'));
+check('路由清晰展示', merged.includes('deploy@203.0.113.10:/home/web/certs'));
 check('不再拼接 /certs/certs 路径', !merged.includes('/certs/certs/'));
 
 sandbox.renderSyncEvents([]);

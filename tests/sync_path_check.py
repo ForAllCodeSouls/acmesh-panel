@@ -35,10 +35,10 @@ def resolve(local_dir, name):
 with tempfile.TemporaryDirectory() as tmp:
     # 物理文件放在临时目录，逻辑路径按 Linux 容器的 /certs 计算
     vdir = "/certs"
-    cert_name = "baihu.loveli.de5.net_cert.pem"
+    cert_name = "demo1.example.net_cert.pem"
     cert = Path(tmp) / cert_name
     cert.write_text("-----BEGIN CERTIFICATE-----\nTEST\n-----END CERTIFICATE-----\n", encoding="utf-8")
-    (Path(tmp) / "baihu.loveli.de5.net_key.pem").write_text("PRIVATE KEY", encoding="utf-8")
+    (Path(tmp) / "demo1.example.net_key.pem").write_text("PRIVATE KEY", encoding="utf-8")
     (Path(tmp) / "notes.txt").write_text("ignore", encoding="utf-8")
     vcert = posixpath.join(vdir, cert_name)
 
@@ -62,7 +62,7 @@ with tempfile.TemporaryDirectory() as tmp:
 
     candidates = [p.name for p in Path(tmp).iterdir()
                   if p.is_file() and p.suffix.lower() in (".pem", ".cer", ".crt", ".key")]
-    check("证书候选文件识别", set(candidates) == {cert.name, "baihu.loveli.de5.net_key.pem"}, candidates)
+    check("证书候选文件识别", set(candidates) == {cert.name, "demo1.example.net_key.pem"}, candidates)
 
 remote_src = (ROOT / "remote.go").read_text(encoding="utf-8")
 api_src = (ROOT / "api.go").read_text(encoding="utf-8")

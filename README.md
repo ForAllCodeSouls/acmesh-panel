@@ -12,6 +12,18 @@
 
 ---
 
+## 🌍 文档语言 / Documentation Languages / ドキュメント言語
+
+| 语言 | 文档 | 说明 |
+|---|---|---|
+| 简体中文 | [README.md](README.md) | 完整文档（部署 / 使用 / 配置参考 / FAQ） |
+| English | [README.en.md](README.en.md) | English guide (condensed: quick start, features, config reference) |
+| 日本語 | [README.ja.md](README.ja.md) | 日本語ガイド（要約版：クイックスタート、機能、設定一覧） |
+
+English / 日本語 版为精简指南，覆盖部署与日常使用所需的全部内容；完整细节（逐平台步骤、FAQ 全文）以中文版为准。
+
+---
+
 ## ☕ 支持本项目
 
 如果这个面板帮你省过一次续期的麻烦，欢迎自愿赞赏一杯咖啡 ☕。
@@ -104,7 +116,7 @@ openssl rand -base64 24        # 复制输出，填到 .env 的 ACME_PANEL_PASSW
 ```ini
 ACMESH_IMAGE_TAG=latest
 ACME_PANEL_USER=admin
-ACME_PANEL_PASSWORD=换成至少12位的强密码
+ACME_PANEL_PASSWORD=HF4ARz1IIZarLtvv
 ACME_PANEL_COOKIE_SECURE=0
 ACME_PANEL_TRUST_PROXY=0
 ACME_PANEL_CRON=1
@@ -194,7 +206,7 @@ services:
       - "0.0.0.0:8800:8080"
     environment:
       ACME_PANEL_USER: "admin"
-      ACME_PANEL_PASSWORD: "改成至少12位的强密码"
+      ACME_PANEL_PASSWORD: "HF4ARz1IIZarLtvv"
       ACME_PANEL_COOKIE_SECURE: "0"
       ACME_PANEL_TRUST_PROXY: "0"
       ACME_PANEL_CRON: "1"

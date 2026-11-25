@@ -2,6 +2,23 @@
 
 本文件遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)。
 
+## [0.1.30] - 2026-11-25
+
+### 安全
+
+- **隐私信息清理**：测试夹具中残留的真实服务器信息已全部替换为 RFC 5737 / RFC 2606 文档专用占位——
+  `tests/web_ui_check.js` 里的真实主机名与公网 IP（原文已脱敏，不再记录于本日志）改为 `remote1.example.net` / `203.0.113.10`，
+  `sync_path_test.go` 与 `tests/sync_path_check.py` 里的真实证书域名（同样已脱敏）改为 `demo1.example.net`；全仓库已无真实信息残留
+
+### 变更
+
+- `.env.example` 的示例密码由 `change-me-to-a-long-random-password` 占位串改为随机生成的 16 位强密码（含大小写与数字），并加注释提醒公开部署前自行重新生成；README 两处示例密码同步替换
+
+### 新增
+
+- **多语言文档**：README 顶部新增语言导航，新增精简版英文指南 `README.en.md` 与日文指南 `README.ja.md`（功能一览 / 快速开始 / 配置参考 / 安全模型 / FAQ 摘要），完整细节仍以中文版为准
+- `install.sh` 默认安装版本随本次发布更新为 0.1.30
+
 ## [0.1.29] - 2026-11-25
 
 ### 变更

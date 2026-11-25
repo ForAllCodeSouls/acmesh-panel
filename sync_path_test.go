@@ -9,9 +9,9 @@ import (
 // 平台无关的同步目录基准：Linux 容器里是 /certs，Windows 上用盘符模拟绝对路径。
 func testSyncBase() (string, string, string, string) {
 	if runtime.GOOS == "windows" {
-		return `C:\certs`, `baihu.loveli.de5.net_cert.pem`, `C:\certs\baihu.loveli.de5.net_cert.pem`, `..\etc\passwd`
+		return `C:\certs`, `demo1.example.net_cert.pem`, `C:\certs\demo1.example.net_cert.pem`, `..\etc\passwd`
 	}
-	return "/certs", "baihu.loveli.de5.net_cert.pem", "/certs/baihu.loveli.de5.net_cert.pem", "../etc/passwd"
+	return "/certs", "demo1.example.net_cert.pem", "/certs/demo1.example.net_cert.pem", "../etc/passwd"
 }
 
 // 复现截图中的路径缺陷：目录 + 已在目录内的绝对路径曾被拼成 .../certs/certs/...。

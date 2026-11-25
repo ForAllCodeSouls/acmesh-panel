@@ -4,7 +4,7 @@
 #       VERSION=0.1.20 BINDIR=~/.local/bin sh install.sh
 set -eu
 
-VERSION="${VERSION:-0.1.20}"
+VERSION="${VERSION:-0.1.30}"
 REPO="ForAllCodeSouls/acmesh-panel"
 BINDIR="${BINDIR:-/usr/local/bin}"
 
