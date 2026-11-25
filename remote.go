@@ -173,14 +173,13 @@ func normalizeHostDomains(in []string) []string {
 	return out
 }
 
-// hostWantsFile 判断一个文件是否应该同步到该主机：未配置负责域名时全推（兼容旧行为）；
-// 配置了则只有文件名域名等于某个负责域名或为其子域的文件才推。
-// 解决「规则命中所有证书的文件，全推给规则选中的每台主机」导致把 A 域名的证书推到 B 主机的问题。
-func hostWantsFile(h RemoteHost, name string) bool {
+// hostWantsDomain 判断某个域名是否属于该主机负责范围：未配置负责域名时不限制（兼容旧行为）。
+// 按内容同步时传的是证书 CN/SAN 里的域名，而不是文件名——文件名只是存放名。
+func hostWantsDomain(h RemoteHost, domain string) bool {
 	if len(h.Domains) == 0 {
 		return true
 	}
-	domain := certFileDomain(name)
+	domain = strings.ToLower(strings.TrimSpace(domain))
 	if domain == "" {
 		return false
 	}
@@ -189,11 +188,16 @@ func hostWantsFile(h RemoteHost, name string) bool {
 		if d == "" {
 			continue
 		}
-		if strings.EqualFold(domain, d) || isSubdomainOf(domain, d) {
+		if domain == d || isSubdomainOf(domain, d) {
 			return true
 		}
 	}
 	return false
+}
+
+// hostWantsFile 供规则驱动的自动推送使用：那里本地文件已是证书本身，按文件名域名过滤。
+func hostWantsFile(h RemoteHost, name string) bool {
+	return hostWantsDomain(h, certFileDomain(name))
 }
 
 // filesForHost 按主机的负责域名过滤待推文件列表。

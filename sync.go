@@ -432,12 +432,9 @@ func certExactClaims(all []CertInfo) map[string]string {
 	return claims
 }
 
-// match 判断目标文件是否命中规则。claims 为精确归属映射（见 certExactClaims），
-// 目标文件已归属其它证书时，本证书不得通过子域/通配/SAN 途径认领。
-// MatchNames 按文件名直接判断一条规则会命中哪些文件（不需要读取文件内容）。
-// 用于远程目录的类型标注：远程文件读不到内容，按文件名域名参与匹配。
-// 返回 文件名 -> 类型（key/cert/chain）。SAN 模式在远程场景退化为按文件名域名的常规判定；
-// 精确归属判定与本地一致：文件名域名已有独立证书时只归那张证书，泛域不抢标。
+// MatchNames 按文件名判断本地规则会命中哪些文件（用于规则预览，不读取文件内容）。
+// 仅用于本地挂载目录：远程文件的标注与同步一律按证书内容比对，绝不用文件名推断。
+// 返回 文件名 -> 类型（key/cert/chain）。
 func (e *SyncEngine) MatchNames(rule SyncRule, names []string) map[string]string {
 	out := map[string]string{}
 	if !rule.Enabled || !syncModeCodes[rule.Mode] {
@@ -914,8 +911,8 @@ func matchSignedCertByDomains(domains []string, all []CertInfo) (CertInfo, strin
 // 这样 dockge.xxx_cert.pem 命中后，配套的 dockge.xxx_key.pem 也会一起标注/同步。
 func matchRemoteCerts(names []string, certContents map[string][]byte, all []CertInfo) map[string]RemoteCertMatch {
 	out := map[string]RemoteCertMatch{}
-	claims := certExactClaims(all)
-	// 第一轮：能解析的证书文件按内容匹配。
+	// 第一轮：能解析的证书文件按内容匹配。文件名只是目标机器上的存放名，
+	// 不参与归属判定：内容里是哪个域名，就用面板签发的那张证书覆盖它。
 	for _, name := range names {
 		data, ok := certContents[name]
 		if !ok || len(data) == 0 {
@@ -926,32 +923,26 @@ func matchRemoteCerts(names []string, certContents map[string][]byte, all []Cert
 			continue
 		}
 		if ci, domain, ok := matchSignedCertByDomains(domains, all); ok {
-			// 精确归属优先：文件名域名已有独立证书时，泛域证书不得按内容抢写。
-			// 交给第二轮按文件名域名认领真正归属的证书。
-			if owner, claimed := claims[strings.ToLower(certFileDomain(name))]; claimed && !strings.EqualFold(owner, ci.Name) {
-				continue
-			}
 			out[name] = RemoteCertMatch{Source: ci.Name, Domain: domain, Kind: syncFileKind(name)}
 		}
 	}
-	// 第二轮：私钥/读不出内容的文件，按文件名域名兜底（与本地严格匹配同逻辑），
-	// 或按同前缀已命中证书继承结果。
+	// 第二轮：只处理私钥——它不含证书内容，按同前缀已命中的证书继承结果。
+	// 绝不能按「文件名域名」去匹配：文件叫什么名字不代表里面是哪张证书，
+	// 那会把无关文件（哪怕只有几十字节）误标成证书并推错内容。
 	for _, name := range names {
 		if _, ok := out[name]; ok {
+			continue
+		}
+		if syncFileKind(name) != "key" {
 			continue
 		}
 		domain := certFileDomain(name)
 		if domain == "" {
 			continue
 		}
-		if ci, hitDomain, ok := matchSignedCertByDomains([]string{domain}, all); ok {
-			out[name] = RemoteCertMatch{Source: ci.Name, Domain: hitDomain, Kind: syncFileKind(name)}
-			continue
-		}
-		// 同前缀证书文件已命中时继承（例如文件名域名与证书域名不一致的部署）。
 		for other, m := range out {
-			if certFileDomain(other) == domain {
-				out[name] = RemoteCertMatch{Source: m.Source, Domain: m.Domain, Kind: syncFileKind(name)}
+			if syncFileKind(other) != "key" && certFileDomain(other) == domain {
+				out[name] = RemoteCertMatch{Source: m.Source, Domain: m.Domain, Kind: "key"}
 				break
 			}
 		}

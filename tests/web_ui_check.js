@@ -90,15 +90,17 @@ check('签发按钮只在证书页显示', app.includes("$('#issue-btn').classLi
 check('远程主机空状态文案已修正', app.includes('可点「立即同步」手动同步'));
 check('远程同步新增默认关闭的强制勾选', html.includes('id="remote-force"') && html.includes('id="remote-push" type="button">立即同步')
   && app.includes("const force = $('#remote-force').checked") && app.includes('by_content: true'));
-check('远程同步提示文案改为按证书内容对比', html.includes('面板读取目标机器上的证书文件')
+check('远程同步提示文案改为按证书内容对比', html.includes('面板读取目标机器上证书文件里的 CN/SAN')
   && app.includes('by_content: true') && app.includes('remote_seen_count'));
 check('页签改名为远程同步', html.includes('>远程同步</button>') && !html.includes('>远程推送</button>'));
 check('远程目录输入框已删除', !html.includes('id="remote-file-dir"') && !app.includes('remote-file-dir'));
 check('远程目录直接读主机配置', html.includes('目录直接读取主机配置')
   && app.includes("body: { host_id: hostID }") && goApi.includes('listRemoteFiles(s.store, h, h.RemoteDir)'));
-check('远程文件按规则命中标注类型', app.includes('matched_kinds') && app.includes('KIND[(matchedKinds')
-  && goApi.includes('func (s *Server) remoteMatchedKinds(remoteNames []string)') && goApi.includes('s.sync.Preview(rule)')
-  && goApi.includes('s.sync.MatchNames(rule, remoteNames)'));
+check('远程文件只按证书内容标注类型', app.includes('matched_kinds') && app.includes('KIND[(matchedKinds')
+  && app.includes('证书内容匹配') && !goApi.includes('remoteMatchedKinds')
+  && goApi.includes('contentMatches = matchRemoteCerts(names, contents, all)'));
+check('主机名称明确标注为备注不参与匹配', html.includes('主机名称都不参与匹配')
+  && app.includes('不参与域名匹配'));
 check('同步记录合并为单一列表', !html.includes('id="remote-event-list"')
   && html.includes('id="sync-event-list"') && html.includes('本地写入与远程同步的结果合并展示'));
 check('同步记录筛选栏齐备', ['sync-q', 'sync-result', 'sync-scope', 'sync-from', 'sync-to', 'sync-reset']

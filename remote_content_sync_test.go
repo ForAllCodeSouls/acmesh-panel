@@ -195,3 +195,58 @@ func TestRemoteContentSyncReportsMissingPanelKey(t *testing.T) {
 		t.Fatalf("面板缺私钥应产生可见失败记录，got=%v", evs)
 	}
 }
+
+// 用户场景：主机名称 pyworker.example.net 只是备注，不能当域名参与匹配；
+// 目标目录里 119 字节的无关文件（哪怕文件名看着像域名）也不能被标成证书。
+// 只有内容确实是面板签发证书的文件才会命中，私钥按前缀继承。
+func TestRemoteMatchUsesContentOnlyNotHostNameOrFilename(t *testing.T) {
+	home := t.TempDir()
+	makePanelCert(t, home, "real.example.net_ecc", "real.example.net", []string{"real.example.net"})
+	certs := NewCertScanner(home)
+	all, err := certs.Scan()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	names := []string{
+		"wildcard.example.net",       // 119 字节无关文件，名字像域名
+		"bogus.example.net_cert.pem", // 主机名里的 example.net 不能当域名
+		"renamed-file_cert.pem",      // 文件名与内容域名不一致，内容命中
+		"renamed-file_key.pem",       // 私钥按前缀继承
+	}
+	contents := map[string][]byte{
+		"wildcard.example.net":       []byte("AUTO_CERT_RENEW=1\n"),
+		"bogus.example.net_cert.pem": []byte("not a certificate"),
+		// 内容才是 real.example.net 的证书；文件名故意完全无关。
+		"renamed-file_cert.pem": testCertPEM(t, "real.example.net", "real.example.net"),
+	}
+	matches := matchRemoteCerts(names, contents, all)
+	if len(matches) != 2 {
+		t.Fatalf("只应命中内容匹配的证书与配套私钥，got=%v", matches)
+	}
+	for _, junk := range []string{"wildcard.example.net", "bogus.example.net_cert.pem"} {
+		if _, ok := matches[junk]; ok {
+			t.Fatalf("无关文件不得被标注: %s -> %v", junk, matches[junk])
+		}
+	}
+	m, ok := matches["renamed-file_cert.pem"]
+	if !ok || m.Source != "real.example.net_ecc" || m.Domain != "real.example.net" || m.Kind != "cert" {
+		t.Fatalf("内容匹配的证书应命中，got=%v", matches)
+	}
+	km, ok := matches["renamed-file_key.pem"]
+	if !ok || km.Source != "real.example.net_ecc" || km.Kind != "key" {
+		t.Fatalf("私钥应按前缀继承，got=%v", matches)
+	}
+}
+
+// 主机名称写成域名样式（pyworker.example.net）也不得影响负责域名过滤：
+// 只有真实证书内容域名匹配时才同步，名字只是备注。
+func TestHostNameNotUsedForDomainFilter(t *testing.T) {
+	h := RemoteHost{Name: "pyworker.example.net", Domains: []string{"real.example.net"}}
+	if hostWantsDomain(h, "other.example.net") {
+		t.Fatal("主机名里的 example.net 不得成为负责域名")
+	}
+	if !hostWantsDomain(h, "real.example.net") || !hostWantsDomain(h, "sub.real.example.net") {
+		t.Fatal("负责域名应按证书内容域名精确/子域判定")
+	}
+}

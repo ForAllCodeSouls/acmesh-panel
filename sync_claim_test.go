@@ -119,7 +119,7 @@ func TestCertExactClaimsBasics(t *testing.T) {
 	}
 }
 
-// 远程目录的类型标注：文件读不到内容，按文件名直接参与匹配（matchName/MatchNames）。
+// 本地规则预览：按文件名判断规则命中（远程标注已改为内容比对，不用这套）。
 func TestMatchNamesRemote(t *testing.T) {
 	all := []CertInfo{
 		certInfoFor("wild.example.net", "wild.example.net", []string{"wild.example.net", "*.wild.example.net"}),

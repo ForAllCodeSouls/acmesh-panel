@@ -85,14 +85,18 @@ readme_src = (ROOT / "README.md").read_text(encoding="utf-8")
 
 check("远程目录固定取主机配置、忽略请求值",
       "listRemoteFiles(s.store, h, h.RemoteDir)" in api_src and "_ = req.Dir" in api_src)
-check("远程文件返回规则命中类型与内容匹配结果",
+check("远程文件类型只来自证书内容对比",
       '"matched_kinds": kinds' in api_src
       and '"content_matches": contentMatches' in api_src
-      and "func (s *Server) remoteMatchedKinds(remoteNames []string)" in api_src
-      and "readRemoteCertFiles(s.store, h, names)" in api_src)
-check("远程文件类型来自现有证书的规则预览与文件名匹配",
-      "s.sync.Preview(rule)" in api_src and "s.sync.MatchNames(rule, remoteNames)" in api_src
-      and "func (e *SyncEngine) MatchNames" in go_sync_src)
+      and "readRemoteCertFiles(s.store, h, names)" in api_src
+      and "contentMatches = matchRemoteCerts(names, contents, all)" in api_src
+      and "remoteMatchedKinds" not in api_src)
+check("远程类型标注不依赖规则或文件名匹配",
+      "s.sync.MatchNames" not in api_src and "remoteMatchedKinds" not in api_src
+      and "syncFileKind(name) != \"key\"" in go_sync_src)
+check("按内容同步按证书域名而非文件名过滤主机",
+      "hostWantsDomain(h, m.Domain)" in api_src
+      and "func hostWantsDomain(h RemoteHost, domain string) bool" in remote_src)
 check("合并记录筛选函数存在", "func filterSyncEvents(" in api_src and "AllSyncEvents()" in api_src)
 check("同步记录接口返回合并结果与总数", '"entries":' in api_src and '"total":' in api_src)
 check("备份接口已注册", '"GET /api/backup"' in main_src and '"POST /api/backup"' in main_src)

@@ -1674,9 +1674,10 @@ func (s *Server) handleRemotePushByContent(w http.ResponseWriter, r *http.Reques
 		}
 		all, _ := s.sync.certs.Scan()
 		matches := matchRemoteCerts(names, contents, all)
-		// 按主机负责域名过滤（未配置时保持全量）。
-		for name := range matches {
-			if !hostWantsFile(h, name) {
+		// 按主机负责域名过滤：用「证书内容里的域名」判断归属，不用文件名——
+		// 文件名只是目标机器上的存放名，不能代表它属于哪个域名。
+		for name, m := range matches {
+			if !hostWantsDomain(h, m.Domain) {
 				delete(matches, name)
 			}
 		}
@@ -1705,30 +1706,6 @@ func (s *Server) handleRemotePushByContent(w http.ResponseWriter, r *http.Reques
 		"force": force, "by_content": true, "skipped": skipped,
 		"matched_files": matchedFiles, "message": message,
 	})
-}
-
-// remoteMatchedKinds 复用「同步规则」页签那套规则计算远程文件的类型标注，返回 文件名 -> 类型（key / cert / chain）。
-// 两个来源取并集：① 本地挂载目录里被规则命中的文件（面板实际会远程写入的同名文件）；
-// ② 远程目录里的文件按自身文件名直接参与匹配（远程文件读不到内容，SAN 模式退化为按文件名域名判定），
-// 这样远程目录里本地没有的证书/私钥也能正确标注，而不是只显示「文件」。
-func (s *Server) remoteMatchedKinds(remoteNames []string) map[string]string {
-	out := map[string]string{}
-	for _, rule := range s.store.ListSyncRules() {
-		if !rule.Enabled {
-			continue
-		}
-		for _, m := range s.sync.Preview(rule) {
-			if _, ok := out[m.File]; !ok {
-				out[m.File] = m.Kind
-			}
-		}
-		for name, kind := range s.sync.MatchNames(rule, remoteNames) {
-			if _, ok := out[name]; !ok {
-				out[name] = kind
-			}
-		}
-	}
-	return out
 }
 
 // handleRemoteFiles 列出指定远程主机目录里的文件，供页面展示。
@@ -1768,10 +1745,11 @@ func (s *Server) handleRemoteFiles(w http.ResponseWriter, r *http.Request) {
 			names = append(names, f.Name)
 		}
 	}
-	kinds := s.remoteMatchedKinds(names)
-	// 按「目标机器上的证书内容」与面板已签名证书对比：能读到内容的证书文件按 CN/SAN 匹配，
-	// 私钥按文件名配对继承。这一步需要再连一次 SFTP；失败时保留文件名匹配结果，页面仍可用。
+	// 文件类型标注只来自「目标机器上的证书内容」与面板已签名证书的对比：
+	// 读得到内容的证书按 CN/SAN 精确匹配，私钥按同前缀配对继承。
+	// 绝不再用同步规则/文件名推断远程文件类型——那会把无关文件标成证书、把真证书漏标。
 	contentMatches := map[string]RemoteCertMatch{}
+	kinds := map[string]string{}
 	if contents, err := readRemoteCertFiles(s.store, h, names); err == nil {
 		all, _ := s.sync.certs.Scan()
 		contentMatches = matchRemoteCerts(names, contents, all)

@@ -120,18 +120,18 @@ func TestCertMatchScorePriority(t *testing.T) {
 	}
 }
 
-// 远程内容匹配也必须遵守精确归属优先：文件名域名已有独立证书时，
-// 即使文件内容是泛域证书，也不能由泛域证书抢写。
-func TestRemoteContentRespectsExactClaim(t *testing.T) {
+// 远程内容匹配以文件内容为准：文件名只是目标机器上的存放名，
+// 即使文件名看着像某张独立证书，也不能覆盖内容里实际签发的域名。
+func TestRemoteContentIgnoresFileNameClaim(t *testing.T) {
 	all := []CertInfo{
 		certInfoFor("wild.example.net", "wild.example.net", []string{"wild.example.net", "*.wild.example.net"}),
 		certInfoFor("host.wild.example.net", "host.wild.example.net", []string{"host.wild.example.net"}),
 	}
 	name := "host.wild.example.net_cert.pem"
-	// 文件内容故意是一张泛域证书（只有 *.wild.example.net）。
+	// 文件内容是泛域证书：应认领 wild.example.net，而不是按文件名认领 host.wild.example.net。
 	content := testCertPEM(t, "*.wild.example.net", "*.wild.example.net")
 	got := matchRemoteCerts([]string{name}, map[string][]byte{name: content}, all)
-	if m, ok := got[name]; !ok || m.Source != "host.wild.example.net" {
-		t.Fatalf("文件名域名已有独立证书时应由它认领，got=%v", got)
+	if m, ok := got[name]; !ok || m.Source != "wild.example.net" {
+		t.Fatalf("内容匹配应认领泛域证书，got=%v", got)
 	}
 }

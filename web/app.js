@@ -1498,8 +1498,8 @@
         : '默认只在证书续签或文件首次匹配时同步一次；内容未变化的文件会自动跳过，不重复覆盖。需要重写全部文件时，勾选「强制同步」再点「立即同步」。';
       const remoteSeen = Number(r.remote_seen_count || 0);
       $('#remote-sync-info').textContent = remoteSeen
-        ? `已记录 ${remoteSeen} 个文件的远程同步摘要：只同步规则命中的文件，内容未变化时按主机分别跳过；需要全部重同步时勾选「强制同步」。`
-        : '远程同步与本地使用同一套同步规则：只有规则命中的文件才会同步，且只同步到该规则选中的主机。';
+        ? `已记录 ${remoteSeen} 个文件的远程同步摘要：只同步内容与面板已签名证书对得上的文件，内容未变化时按主机分别跳过；需要全部重同步时勾选「强制同步」。`
+        : '远程同步按「证书内容」对比：只有目标机器上确实是面板签发证书的文件才会覆盖，与规则、文件名无关。';
       renderSyncFiles(cat.files || []);
       renderRemoteFileHosts();
       const presets = $('#sync-presets');
@@ -1672,13 +1672,13 @@
     if (hosts.some((h) => h.id === prev)) sel.value = prev;
   }
 
-  // 类型标注只来自同步规则对现有证书的匹配结果（后端 matched_kinds），
-  // 不再靠文件名里有没有 key / cert 去猜；未命中的文件不标类型。
+  // 类型标注只来自「目标机器证书内容」与面板已签名证书的对比（后端 matched_kinds），
+  // 不靠同步规则、也不靠文件名猜测；内容对不上的文件一律显示「文件」。
   function renderRemoteFiles(files, dir, matchedKinds) {
     const box = $('#remote-file-list');
     const info = $('#remote-file-info');
     const hits = Object.keys(matchedKinds || {}).length;
-    info.textContent = `${dir || '—'} · ${files.length} 个条目 · 规则命中 ${hits} 个文件`;
+    info.textContent = `${dir || '—'} · ${files.length} 个条目 · 证书内容匹配 ${hits} 个文件`;
     if (!files.length) {
       box.innerHTML = '<div class="empty"><p>远程目录里没有文件</p><p class="tiny muted">目录取自主机配置，请确认路径正确且已有同步好的证书</p></div>';
       return;
@@ -1708,7 +1708,7 @@
         <span class="grow minw0">
           <div class="tiny">${esc(h.name)} · <span class="muted">${esc(h.user)}@${esc(h.host)}:${h.port}</span></div>
           <div class="tiny muted mt4">远程目录 ${esc(h.remote_dir)} · 认证 ${h.auth_mode === 'password' ? '账号密码' : 'SSH 私钥'} ${esc(h.auth_mode === 'password' ? h.password_masked : h.key_masked || '未配置')}</div>
-          <div class="tiny muted mt4">${h.domains && h.domains.length ? '负责域名 ' + esc(h.domains.join('、')) + '（只同步这些域名的文件）' : '未设负责域名（同步规则命中的全部文件）'}</div>
+          <div class="tiny muted mt4">${h.domains && h.domains.length ? '负责域名 ' + esc(h.domains.join('、')) + '（只同步这些域名的证书）' : '未设负责域名（内容匹配的证书全部同步）'}</div>
           <div class="tiny muted mt4">自动同步 ${h.auto_push ? '开启（本地同步成功后立即同步规则选中的文件）' : '关闭（仅在证书同步页手动同步）'}</div>
         </span>
         <button class="btn ghost small" data-remote-edit="${esc(h.id)}" type="button">编辑</button>
@@ -1729,7 +1729,7 @@
       </div>
       <div class="field"><label>远程证书目录（绝对路径，需提前建好）</label><input id="rm-dir" value="${esc(h.remote_dir || '')}" placeholder="/etc/ssl/certs"></div>
       <div class="field"><label>负责的域名（可选，逗号分隔）</label><input id="rm-domains" value="${esc((h.domains || []).join(', '))}" placeholder="例如 pyworker.example.com, *.pyworker.example.com"></div>
-      <p class="hint">填写后只有文件名域名属于这些域名的证书/私钥才会同步到这台主机，避免把别的域名的证书也推过来；留空表示同步规则命中的全部文件（旧版本行为）。填写时通配符 * 可以省略。</p>
+      <p class="hint">这里的「名称」只是给自己看的备注，不参与域名匹配。填写「负责的域名」后，只有证书内容（CN/SAN）属于这些域名的文件才会同步到这台主机；留空表示内容匹配的证书全部同步。填写时通配符 * 可以省略。</p>
       <div class="field"><label>认证方式</label><select id="rm-auth">
         <option value="key" ${h.auth_mode !== 'password' ? 'selected' : ''}>SSH 私钥（推荐）</option>
         <option value="password" ${h.auth_mode === 'password' ? 'selected' : ''}>账号密码</option>
