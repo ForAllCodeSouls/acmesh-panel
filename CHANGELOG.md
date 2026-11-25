@@ -2,6 +2,12 @@
 
 本文件遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)。
 
+## [0.1.35] - 2026-11-25
+
+### 文档
+
+- 按用户要求移除 README（中/英/日）中 0.1.32 新增的「同类开源项目」致谢条目，致谢部分仅保留 acme.sh 与 modernc.org/sqlite
+
 ## [0.1.34] - 2026-11-25
 
 ### 清理
