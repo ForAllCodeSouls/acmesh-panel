@@ -138,6 +138,7 @@
     <section id="view-sync" class="view hidden">
       <div class="view-tabs" id="sync-tabs" role="tablist" aria-label="证书同步分区">
         <button class="view-tab active" data-subtab="local" type="button">本地同步</button>
+        <button class="view-tab" data-subtab="rules" type="button">同步规则</button>
         <button class="view-tab" data-subtab="remote" type="button">远程同步</button>
         <button class="view-tab" data-subtab="records" type="button">同步记录</button>
       </div>
@@ -158,18 +159,21 @@
           <div id="sync-file-list" class="list mt8 scroll-area"></div>
         </div>
       </div>
+      </div><!-- /本地同步 -->
 
+      <div class="subpanel hidden" data-subpanel="rules">
       <div class="panel">
         <div class="panel-head">
           <h3>同步规则</h3>
           <button class="btn primary small" id="sync-add">＋ 新建规则</button>
         </div>
-        <p class="tiny muted">面板签发或续期成功后，把新证书和私钥写到下面规则匹配到的文件里。写入时先写临时文件再替换，过程中断也不会留下坏文件；证书文件所有人可读写、其他人只读，私钥文件只有面板自己能读写。</p>
+        <p class="tiny muted">这套规则同时用于「本地同步」和「远程同步」：面板签发或续期成功后，把新证书和私钥写到规则匹配到的文件里（本地写挂载目录，远程按规则里选的「远程主机」走 SSH 同步）。写入时先写临时文件再替换，过程中断也不会留下坏文件；证书文件所有人可读写、其他人只读，私钥文件只有面板自己能读写。</p>
         <p class="tiny muted mt8">匹配方式：先看目录里已有证书的名字或内容，找到对应的文件，再按规则把新内容写进去。下面预设一步创建，也可以用「新建规则」自己配，创建前可点「预览匹配」确认会覆盖哪些文件。</p>
+        <p class="tiny muted mt8">每条规则不选「远程主机」时只做本地覆盖；选了主机才会把命中文件同步到对应机器。</p>
         <div class="chip-wrap mt8" id="sync-presets"></div>
         <div id="sync-rule-list" class="list mt8"></div>
       </div>
-      </div><!-- /本地同步 -->
+      </div><!-- /同步规则 -->
 
       <div class="subpanel hidden" data-subpanel="remote">
       <div class="panel">
@@ -184,7 +188,7 @@
           </div>
         </div>
         <p class="tiny muted" id="remote-file-info">目录直接读取主机配置里的「远程证书目录」，先选择主机，再点「查看文件」。</p>
-        <p class="tiny muted mt4">文件类型只在被同步规则命中时才标注：面板用「本地同步」页那套同步规则，从现有证书里匹配出会被同步的文件，据此判断是证书还是私钥；其余文件不标注类型。</p>
+        <p class="tiny muted mt4">文件类型只在被同步规则命中时才标注：面板用「同步规则」页签那套同步规则，从现有证书里匹配出会被同步的文件，据此判断是证书还是私钥；其余文件不标注类型。</p>
         <div id="remote-file-list" class="list mt8 scroll-area"></div>
       </div>
 
@@ -197,8 +201,8 @@
             <button class="btn primary small" id="remote-add" type="button">＋ 添加主机</button>
           </div>
         </div>
-        <p class="tiny muted mt8" id="remote-sync-info">远程同步与本地使用同一套同步规则：只有规则命中的文件才会同步，且只同步到该规则在「远程主机」栏选中的主机。未变内容按主机分别跳过。</p>
-        <p class="tiny muted mt8">这里没有第二套规则。远程同步用的就是「本地同步」分区里那套同步规则：在每条规则的「远程主机」栏选择目标主机，规则命中的文件才会同步过去；不选主机的规则不做远程同步。主机上的「自动同步」开关只影响本地同步成功后是否立即同步。</p>
+        <p class="tiny muted mt8" id="remote-sync-info">远程同步与本地使用同一套同步规则（见「同步规则」页签）：只有规则命中的文件才会同步，且只同步到该规则在「远程主机」栏选中的主机。未变内容按主机分别跳过。</p>
+        <p class="tiny muted mt8">这里没有第二套规则。远程同步用的就是「同步规则」页签里那套规则：在每条规则的「远程主机」栏选择目标主机，规则命中的文件才会同步过去；不选主机的规则不做远程同步。主机上的「自动同步」开关只影响本地同步成功后是否立即同步。</p>
         <p class="tiny muted">把本地同步好的证书文件，通过 SSH 同步到其他主机。支持 SSH 私钥或账号密码认证，凭证加密保存在面板数据库里，不会明文出现在网页或日志中。连接由面板内置的纯 Go SSH 完成，不依赖 <code>ssh</code> / <code>scp</code> 命令。</p>
         <p class="tiny muted mt8">远程目录必须是绝对路径（如 <code>/etc/ssl/certs</code>），在主机配置里设置；目录不存在时会自动创建。首次连接会记录主机密钥指纹，后续密钥变化会拒绝连接。本地写入与远程同步的结果统一记录在下方「同步记录」里。</p>
         <div id="remote-list" class="list mt8"></div>
