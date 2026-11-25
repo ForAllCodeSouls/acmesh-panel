@@ -1552,12 +1552,13 @@
       const status = r.enabled ? '<span class="chip green">已启用</span>' : '<span class="chip">已停用</span>';
       const last = r.last_sync ? `<span class="tiny muted">上次同步 ${esc(r.last_sync)}${r.last_info ? ' · ' + esc(r.last_info) : ''}</span>` : '';
       const targets = (r.remote_hosts || []).map((id) => (remoteHosts.find((h) => h.id === id) || {}).name || id);
-      const remoteText = targets.length ? esc(targets.join('、')) : '未选择（不远程同步）';
+      // 生效范围标签：本地始终生效；远程按规则选中的主机逐个标注
+      const scopeChips = ['<span class="chip" title="规则始终写入本地挂载目录' + (targets.length ? '' : '；未选远程主机，不做远程同步') + '">本地</span>']
+        .concat(targets.map((n) => `<span class="chip blue" title="命中文件同步到该主机的远程证书目录">${esc(n)}</span>`));
       return `<div class="row notifier-row">
         <div class="grow minw0">
-          <div class="row"><strong>${esc(r.name)}</strong>${status}</div>
+          <div class="row"><strong>${esc(r.name)}</strong>${status}<span class="chip-wrap mt4">${scopeChips.join('')}</span></div>
           <div class="tiny muted" title="${esc(syncModeHint(r.mode))}">匹配：${esc(syncModeLabel(r.mode))}${r.pattern ? ` · ${esc(r.pattern)}` : ''} · 来源：${esc(r.source || '*')}</div>
-          <div class="tiny muted">远程主机：${remoteText}</div>
           <div class="tiny muted">写入：按文件名自动判断（key→私钥，cert→证书，chain→证书链）</div>
           ${last}
         </div>
