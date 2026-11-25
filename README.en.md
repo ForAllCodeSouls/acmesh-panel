@@ -15,13 +15,29 @@
 
 ---
 
+## Why use it
+
+![acmesh-panel workflow](docs/01-overview.svg)
+
+If you have one host and one domain, plain `acme.sh` is enough. This panel earns its place when you have several hosts and domains: issue once, then distribute certificates and keys automatically, see remaining validity at a glance, and never let a certificate expire unnoticed. DNS-01 validation means no public port 80/443 is required.
+
+**How matching works** (all examples use placeholder domains): `example.com` is the registered domain; `www.example.com` is a subdomain. A certificate with `*.example.com` covers one level of subdomains only, so `www.example.com` matches but `deep.api.example.com` does not. Matching compares the CN/SAN **inside the target certificate file** with certificates already issued by the panel — never the filename or hostname. Unmatched third-party certificates are left untouched.
+
+![Domain matching rules](docs/03-domain-matching.svg)
+
+![Remote sync flow](docs/04-remote-sync.svg)
+
+The full Chinese README has the detailed step-by-step explanation: [README.md](README.md).
+
+---
+
 ## Features
 
 | Area | Capability |
 |---|---|
 | **Authentication** | Single account + PBKDF2-HMAC-SHA256 (600k iterations); `HttpOnly` + `SameSite=Strict` cookie; CSRF token + origin checks; per-IP exponential lockout after 5 failures; optional 90-day "stay logged in"; env vars initialize credentials on first boot only — later changes made in the web UI persist across restarts, no web signup |
 | **Certificates** | Scans acme.sh home and parses X.509: SANs, issuer, validity, key type, days remaining, expiry alerts |
-| **Issuance** | DNS API validation, wildcard support; 19 built-in DNS providers (Alibaba Cloud / Cloudflare / DNSPod / Tencent Cloud / GoDaddy / Huawei Cloud / AWS / Namecheap / Dynu / Hurricane Electric / FreeDNS / Gandi / DigitalOcean / Linode / Vultr / Bunny.net / Porkbun / deSEC / DuckDNS), each with a direct official-site link; ECC 256/384 and RSA 2048/4096 |
+| **Issuance** | DNS API validation, wildcard support; 43 built-in DNS providers, each with verified credential fields and a direct official-site link (full list in [README.md §5.2](README.md#52-签发证书)); ECC 256/384 and RSA 2048/4096 |
 | **E-mail** | Global default ACME e-mail + per-domain overrides |
 | **Notifications** | Gotify / generic webhook / ServerChan³ / DingTalk / Feishu (Lark) / Bark; 11 subscribable events |
 | **Private keys** | View + copy + download with double confirmation, audit logging, 60-second auto-clear |

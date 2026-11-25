@@ -486,7 +486,7 @@ def main():
                                                            "Dynu_Secret": "dynu-secret"}})
         check("Dynu 凭证可保存", st == 200, (st, j))
         st, _, j = c.j("GET", "/api/providers")
-        check("DNS 服务商数量充足", len(j.get("catalog", [])) >= 18, len(j.get("catalog", [])))
+        check("DNS 服务商数量充足", len(j.get("catalog", [])) >= 43, len(j.get("catalog", [])))
         porkbun = next((p for p in j.get("catalog", []) if p.get("code") == "dns_porkbun"), None)
         check("Porkbun 凭证字段正确", porkbun is not None and
               {f["name"] for f in porkbun.get("fields", [])} ==
@@ -501,8 +501,18 @@ def main():
         st, _, j = c.j("GET", "/api/providers")
         check("所有服务商均带官网链接", st == 200 and
               all(p.get("website", "").startswith("https://") for p in j.get("catalog", [])) and
-              len(j.get("catalog", [])) >= 19, j.get("catalog"))
+              len(j.get("catalog", [])) >= 43, j.get("catalog"))
         check("DuckDNS 官网正确", next((p for p in j.get("catalog", []) if p.get("code") == "dns_duckdns"), {}).get("website") == "https://www.duckdns.org/")
+        codes = {p.get("code") for p in j.get("catalog", [])}
+        check("失效的 acme.sh code 已移除", not ({"dns_do", "dns_gandi", "dns_linode"} & codes), codes)
+        check("修正后的 acme.sh code 已就位", {"dns_dgon", "dns_gandi_livedns", "dns_linode_v4"} <= codes, codes)
+        check("新增服务商已内置", {"dns_pdns", "dns_nsupdate", "dns_jd", "dns_baidu", "dns_dpi"} <= codes, codes)
+        st, _, j = c.j("POST", "/api/providers", {"name": "legacy-do-test", "code": "dns_do",
+                                                   "env": {"DO_API_KEY": "legacy-token-test"}})
+        check("旧 code 保存时自动归一", st == 200, (st, j))
+        st, _, j = c.j("GET", "/api/providers")
+        saved = next((p for p in j.get("saved", []) if p.get("name") == "legacy-do-test"), None)
+        check("旧 code 归一后为 dns_dgon", saved is not None and saved.get("code") == "dns_dgon", saved)
 
         # ---- 续期 ----
         st, _, j = c.j("POST", "/api/certs/example.com_ecc/renew", {"force": True})

@@ -171,5 +171,15 @@ check('官网链接仅允许 https', app.includes('/^https:\\/\\//i.test(def.web
 check('CSS 有官网链接样式', css.includes('.provider-site a'));
 check('provider 目录带 website 字段', goAcme.includes('Website string') && goAcme.includes('json:"website"')
   && goAcme.includes('"dns_duckdns"'));
+check('provider 目录已补齐 43 家', (goAcme.match(/\{"dns_/g) || []).length >= 43
+  && goAcme.includes('"dns_dgon"') && goAcme.includes('"dns_gandi_livedns"')
+  && goAcme.includes('"dns_linode_v4"'));
+check('失效 code 只保留兼容映射', !goAcme.includes('{"dns_do"')
+  && !goAcme.includes('{"dns_gandi"') && !goAcme.includes('{"dns_linode"')
+  && goAcme.includes('"dns_do":     "dns_dgon"'));
+check('README 引用全部四张示意图', readme.includes('docs/01-overview.svg')
+  && readme.includes('docs/02-dns-credential.svg')
+  && readme.includes('docs/03-domain-matching.svg')
+  && readme.includes('docs/04-remote-sync.svg'));
 
 console.log(`web UI checks: ${passed} passed`);

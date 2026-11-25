@@ -15,13 +15,29 @@
 
 ---
 
+## なぜ使うか
+
+![acmesh-panel の工作流](docs/01-overview.svg)
+
+ホストとドメインが 1 つだけなら `acme.sh` 単体で十分です。複数ホスト・複数ドメインになると、このパネルの価値が出ます。発行は 1 か所で行い、証明書と秘密鍵を自動配布し、残日数を一覧で確認でき、更新忘れを仕組みで防げます。DNS-01 検証なので公開ポート 80/443 は不要です。
+
+**一致ルール**（例はすべてプレースホルダ）: `example.com` が登録ドメイン、`www.example.com` がサブドメインです。`*.example.com` は 1 階層のサブドメインだけをカバーするため、`www.example.com` は一致しますが `deep.api.example.com` は一致しません。比較するのは**対象ファイル内の証明書の CN/SAN** とパネルが発行済みの証明書だけで、ファイル名やホスト名は一切使いません。一致しない第三者証明書は書き換えません。
+
+![ドメイン一致ルール](docs/03-domain-matching.svg)
+
+![リモート同期の流れ](docs/04-remote-sync.svg)
+
+詳しい手順は中国語の完全版ドキュメントを参照してください：[README.md](README.md)。
+
+---
+
 ## 機能一覧
 
 | 分類 | 機能 |
 |---|---|
 | **認証** | 単一アカウント + PBKDF2-HMAC-SHA256（600k 反復）；`HttpOnly` + `SameSite=Strict` Cookie；CSRF トークン + Origin 検証；IP ごとに 5 回失敗で指数バックオフロック；任意の 90 日「ログイン保持」。環境変数は**初回起動時のみ**認証情報を初期化し、以後は Web UI での変更が永続化（再起動で上書きされない）。Web 登録画面なし |
 | **証明書管理** | acme.sh home を走査して X.509 を解析：SAN・発行者・有効期限・鍵種別・残日数・期限切れ警告 |
-| **発行** | DNS API 自動検証、ワイルドカード対応；19 種類の DNS プロバイダ内蔵（Alibaba Cloud / Cloudflare / DNSPod / Tencent Cloud / GoDaddy / Huawei Cloud / AWS / Namecheap / Dynu / Hurricane Electric / FreeDNS / Gandi / DigitalOcean / Linode / Vultr / Bunny.net / Porkbun / deSEC / DuckDNS）、各プロバイダの公式サイトへのリンク付き；ECC 256/384、RSA 2048/4096 |
+| **発行** | DNS API 自動検証、ワイルドカード対応；43 種類の DNS プロバイダ内蔵（認証情報フィールドは acme.sh 公式スクリプトと照合済み、各プロバイダの公式サイトへのリンク付き、全一覧は [README.md §5.2](README.md#52-签发证书)）；ECC 256/384、RSA 2048/4096 |
 | **メール** | グローバル既定 ACME メール + ドメイン別上書き |
 | **通知** | Gotify / 汎用 Webhook / ServerChan³ / DingTalk / Feishu(Lark) / Bark、11 種類のイベント購読 |
 | **秘密鍵** | 二重確認 + 監査ログ + 60 秒自動クリア、コピー・ダウンロード対応 |

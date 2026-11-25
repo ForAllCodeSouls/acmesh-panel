@@ -8,7 +8,7 @@
 [![Docker](https://github.com/ForAllCodeSouls/acmesh-panel/actions/workflows/docker.yml/badge.svg)](https://github.com/ForAllCodeSouls/acmesh-panel/actions/workflows/docker.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 
-**一个带账号密码登录的轻量 acme.sh 证书管理面板。** Go 单二进制 + 内嵌前端，跑在 Alpine 容器里，镜像约 45 MB；数据统一存 SQLite（事务写入，不会因半写丢数据）；支持 DNS API 自动签发（含泛域名）、按域名自定义 ACME 邮箱、Webhook 通知，证书与私钥可在 Web 里查看、复制、下载。
+**一个带账号密码登录的轻量 acme.sh 证书管理面板。** Go 单二进制 + 内嵌前端，跑在 Alpine 容器里，镜像约 45 MB；数据统一存 SQLite（事务写入，不会因半写丢数据）；内置 43 家 DNS 服务商凭证（每家带官网直达链接），支持 DNS API 自动签发（含泛域名）、按域名自定义 ACME 邮箱、Webhook 通知；证书与私钥可在 Web 里查看、复制、下载，并可按「证书内容匹配」同步到本地挂载目录或远程主机。
 
 ---
 
@@ -44,7 +44,26 @@ English / 日本語 版为精简指南，覆盖部署与日常使用所需的全
 | 用 Docker 装（含群晖 / Dockge / Portainer） | [第一部分：Docker 部署](#第一部分docker-部署) → 按 [Linux](#32-linux-使用方法) / [macOS](#33-macos-使用方法) / [Windows](#34-windows-使用方法) 看 |
 | 不用 Docker，直接跑二进制 | [第二部分：二进制部署](#第二部分二进制部署) → 按 [Linux](#42-linux-使用方法) / [macOS](#43-macos-使用方法) / [Windows](#44-windows-使用方法) 看 |
 | 装好了，想知道面板怎么用 | [第三部分：使用说明](#第三部分使用说明)（签发、通知、同步、续期等） |
+| 第一次看，想知道这项目解决什么问题 | [为什么用这个项目](#为什么用这个项目) |
 | 查配置项 / 排查报错 | [配置参考](#7-配置参考) · [常见问题](#10-常见问题) |
+
+---
+
+## 为什么用这个项目
+
+![acmesh-panel 工作流](docs/01-overview.svg)
+
+如果你只有一台机器、一个域名，手敲 acme.sh 就够了。当你开始遇到下面这些情况，面板的价值就出来了：
+
+- **多台机器、多个域名**：签发在一台机器，Nginx / 网关 / 路由器在别的机器。不用逐台 SSH 上去装 acme.sh、配 cron、记证书路径。
+- **证书过期是事故**：面板集中显示每张证书的剩余天数，自动续期，把「忘了续」变成系统默认行为。
+- **DNS 凭证难管**：43 家服务商的凭证加密存一处，选服务商时直接显示官网链接，点开就能去取 Token；凭证只以掩码显示。
+- **同步最怕写坏文件**：本地目录和远程主机都按「证书实际签发的域名」匹配；主机名、文件名、规则名都不参与匹配，不匹配的第三方证书原样保留。
+- **不出网也能签发**：DNS-01 验证不需要开放 80 / 443，也不需要把 Web 服务暴露到公网。
+
+它能实现什么，一句话：**在网页上完成签发、续期、查看、通知、分发这一整条证书生命周期，并且保证分发只写到该写的文件里。**
+
+下面几张图会把「凭证怎么拿」「域名怎么匹配」「远程怎么同步」讲清楚，全部用 `example.com` / `example.net` 占位域名举例，不涉及任何真实站点。
 
 ---
 
@@ -54,7 +73,7 @@ English / 日本語 版为精简指南，覆盖部署与日常使用所需的全
 |---|---|
 | **登录认证** | 单账号 + PBKDF2-HMAC-SHA256（600k 次迭代）；Cookie `HttpOnly` + `SameSite=Strict`；CSRF Token + Origin 校验；5 次失败按 IP 指数退避锁定；可选「保持登录」90 天；环境变量仅首次初始化账号密码，之后可在设置页修改并持久保存，无 Web 注册入口 |
 | **证书管理** | 扫描 acme.sh home，解析 x509：SAN、签发者、有效期、密钥类型、剩余天数、过期告警 |
-| **签发** | DNS API 自动验证，支持泛域名；内置 19 家 DNS 服务商（阿里云 / Cloudflare / DNSPod / 腾讯云 / GoDaddy / 华为云 / AWS / Namecheap / Dynu / Hurricane Electric / FreeDNS / Gandi / DigitalOcean / Linode / Vultr / Bunny.net / Porkbun / deSEC / DuckDNS），每家都带官网直达链接；ECC 256/384、RSA 2048/4096 |
+| **签发** | DNS API 自动验证，支持泛域名；内置 43 家 DNS 服务商（见 [5.2 服务商清单](#52-签发证书)），每家都带官网直达链接，字段与 acme.sh 官方脚本逐一核对；ECC 256/384、RSA 2048/4096 |
 | **邮箱** | 全局默认 ACME 邮箱 + 按域名覆盖，留空自动回落 |
 | **通知** | Gotify / 通用 Webhook / Server 酱³ / 钉钉 / 飞书 / Bark，11 种事件可订阅 |
 | **私钥** | 明文查看 + 一键复制 + 下载，二次确认 + 审计 + 60 秒自动清屏 |
@@ -508,27 +527,57 @@ Windows 上 acme.sh 需要 WSL / Git Bash 环境；只想用面板的话建议�
 
 填域名（每行一个，首个为主域名）→ 选 DNS 服务商与凭证（可加密保存）→ 选密钥类型与 CA → 提交后跳到任务页看 SSE 实时日志。选好服务商后，弹窗里会直接给出该服务商的官网链接（新标签页打开），点开登录后即可获取 API 凭证。
 
-| 服务商 | 字段 |
-|---|---|
-| 阿里云 | `Ali_Key` / `Ali_Secret` |
-| Cloudflare | `CF_Token` |
-| DNSPod.cn | `DP_Id` / `DP_Key` |
-| 腾讯云 | `Tencent_SecretId` / `Tencent_SecretKey` |
-| GoDaddy | `GD_Key` / `GD_Secret` |
-| 华为云 | `HUAWEICLOUD_Username` / `Password` |
-| AWS | `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` |
-| Namecheap | `NAMECHEAP_USERNAME` / `API_KEY` |
-| Dynu | `Dynu_ClientId` / `Dynu_Secret`（控制面板 → API Credentials 的 OAuth2 Client ID 与 Secret） |
-| Hurricane Electric | `HE_Username` / `HE_Password` |
-| FreeDNS | `FREEDNS_User` / `FREEDNS_Password` |
-| Gandi LiveDNS | `GANDI_LIVEDNS_TOKEN` |
-| DigitalOcean | `DO_API_KEY` |
-| Linode | `LINODE_V4_API_KEY` |
-| Vultr | `VULTR_API_KEY` |
-| Bunny.net | `BUNNY_API_KEY` |
-| Porkbun | `PORKBUN_API_KEY` / `PORKBUN_SECRET_API_KEY` |
-| deSEC | `DEDYN_TOKEN` |
-| DuckDNS | `DuckDNS_Token`（官网 https://www.duckdns.org/ 登录后首页显示的 Token） |
+![DNS 凭证获取与使用流程](docs/02-dns-credential.svg)
+
+下面 43 家服务商的 code 与凭证字段，均对照 acme.sh 官方 `dnsapi` 脚本核实过。表里带「可选」的字段可以留空；面板只接受表内字段，杜绝环境变量注入。
+
+| 服务商 | acme.sh code | 凭证字段 | 官网 |
+|---|---|---|---|
+| 阿里云 DNS | `dns_ali` | `Ali_Key` / `Ali_Secret` | https://www.aliyun.com/product/dns |
+| Cloudflare | `dns_cf` | `CF_Token` / `CF_Account_ID` / `CF_Zone_ID` | https://dash.cloudflare.com/profile/api-tokens |
+| DNSPod (dnspod.cn) | `dns_dp` | `DP_Id` / `DP_Key` | https://www.dnspod.cn/ |
+| 腾讯云 DNSPod | `dns_tencent` | `Tencent_SecretId` / `Tencent_SecretKey` | https://console.cloud.tencent.com/cam/capi |
+| GoDaddy | `dns_gd` | `GD_Key` / `GD_Secret` | https://developer.godaddy.com/keys |
+| 华为云 DNS | `dns_huaweicloud` | `HUAWEICLOUD_Username` / `HUAWEICLOUD_Password` / `HUAWEICLOUD_ProjectID` | https://console.huaweicloud.com/dns/ |
+| AWS Route 53 | `dns_aws` | `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` / `AWS_REGION` | https://console.aws.amazon.com/iamv2/home#/users |
+| Namecheap | `dns_namecheap` | `NAMECHEAP_USERNAME` / `NAMECHEAP_API_KEY` / `NAMECHEAP_SOURCEIP` | https://www.namecheap.com/security/api-manager/ |
+| Dynu DNS | `dns_dynu` | `Dynu_ClientId` / `Dynu_Secret` | https://www.dynu.com/en-US/ControlPanel/APICredentials |
+| Hurricane Electric | `dns_he` | `HE_Username` / `HE_Password` | https://dns.he.net/ |
+| FreeDNS | `dns_freedns` | `FREEDNS_User` / `FREEDNS_Password` | https://freedns.afraid.org/ |
+| Gandi LiveDNS | `dns_gandi_livedns` | `GANDI_LIVEDNS_TOKEN` | https://www.gandi.net/en/my-account/credentials |
+| DigitalOcean | `dns_dgon` | `DO_API_KEY` | https://cloud.digitalocean.com/account/api/tokens |
+| Linode | `dns_linode_v4` | `LINODE_V4_API_KEY` | https://cloud.linode.com/profile/tokens |
+| Vultr | `dns_vultr` | `VULTR_API_KEY` | https://my.vultr.com/settings/#settingsapi |
+| Bunny.net | `dns_bunny` | `BUNNY_API_KEY` | https://bunny.net/account/settings/api |
+| Porkbun | `dns_porkbun` | `PORKBUN_API_KEY` / `PORKBUN_SECRET_API_KEY` | https://porkbun.com/account/api |
+| deSEC | `dns_desec` | `DEDYN_TOKEN` | https://desec.io/login |
+| DuckDNS | `dns_duckdns` | `DuckDNS_Token` | https://www.duckdns.org/ |
+| PowerDNS | `dns_pdns` | `PDNS_Url` / `PDNS_ServerId` / `PDNS_Token` / `PDNS_Ttl` | https://doc.powerdns.com/ |
+| RFC2136 / nsupdate | `dns_nsupdate` | `NSUPDATE_SERVER` / `NSUPDATE_SERVER_PORT` / `NSUPDATE_KEY` / `NSUPDATE_ZONE` / `NSUPDATE_OPT` | https://www.isc.org/bind/ |
+| OVHcloud | `dns_ovh` | `OVH_AK` / `OVH_AS` / `OVH_CK` / `OVH_END_POINT` | https://api.ovh.com/createToken/ |
+| Azure DNS | `dns_azure` | `AZUREDNS_SUBSCRIPTIONID` / `AZUREDNS_TENANTID` / `AZUREDNS_APPID` / `AZUREDNS_CLIENTSECRET` | https://portal.azure.com/ |
+| netcup | `dns_netcup` | `NC_CID` / `NC_Apikey` / `NC_Apipw` | https://www.netcup.de/ |
+| INWX | `dns_inwx` | `INWX_User` / `INWX_Password` / `INWX_Shared_Secret` | https://www.inwx.de/ |
+| DNSimple | `dns_dnsimple` | `DNSimple_OAUTH_TOKEN` | https://dnsimple.com/user/authorizations |
+| ACME-DNS | `dns_acmedns` | `ACMEDNS_SUBDOMAIN` / `ACMEDNS_USERNAME` / `ACMEDNS_PASSWORD` / `ACMEDNS_UPDATE_URL` | https://acme-dns.io/ |
+| 京东云 DNS | `dns_jd` | `JD_ACCESS_KEY_ID` / `JD_ACCESS_KEY_SECRET` / `JD_REGION` | https://docs.jdcloud.com/cn/jd-cloud-dns/api |
+| Vercel | `dns_vercel` | `VERCEL_TOKEN` | https://vercel.com/account/tokens |
+| Netlify | `dns_netlify` | `NETLIFY_ACCESS_TOKEN` | https://app.netlify.com/user/applications |
+| dynv6 | `dns_dynv6` | `DYNV6_TOKEN` | https://dynv6.com/keys |
+| dyndnsfree.de | `dns_df` | `DF_user` / `DF_password` | https://www.dyndnsfree.de/ |
+| NameSilo | `dns_namesilo` | `Namesilo_Key` | https://www.namesilo.com/account/api-manager |
+| ConoHa | `dns_conoha` | `CONOHA_Username` / `CONOHA_Password` / `CONOHA_TenantId` / `CONOHA_IdentityServiceApi` | https://www.conoha.jp/ |
+| OpenProvider | `dns_openprovider` | `OPENPROVIDER_USER` / `OPENPROVIDER_PASSWORDHASH` | https://cp.openprovider.eu/ |
+| MyDNS.JP | `dns_mydnsjp` | `MYDNSJP_MasterID` / `MYDNSJP_Password` | https://www.mydns.jp/ |
+| easyDNS | `dns_easydns` | `EASYDNS_Key` / `EASYDNS_Token` | https://my.easydns.com/ |
+| Constellix | `dns_constellix` | `CONSTELLIX_Key` / `CONSTELLIX_Secret` | https://constellix.com/ |
+| Njalla | `dns_njalla` | `NJALLA_Token` | https://njal.la/ |
+| ArvanCloud | `dns_arvan` | `Arvan_Token` | https://panel.arvancloud.ir/ |
+| 百度云 DNS | `dns_baidu` | `Baidu_AK` / `Baidu_SK` | https://console.bce.baidu.com/iam/ |
+| DNSPod 国际站 | `dns_dpi` | `DPI_Id` / `DPI_Key` | https://www.dnspod.com/ |
+| UltraDNS | `dns_ultra` | `ULTRA_USR` / `ULTRA_PWD` | https://www.ultradns.com/ |
+
+> **从旧版升级**：早期版本里 Gandi / DigitalOcean / Linode 用的 code 分别是 `dns_gandi` / `dns_do` / `dns_linode`，这三个在 acme.sh 里其实不存在（正确为 `dns_gandi_livedns` / `dns_dgon` / `dns_linode_v4`）。0.1.51 已修正，旧凭证会自动映射到新 code，无需重新填写；新保存的凭证一律用表中的正确 code。
 
 **DuckDNS 申请步骤**（域名托管在 DuckDNS、需要 DNS 验证时）：
 
@@ -586,6 +635,12 @@ Dynu 免费账户对 DNS 记录条数、以及新建域名的 TXT 记录可能�
 
 左侧「证书同步」页。先设置环境变量 `ACME_PANEL_SYNC_DIR` 指向挂载进来的目录（如 `/certs`），重启后在页面里新建规则：
 
+![证书域名匹配规则：一级域名与二级域名示例](docs/03-domain-matching.svg)
+
+**先把两级域名分清**（以下全是占位域名，不涉及任何真实站点）：`example.com` 是注册域（俗称**一级域名**）；`www.example.com`、`api.example.com` 是它的子域（俗称**二级域名**）。证书里写 `*.example.com` 时只覆盖**一级子域**——`www.example.com` 能匹配，`deep.api.example.com` 匹配不上，需要另签 `*.api.example.com`。
+
+**匹配只看证书内容**：目标文件里证书自己写的 CN/SAN，与面板已签发证书的域名比对；主域精确 > SAN 精确 > 一级通配。文件名、目录名、规则名、主机名全都不参与判定。这样即使文件名叫 `web.crt` 而里面签的是 `www.example.com`，也能正确匹配；反过来文件名写得再像，里面签的是别的注册域也绝不被覆盖。
+
 | 匹配模式 | 说明 | 典型场景 |
 |---|---|---|
 | 精确域名 | 目标文件名域名与证书主域名一致 | `example.com_cert.pem` ↔ `example.com` |
@@ -611,6 +666,12 @@ Dynu 免费账户对 DNS 记录条数、以及新建域名的 TXT 记录可能�
 ### 5.8 远程主机同步（把证书同步到别的机器）
 
 在本地证书同步的基础上，还能把证书文件通过 **SSH/SFTP** 同步到其他主机，适合「面板签发在一台机器、Nginx/网关在另一台机器」的场景。远程同步分两条路径：**手动同步（页面「立即同步」）按证书内容对比**——面板读取目标机器上的证书文件、解析 CN/SAN，与面板已签名证书对比，命中的文件直接用最新证书/私钥覆盖（写回目标文件自己的文件名，文件名与域名不一致也能识别）；**自动同步（本地覆盖后触发）按「同步规则」页签的规则**，只推规则命中且规则「远程主机」栏选中的文件：
+
+![远程同步流程：读内容 → 比对 → 匹配才写](docs/04-remote-sync.svg)
+
+**为什么远程同步不按文件名/主机名匹配**：主机名只是你给这台机器起的备注，文件名也可能是 `web.crt` 这种与域名无关的名字。真正可靠的信息只有证书文件自己写的内容。面板先把远程目录里每个 PEM 解析出「证书 / 私钥」和签发域名，再拿签发域名去面板已签发的证书里找匹配；只有匹配上才写证书和对应私钥，没匹配的一律不碰。
+
+**"识别出 N 个 / 内容匹配 M 个" 的区别**：识别只说明这个文件确实是一张证书或一把私钥；同步资格还要求它的域名被面板签过。所以第三方的证书也会被识别并标注域名，但不会写错它。
 
 1. 确认远程目录的绝对路径（如 `/etc/ssl/certs`），用于连接的账号需对其父目录有写入权限；目录不存在时会自动创建。
 2. 用私钥认证时，为面板生成专用 SSH 密钥对，把**公钥**追加到目标主机账号的 `~/.ssh/authorized_keys`；用密码认证时确保账号可 SSH 登录。

@@ -1,0 +1,55 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 720" width="1200" height="720" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif">
+  <rect width="1200" height="720" fill="#f8fafc"/>
+  <rect x="40" y="32" width="1120" height="656" rx="20" fill="#ffffff" stroke="#e2e8f0" stroke-width="2"/>
+  <text x="80" y="90" font-size="32" font-weight="700" fill="#0f172a">远程同步：从目标机器读内容，再决定写不写</text>
+  <text x="80" y="128" font-size="18" fill="#475569">下面文件名仅作示意；匹配只看文件内容，文件名不参与</text>
+
+  <!-- 左：目标机 -->
+  <rect x="80" y="170" width="300" height="330" rx="14" fill="#eff6ff" stroke="#bfdbfe" stroke-width="2"/>
+  <text x="104" y="206" font-size="19" font-weight="700" fill="#1e3a8a">① 读取远程证书目录</text>
+  <text x="104" y="244" font-size="15" fill="#334155">web.crt　→ 内容：*.example.com</text>
+  <text x="104" y="276" font-size="15" fill="#334155">web.key　→ 内容：PRIVATE KEY</text>
+  <text x="104" y="308" font-size="15" fill="#334155">site.crt　→ 内容：*.other.example.net</text>
+  <text x="104" y="340" font-size="15" fill="#334155">site.key　→ 内容：PRIVATE KEY</text>
+  <text x="104" y="380" font-size="14" fill="#475569">逐个解析 PEM：证书读 CN/SAN，</text>
+  <text x="104" y="406" font-size="14" fill="#475569">私钥只认 PEM 结构，不靠名字猜。</text>
+  <text x="104" y="452" font-size="14" fill="#64748b">识别 N 个 · 内容匹配 M 个</text>
+
+  <path d="M390 320 L440 320" stroke="#94a3b8" stroke-width="3" marker-end="url(#arrow3)"/>
+
+  <!-- 中：比对 -->
+  <rect x="450" y="170" width="300" height="330" rx="14" fill="#fffbeb" stroke="#fde68a" stroke-width="2"/>
+  <text x="474" y="206" font-size="19" font-weight="700" fill="#78350f">② 与面板已签发证书比对</text>
+  <text x="474" y="244" font-size="15" fill="#334155">主域精确  →  强匹配</text>
+  <text x="474" y="276" font-size="15" fill="#334155">SAN 精确  →  匹配</text>
+  <text x="474" y="308" font-size="15" fill="#334155">一级通配  →  匹配</text>
+  <text x="474" y="340" font-size="15" fill="#334155">域名不同  →  不匹配</text>
+  <text x="474" y="380" font-size="14" fill="#475569">只有面板确实签过、且证书内容</text>
+  <text x="474" y="406" font-size="14" fill="#475569">对得上的才有同步资格。</text>
+  <text x="474" y="452" font-size="14" fill="#64748b">主机名 / 规则名完全不参与</text>
+
+  <path d="M760 320 L810 320" stroke="#94a3b8" stroke-width="3" marker-end="url(#arrow3)"/>
+
+  <!-- 右：写入 -->
+  <rect x="820" y="170" width="300" height="330" rx="14" fill="#f0fdf4" stroke="#bbf7d0" stroke-width="2"/>
+  <text x="844" y="206" font-size="19" font-weight="700" fill="#14532d">③ 匹配才写，且原子写</text>
+  <text x="844" y="244" font-size="15" fill="#166534">web.crt  ✓ 写入最新证书</text>
+  <text x="844" y="276" font-size="15" fill="#166534">web.key  ✓ 写入对应私钥</text>
+  <text x="844" y="308" font-size="15" fill="#b91c1c">site.crt ✗ 跳过，原样保留</text>
+  <text x="844" y="340" font-size="15" fill="#b91c1c">site.key ✗ 跳过，原样保留</text>
+  <text x="844" y="380" font-size="14" fill="#475569">先写临时文件再改名，避免半截文件。</text>
+  <text x="844" y="406" font-size="14" fill="#475569">内容未变化则跳过，省带宽。</text>
+  <text x="844" y="452" font-size="14" fill="#64748b">写入失败会明确报错，不静默吞掉</text>
+
+  <!-- 底部 -->
+  <rect x="80" y="536" width="1040" height="120" rx="14" fill="#f8fafc" stroke="#cbd5e1" stroke-width="2"/>
+  <text x="108" y="572" font-size="18" font-weight="700" fill="#0f172a">两个容易踩的点</text>
+  <text x="108" y="604" font-size="15" fill="#334155">· 私钥缺失时会在目标目录补建同名 .key；面板侧私钥读取失败会报错，不会只推证书留个坏组合。</text>
+  <text x="108" y="632" font-size="15" fill="#334155">· 主机「负责的域名」是第二道过滤：留空表示不额外限制；填了就必须包含目标证书域名，否则会被挡住。</text>
+
+  <defs>
+    <marker id="arrow3" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L0,6 L9,3 z" fill="#94a3b8"/>
+    </marker>
+  </defs>
+</svg>

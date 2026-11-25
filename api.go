@@ -572,12 +572,13 @@ func (s *Server) handleIssue(w http.ResponseWriter, r *http.Request) {
 			writeErr(w, http.StatusBadRequest, "读取凭证失败: "+err.Error())
 			return
 		}
+		code = normalizeProviderCode(code)
 		if _, ok := providerByCode[code]; !ok {
 			writeErr(w, http.StatusBadRequest, "已保存凭证类型不受支持")
 			return
 		}
 	} else {
-		code = req.Code
+		code = normalizeProviderCode(req.Code)
 		env, err = filterEnv(code, req.Env)
 		if err != nil {
 			writeErr(w, http.StatusBadRequest, err.Error())
@@ -824,16 +825,17 @@ func (s *Server) handleSaveProvider(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "凭证名称非法")
 		return
 	}
-	env, err := filterEnv(req.Code, req.Env)
+	code := normalizeProviderCode(req.Code)
+	env, err := filterEnv(code, req.Env)
 	if err != nil {
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	if err := s.store.PutProvider(req.Name, req.Code, env); err != nil {
+	if err := s.store.PutProvider(req.Name, code, env); err != nil {
 		writeErr(w, http.StatusInternalServerError, "保存失败")
 		return
 	}
-	s.store.Audit(sess(r).User, clientIP(r, s.cfg.TrustProxy), "provider_save", req.Name+" / "+req.Code)
+	s.store.Audit(sess(r).User, clientIP(r, s.cfg.TrustProxy), "provider_save", req.Name+" / "+code)
 	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 }
 

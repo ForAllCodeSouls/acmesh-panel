@@ -1,0 +1,70 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 760" width="1200" height="760" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif">
+  <rect width="1200" height="760" fill="#f8fafc"/>
+  <rect x="40" y="32" width="1120" height="696" rx="20" fill="#ffffff" stroke="#e2e8f0" stroke-width="2"/>
+  <text x="80" y="92" font-size="34" font-weight="700" fill="#0f172a">acmesh-panel 能做什么</text>
+  <text x="80" y="130" font-size="18" fill="#475569">一个网页，把「签证书 → 管证书 → 送证书」串成一条自动流水线</text>
+
+  <!-- 四个阶段 -->
+  <g>
+    <rect x="80" y="180" width="240" height="250" rx="16" fill="#eff6ff" stroke="#bfdbfe" stroke-width="2"/>
+    <circle cx="112" cy="218" r="20" fill="#2563eb"/>
+    <text x="112" y="225" font-size="19" font-weight="700" fill="#ffffff" text-anchor="middle">1</text>
+    <text x="140" y="225" font-size="21" font-weight="700" fill="#1e3a8a">准备凭证</text>
+    <text x="104" y="272" font-size="16" fill="#1e40af">43 家 DNS 服务商</text>
+    <text x="104" y="300" font-size="16" fill="#1e40af">选服务商即显示官网</text>
+    <text x="104" y="328" font-size="16" fill="#1e40af">一键打开去取 Token</text>
+    <text x="104" y="364" font-size="15" fill="#475569">凭证加密保存在面板</text>
+    <text x="104" y="392" font-size="15" fill="#475569">不用每台机器都配一遍</text>
+  </g>
+  <path d="M330 305 L380 305" stroke="#94a3b8" stroke-width="3" marker-end="url(#arrow)"/>
+
+  <g>
+    <rect x="390" y="180" width="240" height="250" rx="16" fill="#f0fdf4" stroke="#bbf7d0" stroke-width="2"/>
+    <circle cx="422" cy="218" r="20" fill="#16a34a"/>
+    <text x="422" y="225" font-size="19" font-weight="700" fill="#ffffff" text-anchor="middle">2</text>
+    <text x="450" y="225" font-size="21" font-weight="700" fill="#14532d">签发 / 续期</text>
+    <text x="414" y="272" font-size="16" fill="#166534">DNS-01 验证</text>
+    <text x="414" y="300" font-size="16" fill="#166534">支持通配符证书</text>
+    <text x="414" y="328" font-size="16" fill="#166534">不开放 80 / 443 端口</text>
+    <text x="414" y="364" font-size="15" fill="#475569">每日检测，到期前自动续</text>
+    <text x="414" y="392" font-size="15" fill="#475569">Webhook 通知结果</text>
+  </g>
+  <path d="M640 305 L690 305" stroke="#94a3b8" stroke-width="3" marker-end="url(#arrow)"/>
+
+  <g>
+    <rect x="700" y="180" width="240" height="250" rx="16" fill="#fffbeb" stroke="#fde68a" stroke-width="2"/>
+    <circle cx="732" cy="218" r="20" fill="#d97706"/>
+    <text x="732" y="225" font-size="19" font-weight="700" fill="#ffffff" text-anchor="middle">3</text>
+    <text x="760" y="225" font-size="21" font-weight="700" fill="#78350f">集中证书库</text>
+    <text x="724" y="272" font-size="16" fill="#92400e">看域名、SAN、剩余天数</text>
+    <text x="724" y="300" font-size="16" fill="#92400e">看证书与私钥内容</text>
+    <text x="724" y="328" font-size="16" fill="#92400e">按域名覆盖邮箱设置</text>
+    <text x="724" y="364" font-size="15" fill="#475569">一张面板管所有域名</text>
+    <text x="724" y="392" font-size="15" fill="#475569">不用翻每台机器的目录</text>
+  </g>
+  <path d="M950 305 L1000 305" stroke="#94a3b8" stroke-width="3" marker-end="url(#arrow)"/>
+
+  <g>
+    <rect x="1010" y="180" width="110" height="250" rx="16" fill="#fdf2f8" stroke="#fbcfe8" stroke-width="2"/>
+    <circle cx="1042" cy="218" r="20" fill="#db2777"/>
+    <text x="1042" y="225" font-size="19" font-weight="700" fill="#ffffff" text-anchor="middle">4</text>
+    <text x="1065" y="225" font-size="21" font-weight="700" fill="#831843">分发</text>
+    <text x="1028" y="272" font-size="15" fill="#9d174d">本地目录</text>
+    <text x="1028" y="300" font-size="15" fill="#9d174d">远程主机</text>
+    <text x="1028" y="328" font-size="15" fill="#9d174d">证书+私钥</text>
+  </g>
+
+  <!-- 底部价值 -->
+  <rect x="80" y="480" width="1040" height="216" rx="16" fill="#f8fafc" stroke="#cbd5e1" stroke-width="2"/>
+  <text x="108" y="522" font-size="22" font-weight="700" fill="#0f172a">为什么需要它</text>
+  <text x="108" y="562" font-size="17" fill="#334155">· 多台机器、多个域名：不用逐台 SSH 上去装 acme.sh、配 cron、找证书路径。</text>
+  <text x="108" y="596" font-size="17" fill="#334155">· 证书过期是事故：集中看剩余天数，自动续期，把「忘了续」变成系统默认行为。</text>
+  <text x="108" y="630" font-size="17" fill="#334155">· 远程同步不乱写：只覆盖「面板已签发 且 目标证书内容对得上」的文件，其余一律跳过。</text>
+  <text x="108" y="664" font-size="17" fill="#334155">· 凭证不裸奔：加密存储，签发时只传白名单内的字段，杜绝环境变量注入。</text>
+
+  <defs>
+    <marker id="arrow" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L0,6 L9,3 z" fill="#94a3b8"/>
+    </marker>
+  </defs>
+</svg>

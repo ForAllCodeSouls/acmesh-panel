@@ -2,6 +2,15 @@
 
 本文件遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)。
 
+## [0.1.51] - 2026-11-25
+
+### 新增
+- DNS 服务商从 19 家扩充到 **43 家**：新增 PowerDNS、RFC2136/nsupdate、OVHcloud、Azure DNS、netcup、INWX、DNSimple、ACME-DNS、京东云、Vercel、Netlify、dynv6、dyndnsfree.de、NameSilo、ConoHa、OpenProvider、MyDNS.JP、easyDNS、Constellix、Njalla、ArvanCloud、百度云、DNSPod 国际站、UltraDNS；每家的 code 与凭证字段均对照 acme.sh 官方 `dnsapi` 脚本核实，并带官网直达链接。
+- 文档新增 4 张示意图（项目工作流、DNS 凭证获取、一级/二级域名匹配规则、远程同步流程），全部使用占位域名，不含真实站点信息；中文 README 补充「为什么用这个项目」与完整的域名匹配说明，英文/日文文档同步摘要。
+
+### 修复
+- 修正 3 个不存在的 acme.sh code：`dns_gandi` → `dns_gandi_livedns`、`dns_do` → `dns_dgon`、`dns_linode` → `dns_linode_v4`。此前选这三家的凭证会因脚本不存在而签发失败；已保存的旧凭证自动映射，无需重新填写。
+
 ## [0.1.50] - 2026-11-25
 
 ### 新增
