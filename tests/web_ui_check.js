@@ -311,11 +311,20 @@ check('前端读取会话状态并二次确认', app.includes('s.force_https_pin
   && app.includes('确定开启？'));
 check('后端有开关接口与审计', goApi.includes('handleHTTPSSettings')
   && goApi.includes('"https_settings"') && goMain.includes('POST /api/https/settings'));
-check('强制 HTTPS 中间件放行健康检查', goMain.includes('srv.requireHTTPS(mux)')
-  && goMain.includes('r.URL.Path == "/api/health"') && goMain.includes('httpsOnlyPage'));
+check('强制 HTTPS 静默断连且放行健康检查', goMain.includes('srv.requireHTTPS(mux)')
+  && goMain.includes('r.URL.Path == "/api/health"') && goMain.includes('dropConnection(w)')
+  && goMain.includes('http.Hijacker') && !goMain.includes('httpsOnlyPage'));
 check('环境变量覆盖与恢复说明已文档化',
   fs.readFileSync(path.join(root, '.env.example'), 'utf8').includes('ACME_PANEL_FORCE_HTTPS=1')
-  && fs.readFileSync(path.join(root, 'README.md'), 'utf8').includes('ACME_PANEL_FORCE_HTTPS=0'));
+  && fs.readFileSync(path.join(root, 'README.md'), 'utf8').includes('ACME_PANEL_FORCE_HTTPS=0')
+  && fs.readFileSync(path.join(root, 'README.md'), 'utf8').includes('docker compose up -d'));
+check('compose 注释列出全部环境变量并强调 up -d', (() => {
+  const c = fs.readFileSync(path.join(root, 'docker-compose.yml'), 'utf8');
+  return ['ACME_PANEL_FORCE_HTTPS', 'ACME_PANEL_RESET_CREDENTIALS', 'ACME_PANEL_TRUST_PROXY_HOPS',
+    'ACME_PANEL_SYNC_DIR', 'ACME_PANEL_PARALLEL', 'ACME_PANEL_LISTEN', 'ACME_HOME', 'ACME_BIN',
+    'ACME_PANEL_DATA', 'ACME_PANEL_ALLOW_LOCAL_WEBHOOK'].every((k) => c.includes(k))
+    && c.includes('docker compose up -d') && c.includes('restart') && c.includes('等号');
+})());
 
 // ---- 免责声明 ----
 check('登录页提示仅限授权与违法禁用', html.includes('已获明确授权的域名与主机')

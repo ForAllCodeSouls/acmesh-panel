@@ -28,7 +28,7 @@
 | acme.sh 账户文件 | acme.sh 会把 DNS API 凭证写入 `/acme.sh/account.conf`（明文，续期需要），请像保护私钥一样保护该卷 |
 | 合规使用 | 面板仅限管理自己拥有或已获明确授权的域名与服务器，禁止用于未经授权访问、证书劫持、钓鱼、欺诈或任何违法活动；完整条款见 [DISCLAIMER.md](DISCLAIMER.md)，面板登录页与「设置 → 免责声明」也可见 |
 | HTTPS / HSTS | 面板只提供 HTTP，HTTPS 由 Caddy/Nginx 终结。Cookie 智能加固：HTTP 下为普通 `HttpOnly` Cookie；反代透传 `X-Forwarded-Proto: https` 或直连 TLS 时自动带 `Secure` + `SameSite=Lax`。HSTS 仅在确认 HTTPS 时下发，纯 HTTP 不下发，Cookie/HSTS 无开关 |
-| 仅允许 HTTPS（可选） | 设置页可开启后拒绝一切 HTTP 直连（`/api/health` 例外）；反代必须传递 `X-Forwarded-Proto: https`。这是显式策略开关，与上面的智能识别互不依赖。`ACME_PANEL_FORCE_HTTPS=0` + 重启是反代误配时的应急恢复入口，启动日志会打印当前状态 |
+| 仅允许 HTTPS（可选） | 设置页可开启后对所有 HTTP 直连（页面与 API）静默断连、不返回任何响应，等同访问空端口（`/api/health` 例外）；反代必须传递 `X-Forwarded-Proto: https`。这是显式策略开关，与上面的智能识别互不依赖。`ACME_PANEL_FORCE_HTTPS=0` + `docker compose up -d` 是反代误配时的应急恢复入口（`restart` 不会刷新容器 env），启动日志会打印当前状态 |
 | 反代可信度 | `ACME_PANEL_TRUST_PROXY` 仅影响登录限流按哪个 IP 统计，不影响登录本身。仅在反代可控时开启，否则攻击者可伪造 `X-Forwarded-For` 绕过登录限流。`X-Forwarded-Proto` 即使被客户端伪造，也只会让自己拿不到 Cookie，不会越权 |
 | Origin / Host | 智能同源校验：按主机名比较 Origin/Referer，忽略端口与协议，兼容 `X-Forwarded-Host`；公网主机名明确时拒绝跨站，反代隐去公网名时不误拦登录。状态变更接口始终由 CSRF Token 保护 |
 | Webhook 通知 | 渠道 URL 与 Token 整体加密落盘、接口只回掩码；只接受 http(s) 协议。内网 Gotify 常用明文 http，请自行确保网络可信。通知正文不含私钥、证书与 DNS 凭证 |

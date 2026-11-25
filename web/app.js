@@ -1370,13 +1370,13 @@
       const fhHint = $('#force-https-hint');
       if (fhHint) {
         if (s.force_https_pinned) {
-          fhHint.textContent = `已由环境变量 ACME_PANEL_FORCE_HTTPS=${s.force_https ? '1' : '0'} 锁定，界面不可修改；在部署环境改动后重启生效。`;
+          fhHint.textContent = `已由环境变量 ACME_PANEL_FORCE_HTTPS=${s.force_https ? '1' : '0'} 锁定，界面不可修改；改 .env 后须 docker compose up -d 重建容器才生效（restart 不刷新 env）。`;
         } else if (s.force_https) {
           fhHint.textContent = s.https_now
-            ? '当前生效中：HTTP 直连已被拒绝，仅 HTTPS 反代可访问；健康检查 /api/health 不受限制。'
-            : '当前生效中，但本次请求不是 HTTPS——反代需传递 X-Forwarded-Proto: https；若已无法访问，设 ACME_PANEL_FORCE_HTTPS=0 重启恢复。';
+            ? '当前生效中：HTTP 直连已被静默断连（同空端口），仅 HTTPS 反代可访问；健康检查 /api/health 不受限制。'
+            : '当前生效中，但本次请求不是 HTTPS——反代需传递 X-Forwarded-Proto: https；若已无法访问，设 ACME_PANEL_FORCE_HTTPS=0 并 docker compose up -d 恢复。';
         } else {
-          fhHint.textContent = '当前未开启。开启后，通过 IP / 端口的 HTTP 直连会被拒绝，只能经 HTTPS 反代访问；反代需传递 X-Forwarded-Proto: https。若 HTTPS 也打不开，设 ACME_PANEL_FORCE_HTTPS=0 重启即可临时关闭。';
+          fhHint.textContent = '当前未开启。开启后，通过 IP / 端口的 HTTP 直连会被静默断连（等同访问空端口），只能经 HTTPS 反代访问；反代需传递 X-Forwarded-Proto: https。若 HTTPS 也打不开，设 ACME_PANEL_FORCE_HTTPS=0 并 docker compose up -d 即可临时关闭。';
         }
       }
       $('#cron-hour-hint').textContent = s.cron_last_day

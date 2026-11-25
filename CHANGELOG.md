@@ -2,6 +2,16 @@
 
 本文件遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)。
 
+## [0.1.68] - 2026-11-26
+
+### Changed
+- 「仅允许 HTTPS 访问」的拒绝方式由 403 说明页改为**静默断连**：服务端直接关闭 TCP 连接、不写任何 HTTP 响应，浏览器表现为无法访问，效果等同访问一个没有服务监听的空端口，不会暴露面板存在。`/api/health` 仍放行给容器健康检查。
+- `ACME_PANEL_FORCE_HTTPS=1` 现在会立即强制开启并锁定界面开关；配合反代透传 `X-Forwarded-Proto: https` 即可只用 HTTPS 域名访问。
+
+### Docs
+- `docker-compose.yml` 用注释补全面板读取的**全部环境变量**（含 FORCE_HTTPS、RESET_CREDENTIALS、TRUST_PROXY_HOPS、SYNC_DIR、PARALLEL、LISTEN、ACME_HOME、ACME_BIN、ACME_PANEL_DATA、ALLOW_LOCAL_WEBHOOK），标注默认值与用途；`.env.example` 与三语 README、SECURITY 同步。
+- 明确环境变量的生效规则：改 `.env` 后必须 `docker compose up -d` 重建容器；`docker compose restart` 只重启进程、不会刷新已注入的环境变量，改了等于没改。应急恢复为 `ACME_PANEL_FORCE_HTTPS=0` + `docker compose up -d`。
+
 ## [0.1.67] - 2026-11-26
 
 ### 新增

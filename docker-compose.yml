@@ -11,32 +11,61 @@ services:
     ports:
       - "0.0.0.0:8800:8080"
 
+    # ==========================================================================
+    # 环境变量总表（面板读取的全部 env 都在这里，未列出的写了也无效）
+    #
+    # ⚠ 改任何环境变量后必须执行 `docker compose up -d` 重建容器才会注入新值；
+    #   `docker compose restart` 只重启进程、不会刷新环境变量，改了等于没改。
+    #   配置值请写在同目录 .env（KEY=value，等号，无引号前缀），compose 只做转发。
+    # ==========================================================================
     environment:
-      # 账号密码：密码必须通过 .env 提供，缺失时 compose 会直接报错
+      # ---- 必填：账号密码 --------------------------------------------------
+      # 密码至少 12 位且同时含大写/小写/数字；必须通过 .env 提供，缺失时 compose 报错
       ACME_PANEL_USER: "${ACME_PANEL_USER:-admin}"
       ACME_PANEL_PASSWORD: "${ACME_PANEL_PASSWORD:?请在 .env 中设置 ACME_PANEL_PASSWORD（至少 12 位）}"
-      # 忘记密码时临时设 1：重启一次用上面的账号密码显式重置；重置后改回 0
+
+      # ---- 仅允许 HTTPS（v0.1.68：HTTP 直连静默断连，等同访问空端口）-----
+      # =1 强制开启（HTTP 直连含页面/API 全部断连，/api/health 例外）
+      # =0 强制关闭（反代漏传 XFP 把自己锁在外面时的应急恢复）
+      # 留空则使用 Web「设置 → 系统运行」里保存的开关（默认关闭）
+      # 生效前提：nginx/Caddy 必须向面板透传 X-Forwarded-Proto: https
+      # 恢复铁律：设 =0 后要 `docker compose up -d`，restart 不刷新 env
+      ACME_PANEL_FORCE_HTTPS: "${ACME_PANEL_FORCE_HTTPS:-}"
+
+      # ---- 应急：重置账号密码 ----------------------------------------------
+      # 忘记密码时临时设 1，配合上面的 USER/PASSWORD 重启一次显式重置；用完改回 0
       ACME_PANEL_RESET_CREDENTIALS: "${ACME_PANEL_RESET_CREDENTIALS:-0}"
-      # 面板固定 HTTP；HTTPS 由 nginx/Caddy 反代终结，无需任何 Cookie/HSTS 开关。
-      # 可选：反代在同一 docker 网络内时设为 1，仅用于从 XFF 取真实客户端 IP 做限流。
+
+      # ---- 反代与限流 -------------------------------------------------------
+      # 面板固定 HTTP、HTTPS 由反代终结，无 Cookie/HSTS 开关。
+      # TRUST_PROXY=1：仅在反代完全可信时开，从 XFF 取真实客户端 IP 做审计/限流
+      # TRUST_PROXY_HOPS：XFF 从右往左取第 N 跳（默认 1）
       ACME_PANEL_TRUST_PROXY: "${ACME_PANEL_TRUST_PROXY:-0}"
       ACME_PANEL_TRUST_PROXY_HOPS: "${ACME_PANEL_TRUST_PROXY_HOPS:-1}"
-      # 可选：=1 强制仅 HTTPS（HTTP 直连拒绝）；=0 强制关闭（应急恢复）；留空用界面开关
-      ACME_PANEL_FORCE_HTTPS: "${ACME_PANEL_FORCE_HTTPS:-}"
-      # 自动续期：面板内置调度（每 12 小时 acme.sh --cron），不依赖 cron 守护进程
+
+      # ---- 签发与同步 -------------------------------------------------------
+      # 自动续期：1 开启（面板内置调度，每 12 小时 acme.sh --cron），0 关闭
       ACME_PANEL_CRON: "${ACME_PANEL_CRON:-1}"
-      # 证书同步目录：多个用逗号或分号分隔，留空禁用
+      # 证书同步目录：多个用逗号/分号分隔，留空禁用；需在下方 volumes 挂载同名路径
       ACME_PANEL_SYNC_DIR: "${ACME_PANEL_SYNC_DIR:-}"
-      # 可选：同时运行的 acme.sh 任务数，默认 2
+      # 同时运行的 acme.sh 任务数，默认 2；低配服务器可设 1
       ACME_PANEL_PARALLEL: "${ACME_PANEL_PARALLEL:-2}"
-      # 可选：容器内监听地址，改这里也要改上面的 ports
-      # ACME_PANEL_LISTEN: 0.0.0.0:8080
-      # 可选：acme.sh home 与数据目录，一般不用改
-      # ACME_HOME: /acme.sh
-      # ACME_PANEL_DATA: /data
       # 默认 CA 与 ACME 账号邮箱（也可在 Web 界面里改）
       ACME_PANEL_CA: "${ACME_PANEL_CA:-letsencrypt}"
       ACME_PANEL_EMAIL: "${ACME_PANEL_EMAIL:-}"
+
+      # ---- 高级 / 一般不用改（取消注释即可生效）----------------------------
+      # 容器内监听地址，改这里必须同步改上面的 ports 映射
+      # ACME_PANEL_LISTEN: "0.0.0.0:8080"
+      # acme.sh 脚本与账户密钥目录；改这里必须同步改 volumes
+      # ACME_HOME: /acme.sh
+      # acme.sh 可执行文件绝对路径；留空自动取 $ACME_HOME/acme.sh
+      # ACME_BIN: /acme.sh/acme.sh
+      # 面板数据目录：状态、密钥、审计、任务记录；改这里必须同步改 volumes
+      # ACME_PANEL_DATA: /data
+      # 仅测试用：允许 Webhook 指向私网地址，生产环境请勿开启
+      # ACME_PANEL_ALLOW_LOCAL_WEBHOOK: "0"
+
       TZ: "${TZ:-Asia/Shanghai}"
 
     volumes:

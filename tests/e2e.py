@@ -1020,10 +1020,17 @@ def main():
         st, _, j = c.j("POST", "/api/https/settings", {"force_https": True},
                        headers={"X-Forwarded-Proto": "https"})
         check("开启仅 HTTPS 成功", st == 200 and j.get("force_https") is True, (st, j))
-        st, _, _ = c.j("GET", "/api/session")
-        check("HTTP 直连被拒绝", st == 403, st)
-        st, _, body = c.j("GET", "/")
-        check("HTTP 首页返回可恢复的说明页", st == 403 and b"ACME_PANEL_FORCE_HTTPS=0" in body, (st, body[:120]))
+        # 静默断连：等同访问空端口，客户端拿不到任何 HTTP 响应。
+        def connection_dropped(method, path, **kw):
+            try:
+                c.req(method, path, **kw)
+                return False
+            except (ConnectionResetError, BrokenPipeError, http.client.RemoteDisconnected,
+                    http.client.BadStatusLine, OSError):
+                return True
+
+        check("HTTP 直连接口被静默断连", connection_dropped("GET", "/api/session"))
+        check("HTTP 直连首页被静默断连", connection_dropped("GET", "/"))
         st, _, _ = c.j("GET", "/api/health")
         check("健康检查不受开关限制", st == 200, st)
         st, _, j = c.j("GET", "/api/session", headers={"X-Forwarded-Proto": "https"})

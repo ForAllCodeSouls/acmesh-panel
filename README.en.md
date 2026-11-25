@@ -38,7 +38,7 @@ The full Chinese README has the detailed step-by-step explanation: [README.md](R
 | Area | Capability |
 |---|---|
 | **Authentication** | Single account + PBKDF2-HMAC-SHA256 (600k iterations); smart session cookie (plain `HttpOnly` over HTTP, `Secure` + `SameSite=Lax` when HTTPS is confirmed); CSRF token + smart same-origin check (hostname-based, reverse-proxy friendly, zero config); per-IP exponential lockout after 5 failures; optional 90-day "stay logged in"; env vars initialize credentials on first boot only — later changes made in the web UI persist across restarts, no web signup |
-| **HTTPS only (optional)** | Settings → System can enforce HTTPS-only: HTTP direct access is rejected (except `/api/health` for container health checks); the proxy must forward `X-Forwarded-Proto: https`. Emergency recovery: `ACME_PANEL_FORCE_HTTPS=0` + restart |
+| **HTTPS only (optional)** | Settings → System can enforce HTTPS-only: direct HTTP access is silently dropped (no response, like an unused port) for pages and APIs alike (except `/api/health` for container health checks); the proxy must forward `X-Forwarded-Proto: https`. Emergency recovery: `ACME_PANEL_FORCE_HTTPS=0` + `docker compose up -d` |
 | **Certificates** | Scans acme.sh home and parses X.509: SANs, issuer, validity, key type, days remaining, expiry alerts |
 | **Issuance** | DNS API validation, wildcard support; 43 built-in DNS providers, each with verified credential fields and a direct official-site link (full list in [README.md §5.2](README.md#52-签发证书)); ECC 256/384 and RSA 2048/4096 |
 | **E-mail** | Global default ACME e-mail + per-domain overrides |
@@ -130,7 +130,7 @@ A systemd unit example and macOS/Windows instructions are in the Chinese README 
 | `ACME_BIN` | auto | Path to the acme.sh script (binary deployments) |
 | `ACME_PANEL_CA` | `letsencrypt` | `letsencrypt` / `zerossl` / `buypass` / `google` / `letsencrypt_test` |
 | `ACME_PANEL_EMAIL` | empty | Passed as `--accountemail`; overrides the web-saved default |
-| `ACME_PANEL_FORCE_HTTPS` | unset | **Optional**; overrides the HTTPS-only UI switch. `1` force on (HTTP rejected), `0` force off (emergency recovery); unset uses the saved UI setting. When set, the UI toggle is locked |
+| `ACME_PANEL_FORCE_HTTPS` | unset | **Optional**; overrides the HTTPS-only UI switch. `1` force on (HTTP silently dropped, like an unused port), `0` force off (emergency recovery); unset uses the saved UI setting. When set, the UI toggle is locked. Requires `docker compose up -d` after change; `restart` does not refresh env |
 | `ACME_PANEL_TRUST_PROXY` | `0` | **Optional**; only chooses the IP used by rate limiting, never affects HTTP/HTTPS login. Trust `X-Forwarded-For` only behind a fully trusted reverse proxy |
 | `ACME_PANEL_TRUST_PROXY_HOPS` | `1` | Number of trusted proxy hops (taken right-to-left from XFF) |
 | `ACME_PANEL_ALLOW_LOCAL_WEBHOOK` | `0` | Local e2e testing only; allows webhooks to loopback/LAN (never in production) |
@@ -146,7 +146,7 @@ A systemd unit example and macOS/Windows instructions are in the Chinese README 
 - Passwords stored as PBKDF2-HMAC-SHA256 (600k iterations, random salt, constant-time compare).
 - Sessions: in-memory + smart cookies — plain `HttpOnly` over plain HTTP, with `Secure` + `SameSite=Lax` added automatically when HTTPS is confirmed (`X-Forwarded-Proto: https` from the proxy or direct TLS). Works on both HTTP and HTTPS without switches; session ID rotates on login.
 - The panel serves HTTP only. HTTPS is terminated by your nginx/Caddy; HSTS is emitted by the panel only when HTTPS is confirmed, never over plain HTTP (no more self-lockout).
-- The optional HTTPS-only switch rejects plain HTTP (except `/api/health`); the proxy must forward `X-Forwarded-Proto: https`. `ACME_PANEL_FORCE_HTTPS=0` plus a restart is the documented recovery path if the proxy is misconfigured.
+- The optional HTTPS-only switch silently drops plain HTTP connections (pages and APIs return no response, like an unused port; `/api/health` is exempt); the proxy must forward `X-Forwarded-Proto: https`. If the proxy is misconfigured, set `ACME_PANEL_FORCE_HTTPS=0` and run `docker compose up -d` to recover — a container only reads env at creation time, so `restart` will not pick up the change.
 - CSRF: token on every state-changing request; same-origin check compares hostnames (ignores port/scheme, honors `X-Forwarded-Host`), so a reverse proxy rewriting Host never locks you out, while cross-site requests are rejected when the public hostname is known.
 - Static assets carry a version query string so upgrades bypass stale proxy caches without manual purging.
 - Brute force: exponential per-IP/username lockout + security notifications.

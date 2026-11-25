@@ -245,7 +245,7 @@ func banner(cfg Config, user string, generated bool, pwd, acmeVer, defaultEmail 
 		if pinned {
 			source = "环境变量 ACME_PANEL_FORCE_HTTPS"
 		}
-		log.Printf("  HTTPS 强制 : 已开启（%s）；HTTP 直连将被拒绝，恢复用 ACME_PANEL_FORCE_HTTPS=0 重启", source)
+		log.Printf("  HTTPS 强制 : 已开启（%s）；HTTP 直连将静默断连（同空端口），恢复用 ACME_PANEL_FORCE_HTTPS=0 并 docker compose up -d 重建容器", source)
 	}
 }
 
@@ -323,21 +323,23 @@ func (s *Server) httpsOnly() (enforced, pinned bool) {
 	return s.store.ForceHTTPS(), false
 }
 
-// httpsOnlyPage 是不依赖任何静态资源的拒绝页。CSP 只允许外链样式，
-// 因此这里保持纯语义 HTML，确保在策略生效时也能正常显示。
-const httpsOnlyPage = `<!doctype html>
-<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-<title>需要 HTTPS 访问</title></head>
-<body><h1>需要 HTTPS 访问</h1>
-<p>面板已开启「仅允许 HTTPS 访问」，通过 IP / 端口的 HTTP 直连已被拒绝。</p>
-<p>请改用反代后的 HTTPS 地址访问。</p>
-<h2>如果 HTTPS 也打不开</h2>
-<p>反代需要向面板传递 <code>X-Forwarded-Proto: https</code>。确认配置后重启反代再试。</p>
-<p>临时恢复：在面板运行环境设置 <code>ACME_PANEL_FORCE_HTTPS=0</code> 并重启面板，即可关闭强制策略后重新登录调整。</p>
-<p>健康检查 <code>/api/health</code> 不受此策略限制。</p>
-</body></html>`
+// dropConnection 静默断开连接：不写任何 HTTP 响应，直接关闭底层 TCP 连接。
+// 客户端看到的效果与访问一个没有服务监听的端口一致（连接被重置 / 无响应），
+// 既不暴露面板存在，也不会给出任何可供探测的指纹。
+// 这是「仅允许 HTTPS」的拒绝方式：宁可看起来像空端口，也不回一个说明页。
+func dropConnection(w http.ResponseWriter) {
+	hj, ok := w.(http.Hijacker)
+	if !ok {
+		return
+	}
+	conn, _, err := hj.Hijack()
+	if err != nil {
+		return
+	}
+	_ = conn.Close()
+}
 
-// requireHTTPS 在开关生效时拒绝非 HTTPS 请求。
+// requireHTTPS 在开关生效时静默断连非 HTTPS 请求。
 // 面板固定只监听纯 HTTP，HTTPS 由用户自己的反代终结，因此判定统一走
 // requestIsHTTPS（直连 TLS 或可信反代的 X-Forwarded-Proto: https）。
 // 放行 /api/health 是为了容器健康检查不因策略切换而判定服务失活；该接口
@@ -349,13 +351,7 @@ func (s *Server) requireHTTPS(next http.Handler) http.Handler {
 			next.ServeHTTP(w, r)
 			return
 		}
-		if strings.HasPrefix(r.URL.Path, "/api/") {
-			writeErr(w, http.StatusForbidden, "已开启「仅允许 HTTPS 访问」，请通过 HTTPS 反代地址访问；如反代未生效，可设 ACME_PANEL_FORCE_HTTPS=0 重启恢复")
-			return
-		}
-		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		w.WriteHeader(http.StatusForbidden)
-		_, _ = w.Write([]byte(httpsOnlyPage))
+		dropConnection(w)
 	})
 }
 
