@@ -2,6 +2,26 @@
 
 本文件遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)。
 
+## [0.1.69] - 2026-11-26
+
+### Fixed
+- **自动生成初始密码约 9% 概率导致首次启动崩溃**：旧实现 16 位里数字只占字符集 8/57，`(49/57)^16 ≈ 8.9%` 的概率没有数字，被密码策略拒绝后 `log.Fatalf` 直接退出。改为三类字符各取一个再补足、Fisher-Yates 打乱，保证一定满足「12 位 + 大小写 + 数字」。
+- **单行日志超长导致任务挂满 15 分钟**：`bufio.Scanner` 达 1MB 上限后静默停止读取，子进程写满管道使 `cmd.Wait()` 一直等待。现在检查 `sc.Err()`、上限提到 8MB，命中超长行立即取消进程并把任务标为失败。
+- **Release 正文镜像 tag 恒为空**：`prepare` 声明了 `plain` step 输出却没在 job outputs 暴露，`RELEASE_TAG_PLAIN` 一直为空，导致安装命令变成 `image:`。已补声明。
+- **CI 从不运行 Go 单测**：后端 job 只做 gofmt/vet/build，20 个 `*_test.go` 全部漏检。现加入 `go test ./...`。
+- 更新徽标 / 横幅的链接未校验协议，备份恢复的 `Update.URL` 可注入 `javascript:`；现在与 DNS 官网链接一样只允许 https。
+- 证书搜索无结果时误报「还没有证书，请签发第一张」；现在区分「没有匹配的证书」并提供清除筛选。
+- 同步记录里 fullchain/chain 文件被标成通用「档」；现在解析后端附带的 `(kind)` 后缀，chain 用独立标识与配色。
+- `loadSysInfo()` 重建 DOM 后，异步 `checkStorage`/`checkUpdate` 把结果写进已脱离的节点；现在写前重新查询活跃节点。
+- 审计筛选下拉重建后选中值失效却仍按旧值过滤；现在检测失效并清空后重载。
+- 启动时 `/api/catalog` 失败会让残缺 catalog 永久占位、CA 下拉为空；现在用对象展开合并并按需补载。
+- HTTPS 开关静态兜底文案仍是旧「拒绝/restart」措辞；已同步为静默断连 + `up -d`。
+
+### Changed
+- 远程主机 / 同步规则弹窗的 `<label>` 全部关联对应控件，搜索框补 `aria-label`，键盘与读屏可用。
+- `Cleanup` 改为先落盘同步记录过滤结果、再删 SQL 行，避免「jobs/audit 已删却报告失败」的部分生效。
+- `Restore` 统一裁剪同步记录到最近 120 条，不再让备份绕过正常运行路径的上限。
+
 ## [0.1.68] - 2026-11-26
 
 ### Changed

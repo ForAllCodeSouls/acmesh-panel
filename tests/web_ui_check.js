@@ -258,7 +258,9 @@ check('远程替换不再先删目标文件', goRemote.includes('func safeRemote
 check('redactArgs 实现 KEY=value 打码', goAcme.includes('k+"=••••"')
   && goAcme.includes('// KEY=value 形式的参数只保留键名'));
 check('删目录改为完成钩子（无 60s 轮询）', goAcme.includes('purgeHooks') && !goApi.includes('i < 300'));
-check('随机密码拒绝采样', goMain.includes('limit := 256 - (256 % len(alphabet))'));
+check('随机密码拒绝采样且保证三类字符', goMain.includes('limit := 256 - (256 % len(set))')
+  && goMain.includes('b = append(b, pick(uppers), pick(lowers), pick(digits))')
+  && goMain.includes('Fisher-Yates'));
 check('密码策略 store 层统一 12 位', fs.readFileSync(path.join(root, 'store.go'), 'utf8').includes('!strongPassword(password)'));
 const goCompose = fs.readFileSync(path.join(root, 'docker-compose.yml'), 'utf8');
 check('Docker 透传重置/并发/代理层数变量', goCompose.includes('ACME_PANEL_RESET_CREDENTIALS: "${ACME_PANEL_RESET_CREDENTIALS:-0}"')
@@ -338,5 +340,36 @@ check('独立声明含三语与责任边界', disclaimerMd.includes('合法使�
 for (const f of ['README.md', 'README.en.md', 'README.ja.md', 'SECURITY.md']) {
   check(`${f} 链接独立声明`, fs.readFileSync(path.join(root, f), 'utf8').includes('DISCLAIMER.md'));
 }
+
+// ---- v0.1.69 全盘优化断言 ----
+check('更新链接限制为 https 防脚本协议注入', app.includes("const url = /^https:\\/\\//i.test(r.url || '') ? r.url : defURL")
+  && app.includes('a.href = url') && app.includes('banner.href = url'));
+check('证书筛选空态区分未命中并支持清除', app.includes("p.textContent = '没有匹配的证书'")
+  && app.includes("id=\"cert-clear-filter\"") && app.includes("f.value = ''; state.filter = ''; renderCerts()"));
+check('同步记录识别 chain 类型与权威后缀', app.includes("/\\((key|cert|chain)\\)\\s*$/i")
+  && app.includes("kind === 'chain' ? '链'") && fs.readFileSync(path.join(root, 'web', 'style.css'), 'utf8').includes('.file-chip.chain'));
+check('checkStorage 异步写前重新查询槽位', /async function checkStorage\(\)[\s\S]{0,600}?const slot = \$\('#storage-slot'\)/.test(app)
+  && !/async function checkStorage\(\)\s*\{\s*const slot =/.test(app));
+check('checkUpdate 失败写活跃节点', app.includes("const liveSlot = $('#update-slot')")
+  && app.includes("const liveStatus = $('#update-status')"));
+check('loadProviders 合并目录而非短路占位', app.includes('state.catalog = { ...(state.catalog || {}), providers: r.catalog }')
+  && app.includes('loadCatalog()'));
+check('审计筛选失效选项回退重载', app.includes('if (cur && el.value !== cur) { el.value = \'\'; staleFilter = true; }')
+  && app.includes('if (staleFilter) { loadAudit(true); return; }'));
+check('远程与规则弹窗 label 均关联控件', (() => {
+  const remote = app.slice(app.indexOf('function openRemoteModal'), app.indexOf('function openSyncModal'));
+  const sync = app.slice(app.indexOf('function openSyncModal'), app.indexOf('function switchView'));
+  const noFor = (seg) => (seg.match(/<label(?![ class="check"])[^>]*>/g) || []).filter((t) => !t.includes('for='));
+  return noFor(remote).length === 0 && noFor(sync).length === 0;
+})());
+check('静态搜索框有无障碍标签', html.includes('aria-label="搜索证书域名"')
+  && html.includes('aria-label="默认 ACME 通知邮箱"'));
+check('HTTPS 静态文案与静默断连一致', html.includes('静默断连')
+  && html.includes('docker compose up -d') && !html.includes('重启即可临时关闭'));
+check('CI 运行 Go 单测', fs.readFileSync(path.join(root, '.github/workflows/ci.yml'), 'utf8').includes('go test ./...'));
+check('Release prepare 声明 plain 输出', (() => {
+  const y = fs.readFileSync(path.join(root, '.github/workflows/release.yml'), 'utf8');
+  return /outputs:\s*\n\s*version:.*\n\s*plain:/.test(y);
+})());
 
 console.log(`web UI checks: ${passed} passed`);

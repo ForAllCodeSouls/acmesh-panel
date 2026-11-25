@@ -24,7 +24,7 @@ services:
       ACME_PANEL_USER: "${ACME_PANEL_USER:-admin}"
       ACME_PANEL_PASSWORD: "${ACME_PANEL_PASSWORD:?请在 .env 中设置 ACME_PANEL_PASSWORD（至少 12 位）}"
 
-      # ---- 仅允许 HTTPS（v0.1.68：HTTP 直连静默断连，等同访问空端口）-----
+      # ---- 仅允许 HTTPS（HTTP 直连静默断连，等同访问空端口）-----
       # =1 强制开启（HTTP 直连含页面/API 全部断连，/api/health 例外）
       # =0 强制关闭（反代漏传 XFP 把自己锁在外面时的应急恢复）
       # 留空则使用 Web「设置 → 系统运行」里保存的开关（默认关闭）

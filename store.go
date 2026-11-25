@@ -385,6 +385,11 @@ func (s *Store) Restore(st State) error {
 	if !validUpdateInterval(st.Update.Interval) {
 		st.Update.Interval = updateIntervalDaily
 	}
+	// Restore 不能绕过正常运行路径的 120 条上限，否则一份塞满同步记录的
+	// 备份会让 /api/sync/events 一次性返回超大响应。保留最新的 120 条。
+	if len(st.SyncEvents) > 120 {
+		st.SyncEvents = append([]SyncEvent(nil), st.SyncEvents[len(st.SyncEvents)-120:]...)
+	}
 	s.state = st
 	return s.saveLocked()
 }

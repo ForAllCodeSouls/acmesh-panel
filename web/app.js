@@ -417,7 +417,25 @@
     });
     const box = $('#cert-list');
     box.innerHTML = '';
-    $('#cert-empty').classList.toggle('hidden', list.length !== 0);
+    const empty = $('#cert-empty');
+    empty.classList.toggle('hidden', list.length !== 0);
+    if (!list.length) {
+      // 区分「一本证书都没有」和「搜索没命中」，避免误导用户去签发第一张。
+      const p = empty.querySelector('p');
+      const sub = empty.querySelector('p.tiny');
+      if (q) {
+        p.textContent = '没有匹配的证书';
+        sub.innerHTML = '换个关键词试试，或 <button class="link-btn" id="cert-clear-filter" type="button">清除筛选</button> 查看全部证书';
+        const clear = $('#cert-clear-filter');
+        if (clear) clear.addEventListener('click', () => {
+          const f = $('#cert-filter');
+          if (f) { f.value = ''; state.filter = ''; renderCerts(); }
+        });
+      } else {
+        p.textContent = '还没有证书';
+        sub.textContent = '点击右上角「签发证书」，用 DNS API 自动申请第一张证书';
+      }
+    }
     for (const c of list) {
       const others = (c.sans || []).filter((d) => d !== c.domain);
       const card = document.createElement('div');
@@ -1258,7 +1276,10 @@
   async function loadProviders() {
     try {
       const r = await api('/api/providers');
-      state.catalog = state.catalog || { providers: r.catalog };
+      // /api/providers 只返回 providers，不能用 || 短路占住 state.catalog，
+      // 否则启动时 /api/catalog 失败后这里会永久缺 cas/version。
+      state.catalog = { ...(state.catalog || {}), providers: r.catalog };
+      if (!(state.catalog.cas || []).length || !state.catalog.version) loadCatalog();
       state.saved = r.saved || [];
       $('#cred-path').textContent = r.output_dir ? r.output_dir.replace(/\/output$/, '') + '/secret.key 与 panel.db' : '/data';
       renderCreds();
@@ -1408,8 +1429,11 @@
       if (force) toast(r.ok ? (r.need_update ? '发现新版本 ' + (r.latest || '') : '已是最新版本') : (r.error || '检测失败'), r.ok ? '' : 'warn');
       return r;
     } catch (e) {
-      if (slot) slot.textContent = ' · 检测失败';
-      if (status) status.textContent = '检测失败';
+      // 异步期间 loadSysInfo 可能已重建 #sys-info，捕获的旧节点已脱离 DOM。
+      const liveSlot = $('#update-slot');
+      if (liveSlot) liveSlot.textContent = ' · 检测失败';
+      const liveStatus = $('#update-status');
+      if (liveStatus) liveStatus.textContent = '检测失败';
       if (force) toast('检测失败，请稍后重试', 'warn');
     } finally {
       if (btn) btn.disabled = false;
@@ -1421,7 +1445,9 @@
     const status = $('#update-status');
     const banner = $('#update-banner');
     const latest = r.latest || '';
-    const url = r.url || 'https://github.com/ForAllCodeSouls/acmesh-panel';
+    // URL 来自可被备份恢复的状态，必须限制为 https，杜绝 javascript: 协议注入。
+    const defURL = 'https://github.com/ForAllCodeSouls/acmesh-panel';
+    const url = /^https:\/\//i.test(r.url || '') ? r.url : defURL;
     const need = !!r.need_update;
 
     if (slot) {
@@ -1461,13 +1487,14 @@
   }
 
   async function checkStorage() {
-    const slot = $('#storage-slot');
-    if (!slot) return;
     try {
       const r = await api('/api/storage');
-      slot.textContent = ` · ${r.path || 'panel.db'} · ${fmtSize(r.size)} · 任务 ${r.jobs} / 审计 ${r.audit} / 同步 ${r.sync_events} / 指纹 ${r.sync_seen} 条`;
+      // 每次写入前重新查询：loadSysInfo 可能已重建 #sys-info，旧节点已脱离 DOM。
+      const slot = $('#storage-slot');
+      if (slot) slot.textContent = ` · ${r.path || 'panel.db'} · ${fmtSize(r.size)} · 任务 ${r.jobs} / 审计 ${r.audit} / 同步 ${r.sync_events} / 指纹 ${r.sync_seen} 条`;
     } catch (e) {
-      slot.textContent = ' · 读取失败';
+      const slot = $('#storage-slot');
+      if (slot) slot.textContent = ' · 读取失败';
     }
   }
 
@@ -1509,6 +1536,7 @@
         </tr>`).join('') || `<tr><td colspan="5" class="muted">${auditHasFilter() ? '没有符合筛选条件的记录' : '暂无记录'}</td></tr>`;
 
       // 填充动作 / 用户下拉（保留当前选择）
+      let staleFilter = false;
       const fill = (sel, list, allLabel) => {
         const el = $(sel);
         if (!el) return;
@@ -1516,9 +1544,13 @@
         el.innerHTML = `<option value="">${allLabel}</option>` +
           (list || []).map((v) => `<option value="${esc(v)}">${esc(v)}</option>`).join('');
         el.value = cur;
+        // 当前值已不在新选项里（旧数据被清理）：下拉显示「全部」但后端仍按
+        // 旧值过滤，界面与数据脱节。清空筛选并重新加载，保持一致。
+        if (cur && el.value !== cur) { el.value = ''; staleFilter = true; }
       };
       fill('#audit-action', r.actions, '全部动作');
       fill('#audit-user', r.users, '全部用户');
+      if (staleFilter) { loadAudit(true); return; }
 
       const shown = (r.entries || []).length;
       const from = state.auditTotal ? state.auditPage * AUDIT_PAGE_SIZE + 1 : 0;
@@ -1830,8 +1862,13 @@
   }
 
   function fileKind(name) {
+    // 同步事件的文件名由后端附上权威 (kind) 后缀，优先解析它；
+    // 再回退到文件名正则。与目录文件列表的 kind 标识保持一致。
+    const tagged = /\((key|cert|chain)\)\s*$/i.exec(name || '');
+    if (tagged) return tagged[1].toLowerCase();
     if (/_key|_priv|\.key/i.test(name)) return 'key';
     if (/_cert|\.cer|\.crt/i.test(name)) return 'cert';
+    if (/_chain|_fullchain|\.chain/i.test(name)) return 'chain';
     return 'file';
   }
 
@@ -1852,7 +1889,7 @@
       lastDay = day;
       const files = (e.files || []).map((name) => {
         const kind = fileKind(name);
-        const mark = kind === 'key' ? '钥' : kind === 'cert' ? '证' : '档';
+        const mark = kind === 'key' ? '钥' : kind === 'cert' ? '证' : kind === 'chain' ? '链' : '档';
         return `<span class="file-chip ${kind}"><span class="file-ico">${mark}</span>${esc(name)}</span>`;
       }).join('');
       const merged = e.merged > 1 ? `<span class="chip merged">合并 ${e.merged} 条</span>` : '';
@@ -1976,21 +2013,21 @@
     const h = host || {};
     const editing = !!h.id;
     const body = `
-      <div class="field"><label>名称（自己起个好记的）</label><input id="rm-name" value="${esc(h.name || '')}" placeholder="例如 家里的 NAS"></div>
-      <div class="field"><label>主机地址（IP 或域名）</label><input id="rm-host" value="${esc(h.host || '')}" placeholder="192.168.1.10 或 nas.example.com"></div>
+      <div class="field"><label for="rm-name">名称（自己起个好记的）</label><input id="rm-name" value="${esc(h.name || '')}" placeholder="例如 家里的 NAS"></div>
+      <div class="field"><label for="rm-host">主机地址（IP 或域名）</label><input id="rm-host" value="${esc(h.host || '')}" placeholder="192.168.1.10 或 nas.example.com"></div>
       <div class="grid2">
-        <div class="field"><label>SSH 端口</label><input id="rm-port" type="number" min="1" max="65535" value="${h.port || 22}"></div>
-        <div class="field"><label>SSH 用户名</label><input id="rm-user" value="${esc(h.user || '')}" placeholder="root"></div>
+        <div class="field"><label for="rm-port">SSH 端口</label><input id="rm-port" type="number" min="1" max="65535" value="${h.port || 22}"></div>
+        <div class="field"><label for="rm-user">SSH 用户名</label><input id="rm-user" value="${esc(h.user || '')}" placeholder="root"></div>
       </div>
-      <div class="field"><label>远程证书目录（绝对路径，需提前建好）</label><input id="rm-dir" value="${esc(h.remote_dir || '')}" placeholder="/etc/ssl/certs"></div>
-      <div class="field"><label>负责的域名（可选，逗号分隔）</label><input id="rm-domains" value="${esc((h.domains || []).join(', '))}" placeholder="例如 pyworker.example.com, *.pyworker.example.com"></div>
+      <div class="field"><label for="rm-dir">远程证书目录（绝对路径，需提前建好）</label><input id="rm-dir" value="${esc(h.remote_dir || '')}" placeholder="/etc/ssl/certs"></div>
+      <div class="field"><label for="rm-domains">负责的域名（可选，逗号分隔）</label><input id="rm-domains" value="${esc((h.domains || []).join(', '))}" placeholder="例如 pyworker.example.com, *.pyworker.example.com"></div>
       <p class="hint">这里的「名称」只是给自己看的备注，不参与域名匹配。填写「负责的域名」后，只有证书内容（CN/SAN）属于这些域名的文件才会同步到这台主机；留空表示内容匹配的证书全部同步。填写时通配符 * 可以省略。</p>
-      <div class="field"><label>认证方式</label><select id="rm-auth">
+      <div class="field"><label for="rm-auth">认证方式</label><select id="rm-auth">
         <option value="key" ${h.auth_mode !== 'password' ? 'selected' : ''}>SSH 私钥（推荐）</option>
         <option value="password" ${h.auth_mode === 'password' ? 'selected' : ''}>账号密码</option>
       </select></div>
-      <div class="field" id="rm-key-field"><label>SSH 私钥（${editing ? '留空表示不修改' : '粘贴私钥内容'}）</label><textarea id="rm-key" rows="5" placeholder="${editing ? esc(h.key_masked || '') : '-----BEGIN OPENSSH PRIVATE KEY-----'}"></textarea></div>
-      <div class="field hidden" id="rm-pass-field"><label>SSH 登录密码（${editing ? '留空表示不修改' : '填写账号对应的密码'}）</label><input id="rm-pass" type="password" autocomplete="new-password" placeholder="${editing ? esc(h.password_masked || '') : ''}"></div>
+      <div class="field" id="rm-key-field"><label for="rm-key">SSH 私钥（${editing ? '留空表示不修改' : '粘贴私钥内容'}）</label><textarea id="rm-key" rows="5" placeholder="${editing ? esc(h.key_masked || '') : '-----BEGIN OPENSSH PRIVATE KEY-----'}"></textarea></div>
+      <div class="field hidden" id="rm-pass-field"><label for="rm-pass">SSH 登录密码（${editing ? '留空表示不修改' : '填写账号对应的密码'}）</label><input id="rm-pass" type="password" autocomplete="new-password" placeholder="${editing ? esc(h.password_masked || '') : ''}"></div>
       <p class="hint" id="rm-auth-hint">凭证加密保存在面板数据目录，不写入命令行、不落到网页。首次连接会记录主机密钥指纹，之后密钥变化会拒绝连接。</p>
       <label class="check card"><input id="rm-enabled" type="checkbox" ${h.enabled !== false ? 'checked' : ''}> 启用这台主机</label>
       <label class="check card"><input id="rm-autopush" type="checkbox" ${h.auto_push ? 'checked' : ''}> 本地同步成功后自动同步到此主机（还需同步规则选择这台主机）</label>
@@ -2136,11 +2173,11 @@
     const srcOpts = sources.map((s) =>
       `<option value="${esc(s)}" ${s === (r.source || '*') ? 'selected' : ''}>${esc(s)}</option>`).join('');
     const body = `
-      <div class="field"><label>规则名称（自己起个好记的）</label><input id="sy-name" value="${esc(r.name || p.name || '')}"></div>
-      <div class="field"><label>怎么找到要覆盖的文件</label><select id="sy-mode">${modes}</select><p class="hint" id="sy-mode-hint"></p></div>
-      <div class="field"><label>文件名匹配写法（仅「按文件名通配匹配」需要填）</label><input id="sy-pattern" value="${esc(r.pattern || p.pattern || '')}" placeholder="*_cert.pem"></div>
-      <div class="field"><label>用哪张面板证书的内容写入</label><select id="sy-source">${srcOpts}</select><p class="hint">选 * 表示所有证书，会逐张尝试匹配。</p></div>
-      <div class="field"><label>远程主机（本规则命中的文件才同步到选中的主机）</label>
+      <div class="field"><label for="sy-name">规则名称（自己起个好记的）</label><input id="sy-name" value="${esc(r.name || p.name || '')}"></div>
+      <div class="field"><label for="sy-mode">怎么找到要覆盖的文件</label><select id="sy-mode">${modes}</select><p class="hint" id="sy-mode-hint"></p></div>
+      <div class="field"><label for="sy-pattern">文件名匹配写法（仅「按文件名通配匹配」需要填）</label><input id="sy-pattern" value="${esc(r.pattern || p.pattern || '')}" placeholder="*_cert.pem"></div>
+      <div class="field"><label for="sy-source">用哪张面板证书的内容写入</label><select id="sy-source">${srcOpts}</select><p class="hint">选 * 表示所有证书，会逐张尝试匹配。</p></div>
+      <div class="field"><label for="sy-remote-hosts">远程主机（本规则命中的文件才同步到选中的主机）</label>
         <div id="sy-remote-hosts">${remoteHosts.length
           ? remoteHosts.map((h) => `<label class="check"><input type="checkbox" value="${esc(h.id)}" ${(r.remote_hosts || []).includes(h.id) ? 'checked' : ''}> ${esc(h.name)} · ${esc(h.user)}@${esc(h.host)}</label>`).join('')
           : '<p class="hint">还没有远程主机，请先在「远程同步」分区添加。</p>'}</div>

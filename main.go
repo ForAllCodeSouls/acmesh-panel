@@ -257,25 +257,52 @@ func orNone(s string) string {
 }
 
 func randPassword(n int) string {
-	const alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789"
-	// 直接从 crypto/rand 字节做拒绝采样：旧做法把 base64url 字符 ASCII 值取模
-	// alphabet 长度，分布严重偏置（有字符永不出现）。拒绝采样保证每个字符等概率。
-	limit := 256 - (256 % len(alphabet))
+	// 三类字符分别取样，保证结果一定同时含大写/小写/数字——否则约 9% 的
+	// 16 位密码会缺数字，被 strongPassword 拒绝后 log.Fatalf 让首次启动崩溃。
+	const uppers = "ABCDEFGHJKLMNPQRSTUVWXYZ"
+	const lowers = "abcdefghijkmnopqrstuvwxyz"
+	const digits = "23456789"
+	const alphabet = uppers + lowers + digits
+	if n < 3 {
+		n = 3
+	}
+
+	// 单次拒绝采样：丢弃超出整段的字节，避免取模偏置。
+	pick := func(set string) byte {
+		limit := 256 - (256 % len(set))
+		var raw [1]byte
+		for {
+			if _, err := rand.Read(raw[:]); err != nil {
+				panic("crypto/rand 不可用: " + err.Error())
+			}
+			if int(raw[0]) < limit {
+				return set[int(raw[0])%len(set)]
+			}
+		}
+	}
+
 	b := make([]byte, 0, n)
+	b = append(b, pick(uppers), pick(lowers), pick(digits))
 	for len(b) < n {
-		var raw [64]byte
-		if _, err := rand.Read(raw[:]); err != nil {
-			panic("crypto/rand 不可用: " + err.Error())
-		}
-		for _, c := range raw {
-			if int(c) >= limit {
-				continue // 丢弃超出整段的字节，避免取模偏置
+		b = append(b, pick(alphabet))
+	}
+	// Fisher-Yates 打乱，避免前三位固定为大写/小写/数字的可预测顺序。
+	// 索引采样同样用拒绝采样，保证每个下标等概率。
+	randIndex := func(m int) int {
+		limit := 256 - (256 % m)
+		var raw [1]byte
+		for {
+			if _, err := rand.Read(raw[:]); err != nil {
+				panic("crypto/rand 不可用: " + err.Error())
 			}
-			b = append(b, alphabet[int(c)%len(alphabet)])
-			if len(b) == n {
-				break
+			if int(raw[0]) < limit {
+				return int(raw[0]) % m
 			}
 		}
+	}
+	for i := len(b) - 1; i > 0; i-- {
+		j := randIndex(i + 1)
+		b[i], b[j] = b[j], b[i]
 	}
 	return string(b)
 }

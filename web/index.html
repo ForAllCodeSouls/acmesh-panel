@@ -83,7 +83,7 @@
       <div class="toolbar">
         <button class="btn ghost small" id="renew-all-btn">检查全部续期</button>
         <span class="grow"></span>
-        <input id="cert-filter" class="input search" placeholder="搜索域名…" spellcheck="false">
+        <label class="sr-only" for="cert-filter">搜索证书域名</label><input id="cert-filter" class="input search" aria-label="搜索证书域名" placeholder="搜索域名…" spellcheck="false">
       </div>
       <div id="cert-list" class="cert-grid"></div>
       <div id="cert-empty" class="empty hidden">
@@ -104,7 +104,7 @@
         <h3>默认 ACME 通知邮箱</h3>
         <p class="tiny muted">Let's Encrypt 等 CA 的到期提醒会发到这个邮箱。签发单张证书时可以单独指定，留空则使用这里配置的默认值。</p>
         <div class="row mt12">
-          <input id="default-email" class="grow" type="email" placeholder="you@example.com" spellcheck="false">
+          <input id="default-email" class="grow" type="email" aria-label="默认 ACME 通知邮箱" placeholder="you@example.com" spellcheck="false">
           <button class="btn small" id="save-default-email">保存</button>
         </div>
         <p class="hint" id="default-email-source">未设置时，签发不带 --accountemail，使用 acme.sh 安装时配置的账户。</p>
@@ -292,7 +292,7 @@
             <div class="row mt4">
               <button class="btn small" id="force-https-save" type="button">保存</button>
             </div>
-            <p class="hint" id="force-https-hint">开启后，通过 IP / 端口的 HTTP 直连会被拒绝，只能经 HTTPS 反代访问；反代需传递 <code>X-Forwarded-Proto: https</code>。健康检查 <code>/api/health</code> 不受限制。若 HTTPS 也打不开，设置 <code>ACME_PANEL_FORCE_HTTPS=0</code> 重启即可临时关闭。</p>
+            <p class="hint" id="force-https-hint">开启后，通过 IP / 端口的 HTTP 直连会被静默断连（等同访问空端口），只能经 HTTPS 反代访问；反代需传递 <code>X-Forwarded-Proto: https</code>。健康检查 <code>/api/health</code> 不受限制。若 HTTPS 也打不开，设置 <code>ACME_PANEL_FORCE_HTTPS=0</code> 后执行 <code>docker compose up -d</code> 即可恢复（restart 不会刷新环境变量）。</p>
           </div>
           <div class="update-panel mt12">
             <div class="panel-head">

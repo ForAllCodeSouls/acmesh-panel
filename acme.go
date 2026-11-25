@@ -683,7 +683,7 @@ func (m *JobManager) run(j *Job, env map[string]string, args []string) {
 		return
 	}
 	sc := bufio.NewScanner(stdout)
-	sc.Buffer(make([]byte, 0, 64*1024), 1024*1024)
+	sc.Buffer(make([]byte, 0, 64*1024), 8*1024*1024)
 	rawLines := make([]string, 0, 32)
 	var skipAt time.Time
 	for sc.Scan() {
@@ -696,11 +696,25 @@ func (m *JobManager) run(j *Job, env map[string]string, args []string) {
 		}
 		m.push(j, redactLine(line, env))
 	}
+	// Scanner 触及上限会静默停止读取；此时子进程仍在写管道，cmd.Wait 会一直
+	// 等到 15 分钟超时。必须显式检查 Err 并取消进程，让任务立即失败。
+	scanErr := sc.Err()
+	logTooLong := errors.Is(scanErr, bufio.ErrTooLong)
+	if scanErr != nil {
+		if logTooLong {
+			m.push(j, "✗ 单行日志超过 8MB，已中止任务")
+		} else {
+			m.push(j, "✗ 读取任务日志失败: "+scanErr.Error())
+		}
+		cancel()
+	}
 	err = cmd.Wait()
 	m.mu.Lock()
 	delete(m.canc, j.ID)
 	m.mu.Unlock()
-	if err == nil {
+	if logTooLong {
+		m.finish(j, "failed", "日志行过长（超过 8MB），已中止")
+	} else if err == nil {
 		m.push(j, "✓ 完成")
 		m.finish(j, "success", "")
 	} else if !skipAt.IsZero() {

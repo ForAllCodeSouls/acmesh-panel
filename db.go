@@ -189,6 +189,30 @@ func (s *Store) Cleanup(days int) (map[string]int, error) {
 	// 会让 cutoff 所在整秒的记录逃过清理。审计单独用秒精度保持一致。
 	auditCutoff := cutoffTime.Format(time.RFC3339)
 
+	// 先过滤 state 里的同步记录并落盘。若这一步失败，SQL 行完全不动，
+	// 避免出现「jobs/audit 已永久删除、却向用户报告清理失败」的部分生效。
+	s.mu.Lock()
+	before := len(s.state.SyncEvents)
+	kept := make([]SyncEvent, 0, before)
+	for _, ev := range s.state.SyncEvents {
+		t, err := time.Parse(time.RFC3339, ev.Time)
+		if err == nil && t.Before(cutoffTime) {
+			continue
+		}
+		kept = append(kept, ev)
+	}
+	if len(kept) != before {
+		s.state.SyncEvents = kept
+		if err := s.saveLocked(); err != nil {
+			s.mu.Unlock()
+			return out, err
+		}
+		out["sync_events"] = before - len(kept)
+	}
+	s.mu.Unlock()
+
+	// state 已成功落盘，再删除 jobs/audit。即使这里失败，重试也是幂等的：
+	// 同步记录已被过滤掉，不会重复计数。
 	tx, err := s.db.Begin()
 	if err != nil {
 		return out, err
@@ -204,26 +228,6 @@ func (s *Store) Cleanup(days int) (map[string]int, error) {
 	}
 	if err := tx.Commit(); err != nil {
 		return out, err
-	}
-
-	// 同步记录仍在 state 的 JSON 里，过滤后由 saveLocked 事务写回。
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	before := len(s.state.SyncEvents)
-	kept := make([]SyncEvent, 0, before)
-	for _, ev := range s.state.SyncEvents {
-		t, err := time.Parse(time.RFC3339, ev.Time)
-		if err == nil && t.Before(cutoffTime) {
-			continue
-		}
-		kept = append(kept, ev)
-	}
-	if len(kept) != before {
-		s.state.SyncEvents = kept
-		if err := s.saveLocked(); err != nil {
-			return out, err
-		}
-		out["sync_events"] = before - len(kept)
 	}
 	return out, nil
 }

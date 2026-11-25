@@ -23,6 +23,17 @@ func TestRedactArgsMasksKeyValue(t *testing.T) {
 	}
 }
 
+// TestRandPasswordAlwaysStrong 保证自动生成的初始密码一定通过 strongPassword。
+// 旧实现 16 位里约 8.9% 概率没有数字（数字只占字符集 8/57），首次启动直接崩溃。
+func TestRandPasswordAlwaysStrong(t *testing.T) {
+	for i := 0; i < 10000; i++ {
+		p := randPassword(16)
+		if !strongPassword(p) {
+			t.Fatalf("第 %d 次生成的密码不满足策略: %q", i, p)
+		}
+	}
+}
+
 func TestRandPasswordUsesFullAlphabet(t *testing.T) {
 	const alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789"
 	seen := map[byte]bool{}

@@ -314,7 +314,11 @@ textarea { font-family: var(--mono); font-size: 12.5px; resize: vertical; min-he
 }
 .file-chip.cert { color: #8bf0c1; border-color: #22684e; background: #123b2c; }
 .file-chip.key { color: #ffb3ad; border-color: #742d33; background: #38191c; }
+.file-chip.chain { color: #a9c8ff; border-color: #35558a; background: #15233c; }
 .file-ico { font-size: 10px; opacity: .85; }
+.sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
+.link-btn { border: 0; background: none; padding: 0; color: var(--accent); font: inherit; cursor: pointer; text-decoration: underline; }
+.link-btn:hover { filter: brightness(1.15); }
 .event-detail { font-size: 11.5px; line-height: 1.6; font-family: var(--mono); color: #a8bacb; background: #0a1219; border: 1px solid var(--line-soft); border-radius: 8px; padding: 8px 10px; word-break: break-all; }
 .event-detail.is-error { color: #ffbeb8; background: #2a1216; border-color: #6b2b31; }
 .event-note { font-size: 11.5px; color: var(--muted); }

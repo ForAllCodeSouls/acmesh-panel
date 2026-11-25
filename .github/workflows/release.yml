@@ -27,6 +27,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       version: ${{ steps.ver.outputs.version }}
+      plain: ${{ steps.ver.outputs.plain }}
     steps:
       - uses: actions/checkout@v4
       - name: 读取版本

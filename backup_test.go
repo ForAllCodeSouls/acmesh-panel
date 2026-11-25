@@ -4,12 +4,40 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
 )
+
+func TestRestoreCapsSyncEvents(t *testing.T) {
+	st, err := NewStore(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	in := State{}
+	for i := 0; i < 300; i++ {
+		in.SyncEvents = append(in.SyncEvents, SyncEvent{
+			Time:   fmt.Sprintf("2026-11-25T10:%02d:00+08:00", i%60),
+			Rule:   fmt.Sprintf("事件 %d", i),
+			Result: "ok",
+		})
+	}
+	if err := st.Restore(in); err != nil {
+		t.Fatal(err)
+	}
+	got := st.AllSyncEvents()
+	if len(got) != 120 {
+		t.Fatalf("恢复后同步记录应为 120 条，得到 %d", len(got))
+	}
+	// AllSyncEvents 是倒序，保留的应是最新的 120 条（事件 180..299）。
+	if !strings.Contains(got[0].Rule, "299") || !strings.Contains(got[len(got)-1].Rule, "180") {
+		t.Fatalf("保留的不是最新 120 条: 首=%s 尾=%s", got[0].Rule, got[len(got)-1].Rule)
+	}
+}
 
 // ---------------- 合并同步记录的筛选 ----------------
 
