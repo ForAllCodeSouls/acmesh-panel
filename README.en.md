@@ -21,7 +21,7 @@
 |---|---|
 | **Authentication** | Single account + PBKDF2-HMAC-SHA256 (600k iterations); `HttpOnly` + `SameSite=Strict` cookie; CSRF token + origin checks; per-IP exponential lockout after 5 failures; optional 90-day "stay logged in"; env vars initialize credentials on first boot only — later changes made in the web UI persist across restarts, no web signup |
 | **Certificates** | Scans acme.sh home and parses X.509: SANs, issuer, validity, key type, days remaining, expiry alerts |
-| **Issuance** | DNS API validation, wildcard support; 18 built-in DNS providers (Alibaba Cloud / Cloudflare / DNSPod / Tencent Cloud / GoDaddy / Huawei Cloud / AWS / Namecheap / Dynu / Hurricane Electric / FreeDNS / Gandi / DigitalOcean / Linode / Vultr / Bunny.net / Porkbun / deSEC); ECC 256/384 and RSA 2048/4096 |
+| **Issuance** | DNS API validation, wildcard support; 19 built-in DNS providers (Alibaba Cloud / Cloudflare / DNSPod / Tencent Cloud / GoDaddy / Huawei Cloud / AWS / Namecheap / Dynu / Hurricane Electric / FreeDNS / Gandi / DigitalOcean / Linode / Vultr / Bunny.net / Porkbun / deSEC / DuckDNS), each with a direct official-site link; ECC 256/384 and RSA 2048/4096 |
 | **E-mail** | Global default ACME e-mail + per-domain overrides |
 | **Notifications** | Gotify / generic webhook / ServerChan³ / DingTalk / Feishu (Lark) / Bark; 11 subscribable events |
 | **Private keys** | View + copy + download with double confirmation, audit logging, 60-second auto-clear |

@@ -61,6 +61,7 @@ const app = fs.readFileSync(path.join(root, 'web', 'app.js'), 'utf8');
 const readme = fs.readFileSync(path.join(root, 'README.md'), 'utf8');
 const goBackup = fs.readFileSync(path.join(root, 'backup.go'), 'utf8');
 const goApi = fs.readFileSync(path.join(root, 'api.go'), 'utf8');
+const goAcme = fs.readFileSync(path.join(root, 'acme.go'), 'utf8');
 
 function tabsMatch(tabsRe, panelsRe, label) {
   const tabs = [...html.matchAll(tabsRe)].map((m) => m[1]);
@@ -163,5 +164,12 @@ check('运行信息说明 env 不再强制覆盖', app.includes('重启不会被
   && app.includes('ACME_PANEL_RESET_CREDENTIALS=1'));
 check('会话凭据来源优先取 cred_source', app.includes("s.cred_source || s.username_source")
   && app.includes("s.cred_source || s.password_source"));
+check('DNS 凭证展示服务商官网链接', app.includes('function websiteHTML')
+  && app.includes('provider-site') && app.includes('target="_blank" rel="noopener noreferrer"')
+  && app.includes('websiteHTML(code) + def.fields'));
+check('官网链接仅允许 https', app.includes('/^https:\\/\\//i.test(def.website)'));
+check('CSS 有官网链接样式', css.includes('.provider-site a'));
+check('provider 目录带 website 字段', goAcme.includes('Website string') && goAcme.includes('json:"website"')
+  && goAcme.includes('"dns_duckdns"'));
 
 console.log(`web UI checks: ${passed} passed`);

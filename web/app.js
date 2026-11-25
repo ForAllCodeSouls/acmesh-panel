@@ -640,10 +640,18 @@
       `<option value="${esc(p.code)}"${p.code === selected ? ' selected' : ''}>${esc(p.name)} (${esc(p.code)})</option>`).join('');
   }
 
+  function websiteHTML(code) {
+    const def = (state.catalog?.providers || []).find((p) => p.code === code);
+    if (!def?.website) return '';
+    // 官网地址来自后端固定目录，仍限制为 https 并转义，杜绝脚本协议注入。
+    if (!/^https:\/\//i.test(def.website)) return '';
+    return `<div class="field provider-site"><a href="${esc(def.website)}" target="_blank" rel="noopener noreferrer">打开 ${esc(def.name)} 官网获取凭证 ↗</a></div>`;
+  }
+
   function envFieldsHTML(code) {
     const def = (state.catalog?.providers || []).find((p) => p.code === code);
     if (!def) return '';
-    return def.fields.map((f) => `
+    return websiteHTML(code) + def.fields.map((f) => `
       <div class="field">
         <label for="env-${esc(f.name)}">${esc(f.label)}${f.optional ? '（可选）' : ''}</label>
         <input id="env-${esc(f.name)}" data-env="${esc(f.name)}" type="${f.secret ? 'password' : 'text'}"

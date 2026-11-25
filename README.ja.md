@@ -21,7 +21,7 @@
 |---|---|
 | **認証** | 単一アカウント + PBKDF2-HMAC-SHA256（600k 反復）；`HttpOnly` + `SameSite=Strict` Cookie；CSRF トークン + Origin 検証；IP ごとに 5 回失敗で指数バックオフロック；任意の 90 日「ログイン保持」。環境変数は**初回起動時のみ**認証情報を初期化し、以後は Web UI での変更が永続化（再起動で上書きされない）。Web 登録画面なし |
 | **証明書管理** | acme.sh home を走査して X.509 を解析：SAN・発行者・有効期限・鍵種別・残日数・期限切れ警告 |
-| **発行** | DNS API 自動検証、ワイルドカード対応；18 種類の DNS プロバイダ内蔵（Alibaba Cloud / Cloudflare / DNSPod / Tencent Cloud / GoDaddy / Huawei Cloud / AWS / Namecheap / Dynu / Hurricane Electric / FreeDNS / Gandi / DigitalOcean / Linode / Vultr / Bunny.net / Porkbun / deSEC）；ECC 256/384、RSA 2048/4096 |
+| **発行** | DNS API 自動検証、ワイルドカード対応；19 種類の DNS プロバイダ内蔵（Alibaba Cloud / Cloudflare / DNSPod / Tencent Cloud / GoDaddy / Huawei Cloud / AWS / Namecheap / Dynu / Hurricane Electric / FreeDNS / Gandi / DigitalOcean / Linode / Vultr / Bunny.net / Porkbun / deSEC / DuckDNS）、各プロバイダの公式サイトへのリンク付き；ECC 256/384、RSA 2048/4096 |
 | **メール** | グローバル既定 ACME メール + ドメイン別上書き |
 | **通知** | Gotify / 汎用 Webhook / ServerChan³ / DingTalk / Feishu(Lark) / Bark、11 種類のイベント購読 |
 | **秘密鍵** | 二重確認 + 監査ログ + 60 秒自動クリア、コピー・ダウンロード対応 |

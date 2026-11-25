@@ -54,7 +54,7 @@ English / 日本語 版为精简指南，覆盖部署与日常使用所需的全
 |---|---|
 | **登录认证** | 单账号 + PBKDF2-HMAC-SHA256（600k 次迭代）；Cookie `HttpOnly` + `SameSite=Strict`；CSRF Token + Origin 校验；5 次失败按 IP 指数退避锁定；可选「保持登录」90 天；环境变量仅首次初始化账号密码，之后可在设置页修改并持久保存，无 Web 注册入口 |
 | **证书管理** | 扫描 acme.sh home，解析 x509：SAN、签发者、有效期、密钥类型、剩余天数、过期告警 |
-| **签发** | DNS API 自动验证，支持泛域名；内置 18 家 DNS 服务商（阿里云 / Cloudflare / DNSPod / 腾讯云 / GoDaddy / 华为云 / AWS / Namecheap / Dynu / Hurricane Electric / FreeDNS / Gandi / DigitalOcean / Linode / Vultr / Bunny.net / Porkbun / deSEC）；ECC 256/384、RSA 2048/4096 |
+| **签发** | DNS API 自动验证，支持泛域名；内置 19 家 DNS 服务商（阿里云 / Cloudflare / DNSPod / 腾讯云 / GoDaddy / 华为云 / AWS / Namecheap / Dynu / Hurricane Electric / FreeDNS / Gandi / DigitalOcean / Linode / Vultr / Bunny.net / Porkbun / deSEC / DuckDNS），每家都带官网直达链接；ECC 256/384、RSA 2048/4096 |
 | **邮箱** | 全局默认 ACME 邮箱 + 按域名覆盖，留空自动回落 |
 | **通知** | Gotify / 通用 Webhook / Server 酱³ / 钉钉 / 飞书 / Bark，11 种事件可订阅 |
 | **私钥** | 明文查看 + 一键复制 + 下载，二次确认 + 审计 + 60 秒自动清屏 |
@@ -506,7 +506,7 @@ Windows 上 acme.sh 需要 WSL / Git Bash 环境；只想用面板的话建议�
 
 ### 5.2 签发证书
 
-填域名（每行一个，首个为主域名）→ 选 DNS 服务商与凭证（可加密保存）→ 选密钥类型与 CA → 提交后跳到任务页看 SSE 实时日志。
+填域名（每行一个，首个为主域名）→ 选 DNS 服务商与凭证（可加密保存）→ 选密钥类型与 CA → 提交后跳到任务页看 SSE 实时日志。选好服务商后，弹窗里会直接给出该服务商的官网链接（新标签页打开），点开登录后即可获取 API 凭证。
 
 | 服务商 | 字段 |
 |---|---|
@@ -528,6 +528,15 @@ Windows 上 acme.sh 需要 WSL / Git Bash 环境；只想用面板的话建议�
 | Bunny.net | `BUNNY_API_KEY` |
 | Porkbun | `PORKBUN_API_KEY` / `PORKBUN_SECRET_API_KEY` |
 | deSEC | `DEDYN_TOKEN` |
+| DuckDNS | `DuckDNS_Token`（官网 https://www.duckdns.org/ 登录后首页显示的 Token） |
+
+**DuckDNS 申请步骤**（域名托管在 DuckDNS、需要 DNS 验证时）：
+
+1. 打开 <https://www.duckdns.org/>，用任意支持的账号登录（GitHub / Google / Reddit 等）。
+2. 首页会在 "token" 一栏显示你的 Token，复制它（不是域名本身）。
+3. 面板「凭证管理」新增凭证，服务商选 **DuckDNS**，填入 `DuckDNS_Token`，保存。
+4. 「签发证书」里填 DuckDNS 上已存在的域名（例如 `sub.example.com`；泛域名填 `*.example.com`，可再换行加上主域名），选中刚保存的凭证提交。
+5. 面板底层执行 `acme.sh --issue --dns dns_duckdns -d ...`，由 DuckDNS API 自动添加和删除 `_acme-challenge` TXT 记录。
 
 **Dynu 申请步骤**（域名托管在 Dynu、需要 DNS 验证时）：
 

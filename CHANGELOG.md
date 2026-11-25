@@ -2,6 +2,12 @@
 
 本文件遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)。
 
+## [0.1.50] - 2026-11-25
+
+### 新增
+- DNS 服务商目录新增 **DuckDNS**（`dns_duckdns`，凭证字段 `DuckDNS_Token`，官网 https://www.duckdns.org/），可用于签发 `*.duckdns.org` 泛域名证书。
+- 「签发证书」和「添加 DNS 凭证」弹窗里，选好服务商后直接显示该服务商的官网链接（新标签页打开），方便登录后获取 API 凭证；链接仅接受 https，避免脚本协议注入。
+
 ## [0.1.49] - 2026-11-25
 
 ### 修复

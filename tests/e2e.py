@@ -491,6 +491,18 @@ def main():
         check("Porkbun 凭证字段正确", porkbun is not None and
               {f["name"] for f in porkbun.get("fields", [])} ==
               {"PORKBUN_API_KEY", "PORKBUN_SECRET_API_KEY"}, porkbun)
+        duckdns = next((p for p in j.get("catalog", []) if p.get("code") == "dns_duckdns"), None)
+        check("DuckDNS 服务商可用", duckdns is not None, j.get("catalog"))
+        check("DuckDNS 凭证字段正确", duckdns is not None and
+              {f["name"] for f in duckdns.get("fields", [])} == {"DuckDNS_Token"}, duckdns)
+        st, _, j = c.j("POST", "/api/providers", {"name": "duckdns-test", "code": "dns_duckdns",
+                                                   "env": {"DuckDNS_Token": "duckdns-token-test"}})
+        check("DuckDNS 凭证可保存", st == 200, (st, j))
+        st, _, j = c.j("GET", "/api/providers")
+        check("所有服务商均带官网链接", st == 200 and
+              all(p.get("website", "").startswith("https://") for p in j.get("catalog", [])) and
+              len(j.get("catalog", [])) >= 19, j.get("catalog"))
+        check("DuckDNS 官网正确", next((p for p in j.get("catalog", []) if p.get("code") == "dns_duckdns"), {}).get("website") == "https://www.duckdns.org/")
 
         # ---- 续期 ----
         st, _, j = c.j("POST", "/api/certs/example.com_ecc/renew", {"force": True})
