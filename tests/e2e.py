@@ -507,6 +507,8 @@ def main():
         check("失效的 acme.sh code 已移除", not ({"dns_do", "dns_gandi", "dns_linode"} & codes), codes)
         check("修正后的 acme.sh code 已就位", {"dns_dgon", "dns_gandi_livedns", "dns_linode_v4"} <= codes, codes)
         check("新增服务商已内置", {"dns_pdns", "dns_nsupdate", "dns_jd", "dns_baidu", "dns_dpi"} <= codes, codes)
+        ordered = [p.get("code") for p in j.get("catalog", [])]
+        check("服务商目录按 code 字母序返回", ordered == sorted(ordered), ordered[:6])
         st, _, j = c.j("POST", "/api/providers", {"name": "legacy-do-test", "code": "dns_do",
                                                    "env": {"DO_API_KEY": "legacy-token-test"}})
         check("旧 code 保存时自动归一", st == 200, (st, j))

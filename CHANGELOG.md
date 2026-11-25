@@ -2,6 +2,11 @@
 
 本文件遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)。
 
+## [0.1.52] - 2026-11-25
+
+### 变更
+- DNS 服务商目录按 acme.sh code 字母序排列（`dns_acmedns` → `dns_vultr`）；签发弹窗与凭证弹窗的下拉框同步变为字母序，前端另加一道排序兜底。服务商清单表格也按同一顺序重排。
+
 ## [0.1.51] - 2026-11-25
 
 ### 新增

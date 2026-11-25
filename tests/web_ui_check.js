@@ -177,6 +177,11 @@ check('provider 目录已补齐 43 家', (goAcme.match(/\{"dns_/g) || []).length
 check('失效 code 只保留兼容映射', !goAcme.includes('{"dns_do"')
   && !goAcme.includes('{"dns_gandi"') && !goAcme.includes('{"dns_linode"')
   && goAcme.includes('"dns_do":     "dns_dgon"'));
+check('DNS 凭证下拉按 code 字母序', app.includes('.sort((a, b) => String(a.code).localeCompare(String(b.code)))'));
+check('服务商目录源码按 code 排序', (() => {
+  const codes = [...goAcme.matchAll(/^\t\{"(dns_[a-z0-9_]+)"/gm)].map((m) => m[1]);
+  return codes.length >= 43 && codes.join() === [...codes].sort().join();
+})());
 check('README 引用全部四张示意图', readme.includes('docs/01-overview.svg')
   && readme.includes('docs/02-dns-credential.svg')
   && readme.includes('docs/03-domain-matching.svg')

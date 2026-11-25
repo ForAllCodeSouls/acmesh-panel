@@ -32,49 +32,86 @@ type ProviderDef struct {
 }
 
 var providerCatalog = []ProviderDef{
+	{"dns_acmedns", "ACME-DNS", "https://acme-dns.io/", []EnvField{
+		{Name: "ACMEDNS_SUBDOMAIN", Label: "Subdomain"},
+		{Name: "ACMEDNS_USERNAME", Label: "Username", Secret: true},
+		{Name: "ACMEDNS_PASSWORD", Label: "Password", Secret: true},
+		{Name: "ACMEDNS_UPDATE_URL", Label: "Update URL", Optional: true, Hint: "自建服务时填写"},
+	}},
 	{"dns_ali", "阿里云 DNS", "https://www.aliyun.com/product/dns", []EnvField{
 		{Name: "Ali_Key", Label: "AccessKey ID", Secret: true},
 		{Name: "Ali_Secret", Label: "AccessKey Secret", Secret: true},
 	}},
-	{"dns_cf", "Cloudflare", "https://dash.cloudflare.com/profile/api-tokens", []EnvField{
-		{Name: "CF_Token", Label: "API Token", Hint: "Zone.DNS 编辑权限", Secret: true},
-		{Name: "CF_Account_ID", Label: "Account ID", Optional: true},
-		{Name: "CF_Zone_ID", Label: "Zone ID", Optional: true},
-	}},
-	{"dns_dp", "DNSPod (dnspod.cn)", "https://www.dnspod.cn/", []EnvField{
-		{Name: "DP_Id", Label: "API ID"},
-		{Name: "DP_Key", Label: "API Token", Secret: true},
-	}},
-	{"dns_tencent", "腾讯云 DNSPod", "https://console.cloud.tencent.com/cam/capi", []EnvField{
-		{Name: "Tencent_SecretId", Label: "SecretId", Secret: true},
-		{Name: "Tencent_SecretKey", Label: "SecretKey", Secret: true},
-	}},
-	{"dns_gd", "GoDaddy", "https://developer.godaddy.com/keys", []EnvField{
-		{Name: "GD_Key", Label: "API Key", Secret: true},
-		{Name: "GD_Secret", Label: "API Secret", Secret: true},
-	}},
-	{"dns_huaweicloud", "华为云 DNS", "https://console.huaweicloud.com/dns/", []EnvField{
-		{Name: "HUAWEICLOUD_Username", Label: "用户名"},
-		{Name: "HUAWEICLOUD_Password", Label: "密码", Secret: true},
-		{Name: "HUAWEICLOUD_ProjectID", Label: "Project ID", Optional: true},
+	{"dns_arvan", "ArvanCloud", "https://panel.arvancloud.ir/", []EnvField{
+		{Name: "Arvan_Token", Label: "API Token", Secret: true},
 	}},
 	{"dns_aws", "AWS Route 53", "https://console.aws.amazon.com/iamv2/home#/users", []EnvField{
 		{Name: "AWS_ACCESS_KEY_ID", Label: "Access Key ID", Secret: true},
 		{Name: "AWS_SECRET_ACCESS_KEY", Label: "Secret Access Key", Secret: true},
 		{Name: "AWS_REGION", Label: "Region", Optional: true, Hint: "默认 us-east-1"},
 	}},
-	{"dns_namecheap", "Namecheap", "https://www.namecheap.com/security/api-manager/", []EnvField{
-		{Name: "NAMECHEAP_USERNAME", Label: "用户名"},
-		{Name: "NAMECHEAP_API_KEY", Label: "API Key", Secret: true},
-		{Name: "NAMECHEAP_SOURCEIP", Label: "白名单 IP", Optional: true},
+	{"dns_azure", "Azure DNS", "https://portal.azure.com/", []EnvField{
+		{Name: "AZUREDNS_SUBSCRIPTIONID", Label: "Subscription ID", Secret: true},
+		{Name: "AZUREDNS_TENANTID", Label: "Tenant ID", Secret: true},
+		{Name: "AZUREDNS_APPID", Label: "Application (client) ID", Secret: true},
+		{Name: "AZUREDNS_CLIENTSECRET", Label: "Client Secret", Secret: true},
+	}},
+	{"dns_baidu", "百度云 DNS", "https://console.bce.baidu.com/iam/", []EnvField{
+		{Name: "Baidu_AK", Label: "Access Key ID", Secret: true},
+		{Name: "Baidu_SK", Label: "Secret Access Key", Secret: true},
+	}},
+	{"dns_bunny", "Bunny.net", "https://bunny.net/account/settings/api", []EnvField{
+		{Name: "BUNNY_API_KEY", Label: "API Key", Secret: true},
+	}},
+	{"dns_cf", "Cloudflare", "https://dash.cloudflare.com/profile/api-tokens", []EnvField{
+		{Name: "CF_Token", Label: "API Token", Hint: "Zone.DNS 编辑权限", Secret: true},
+		{Name: "CF_Account_ID", Label: "Account ID", Optional: true},
+		{Name: "CF_Zone_ID", Label: "Zone ID", Optional: true},
+	}},
+	{"dns_conoha", "ConoHa", "https://www.conoha.jp/", []EnvField{
+		{Name: "CONOHA_Username", Label: "用户名"},
+		{Name: "CONOHA_Password", Label: "密码", Secret: true},
+		{Name: "CONOHA_TenantId", Label: "Tenant ID"},
+		{Name: "CONOHA_IdentityServiceApi", Label: "Identity Service API", Hint: "例如 https://identity.tyo1.conoha.io/v2.0"},
+	}},
+	{"dns_constellix", "Constellix", "https://constellix.com/", []EnvField{
+		{Name: "CONSTELLIX_Key", Label: "API Key", Secret: true},
+		{Name: "CONSTELLIX_Secret", Label: "API Secret", Secret: true},
+	}},
+	{"dns_desec", "deSEC", "https://desec.io/login", []EnvField{
+		{Name: "DEDYN_TOKEN", Label: "API Token", Secret: true},
+	}},
+	{"dns_df", "dyndnsfree.de", "https://www.dyndnsfree.de/", []EnvField{
+		{Name: "DF_user", Label: "用户名"},
+		{Name: "DF_password", Label: "密码", Secret: true},
+	}},
+	{"dns_dgon", "DigitalOcean", "https://cloud.digitalocean.com/account/api/tokens", []EnvField{
+		{Name: "DO_API_KEY", Label: "API Token", Secret: true},
+	}},
+	{"dns_dnsimple", "DNSimple", "https://dnsimple.com/user/authorizations", []EnvField{
+		{Name: "DNSimple_OAUTH_TOKEN", Label: "OAuth Token", Secret: true},
+	}},
+	{"dns_dp", "DNSPod (dnspod.cn)", "https://www.dnspod.cn/", []EnvField{
+		{Name: "DP_Id", Label: "API ID"},
+		{Name: "DP_Key", Label: "API Token", Secret: true},
+	}},
+	{"dns_dpi", "DNSPod 国际站", "https://www.dnspod.com/", []EnvField{
+		{Name: "DPI_Id", Label: "API ID"},
+		{Name: "DPI_Key", Label: "API Token", Secret: true},
+	}},
+	{"dns_duckdns", "DuckDNS", "https://www.duckdns.org/", []EnvField{
+		{Name: "DuckDNS_Token", Label: "API Token", Hint: "打开官网登录后，首页显示的 Token（不是域名）", Secret: true},
 	}},
 	{"dns_dynu", "Dynu DNS", "https://www.dynu.com/en-US/ControlPanel/APICredentials", []EnvField{
 		{Name: "Dynu_ClientId", Label: "Client ID", Hint: "Dynu 控制面板 → API Credentials 里的 OAuth2 Client ID，不是 API Key", Secret: true},
 		{Name: "Dynu_Secret", Label: "Secret", Hint: "同一页面显示的 Secret", Secret: true},
 	}},
-	{"dns_he", "Hurricane Electric", "https://dns.he.net/", []EnvField{
-		{Name: "HE_Username", Label: "用户名"},
-		{Name: "HE_Password", Label: "密码", Secret: true},
+	{"dns_dynv6", "dynv6", "https://dynv6.com/keys", []EnvField{
+		{Name: "DYNV6_TOKEN", Label: "HTTP API Token", Hint: "dynv6 → Keys 页面获取", Secret: true},
+	}},
+	{"dns_easydns", "easyDNS", "https://my.easydns.com/", []EnvField{
+		{Name: "EASYDNS_Key", Label: "API Key", Secret: true},
+		{Name: "EASYDNS_Token", Label: "API Token", Secret: true},
 	}},
 	{"dns_freedns", "FreeDNS", "https://freedns.afraid.org/", []EnvField{
 		{Name: "FREEDNS_User", Label: "用户名"},
@@ -83,33 +120,54 @@ var providerCatalog = []ProviderDef{
 	{"dns_gandi_livedns", "Gandi LiveDNS", "https://www.gandi.net/en/my-account/credentials", []EnvField{
 		{Name: "GANDI_LIVEDNS_TOKEN", Label: "API Token", Hint: "新版 Token；旧版 API Key 已弃用", Secret: true},
 	}},
-	{"dns_dgon", "DigitalOcean", "https://cloud.digitalocean.com/account/api/tokens", []EnvField{
-		{Name: "DO_API_KEY", Label: "API Token", Secret: true},
+	{"dns_gd", "GoDaddy", "https://developer.godaddy.com/keys", []EnvField{
+		{Name: "GD_Key", Label: "API Key", Secret: true},
+		{Name: "GD_Secret", Label: "API Secret", Secret: true},
+	}},
+	{"dns_he", "Hurricane Electric", "https://dns.he.net/", []EnvField{
+		{Name: "HE_Username", Label: "用户名"},
+		{Name: "HE_Password", Label: "密码", Secret: true},
+	}},
+	{"dns_huaweicloud", "华为云 DNS", "https://console.huaweicloud.com/dns/", []EnvField{
+		{Name: "HUAWEICLOUD_Username", Label: "用户名"},
+		{Name: "HUAWEICLOUD_Password", Label: "密码", Secret: true},
+		{Name: "HUAWEICLOUD_ProjectID", Label: "Project ID", Optional: true},
+	}},
+	{"dns_inwx", "INWX", "https://www.inwx.de/", []EnvField{
+		{Name: "INWX_User", Label: "用户名"},
+		{Name: "INWX_Password", Label: "密码", Secret: true},
+		{Name: "INWX_Shared_Secret", Label: "Shared Secret", Optional: true, Hint: "开启 2FA 时必填", Secret: true},
+	}},
+	{"dns_jd", "京东云 DNS", "https://docs.jdcloud.com/cn/jd-cloud-dns/api", []EnvField{
+		{Name: "JD_ACCESS_KEY_ID", Label: "Access Key ID", Secret: true},
+		{Name: "JD_ACCESS_KEY_SECRET", Label: "Access Key Secret", Secret: true},
+		{Name: "JD_REGION", Label: "Region", Optional: true, Hint: "默认 cn-north-1"},
 	}},
 	{"dns_linode_v4", "Linode", "https://cloud.linode.com/profile/tokens", []EnvField{
 		{Name: "LINODE_V4_API_KEY", Label: "API Token", Secret: true},
 	}},
-	{"dns_vultr", "Vultr", "https://my.vultr.com/settings/#settingsapi", []EnvField{
-		{Name: "VULTR_API_KEY", Label: "API Key", Secret: true},
+	{"dns_mydnsjp", "MyDNS.JP", "https://www.mydns.jp/", []EnvField{
+		{Name: "MYDNSJP_MasterID", Label: "Master ID"},
+		{Name: "MYDNSJP_Password", Label: "密码", Secret: true},
 	}},
-	{"dns_bunny", "Bunny.net", "https://bunny.net/account/settings/api", []EnvField{
-		{Name: "BUNNY_API_KEY", Label: "API Key", Secret: true},
+	{"dns_namecheap", "Namecheap", "https://www.namecheap.com/security/api-manager/", []EnvField{
+		{Name: "NAMECHEAP_USERNAME", Label: "用户名"},
+		{Name: "NAMECHEAP_API_KEY", Label: "API Key", Secret: true},
+		{Name: "NAMECHEAP_SOURCEIP", Label: "白名单 IP", Optional: true},
 	}},
-	{"dns_porkbun", "Porkbun", "https://porkbun.com/account/api", []EnvField{
-		{Name: "PORKBUN_API_KEY", Label: "API Key", Secret: true},
-		{Name: "PORKBUN_SECRET_API_KEY", Label: "Secret API Key", Secret: true},
+	{"dns_namesilo", "NameSilo", "https://www.namesilo.com/account/api-manager", []EnvField{
+		{Name: "Namesilo_Key", Label: "API Key", Secret: true},
 	}},
-	{"dns_desec", "deSEC", "https://desec.io/login", []EnvField{
-		{Name: "DEDYN_TOKEN", Label: "API Token", Secret: true},
+	{"dns_netcup", "netcup", "https://www.netcup.de/", []EnvField{
+		{Name: "NC_CID", Label: "客户编号 (CID)"},
+		{Name: "NC_Apikey", Label: "API Key", Secret: true},
+		{Name: "NC_Apipw", Label: "API Password", Secret: true},
 	}},
-	{"dns_duckdns", "DuckDNS", "https://www.duckdns.org/", []EnvField{
-		{Name: "DuckDNS_Token", Label: "API Token", Hint: "打开官网登录后，首页显示的 Token（不是域名）", Secret: true},
+	{"dns_netlify", "Netlify", "https://app.netlify.com/user/applications", []EnvField{
+		{Name: "NETLIFY_ACCESS_TOKEN", Label: "Personal Access Token", Secret: true},
 	}},
-	{"dns_pdns", "PowerDNS", "https://doc.powerdns.com/", []EnvField{
-		{Name: "PDNS_Url", Label: "API 地址", Hint: "例如 http://127.0.0.1:8081"},
-		{Name: "PDNS_ServerId", Label: "Server ID", Hint: "通常是 localhost"},
-		{Name: "PDNS_Token", Label: "API Key", Secret: true},
-		{Name: "PDNS_Ttl", Label: "TTL", Optional: true, Hint: "默认 60"},
+	{"dns_njalla", "Njalla", "https://njal.la/", []EnvField{
+		{Name: "NJALLA_Token", Label: "API Token", Secret: true},
 	}},
 	{"dns_nsupdate", "RFC2136 / nsupdate", "https://www.isc.org/bind/", []EnvField{
 		{Name: "NSUPDATE_SERVER", Label: "DNS 服务器地址"},
@@ -118,97 +176,39 @@ var providerCatalog = []ProviderDef{
 		{Name: "NSUPDATE_ZONE", Label: "Zone", Optional: true, Hint: "留空则自动推断"},
 		{Name: "NSUPDATE_OPT", Label: "额外参数", Optional: true},
 	}},
+	{"dns_openprovider", "OpenProvider", "https://cp.openprovider.eu/", []EnvField{
+		{Name: "OPENPROVIDER_USER", Label: "用户名"},
+		{Name: "OPENPROVIDER_PASSWORDHASH", Label: "Password Hash", Secret: true},
+	}},
 	{"dns_ovh", "OVHcloud", "https://api.ovh.com/createToken/", []EnvField{
 		{Name: "OVH_AK", Label: "Application Key", Secret: true},
 		{Name: "OVH_AS", Label: "Application Secret", Secret: true},
 		{Name: "OVH_CK", Label: "Consumer Key", Secret: true},
 		{Name: "OVH_END_POINT", Label: "API 端点", Hint: "ovh-eu / ovh-us / ovh-ca / soyoustart-eu 等"},
 	}},
-	{"dns_azure", "Azure DNS", "https://portal.azure.com/", []EnvField{
-		{Name: "AZUREDNS_SUBSCRIPTIONID", Label: "Subscription ID", Secret: true},
-		{Name: "AZUREDNS_TENANTID", Label: "Tenant ID", Secret: true},
-		{Name: "AZUREDNS_APPID", Label: "Application (client) ID", Secret: true},
-		{Name: "AZUREDNS_CLIENTSECRET", Label: "Client Secret", Secret: true},
+	{"dns_pdns", "PowerDNS", "https://doc.powerdns.com/", []EnvField{
+		{Name: "PDNS_Url", Label: "API 地址", Hint: "例如 http://127.0.0.1:8081"},
+		{Name: "PDNS_ServerId", Label: "Server ID", Hint: "通常是 localhost"},
+		{Name: "PDNS_Token", Label: "API Key", Secret: true},
+		{Name: "PDNS_Ttl", Label: "TTL", Optional: true, Hint: "默认 60"},
 	}},
-	{"dns_netcup", "netcup", "https://www.netcup.de/", []EnvField{
-		{Name: "NC_CID", Label: "客户编号 (CID)"},
-		{Name: "NC_Apikey", Label: "API Key", Secret: true},
-		{Name: "NC_Apipw", Label: "API Password", Secret: true},
+	{"dns_porkbun", "Porkbun", "https://porkbun.com/account/api", []EnvField{
+		{Name: "PORKBUN_API_KEY", Label: "API Key", Secret: true},
+		{Name: "PORKBUN_SECRET_API_KEY", Label: "Secret API Key", Secret: true},
 	}},
-	{"dns_inwx", "INWX", "https://www.inwx.de/", []EnvField{
-		{Name: "INWX_User", Label: "用户名"},
-		{Name: "INWX_Password", Label: "密码", Secret: true},
-		{Name: "INWX_Shared_Secret", Label: "Shared Secret", Optional: true, Hint: "开启 2FA 时必填", Secret: true},
-	}},
-	{"dns_dnsimple", "DNSimple", "https://dnsimple.com/user/authorizations", []EnvField{
-		{Name: "DNSimple_OAUTH_TOKEN", Label: "OAuth Token", Secret: true},
-	}},
-	{"dns_acmedns", "ACME-DNS", "https://acme-dns.io/", []EnvField{
-		{Name: "ACMEDNS_SUBDOMAIN", Label: "Subdomain"},
-		{Name: "ACMEDNS_USERNAME", Label: "Username", Secret: true},
-		{Name: "ACMEDNS_PASSWORD", Label: "Password", Secret: true},
-		{Name: "ACMEDNS_UPDATE_URL", Label: "Update URL", Optional: true, Hint: "自建服务时填写"},
-	}},
-	{"dns_jd", "京东云 DNS", "https://docs.jdcloud.com/cn/jd-cloud-dns/api", []EnvField{
-		{Name: "JD_ACCESS_KEY_ID", Label: "Access Key ID", Secret: true},
-		{Name: "JD_ACCESS_KEY_SECRET", Label: "Access Key Secret", Secret: true},
-		{Name: "JD_REGION", Label: "Region", Optional: true, Hint: "默认 cn-north-1"},
-	}},
-	{"dns_vercel", "Vercel", "https://vercel.com/account/tokens", []EnvField{
-		{Name: "VERCEL_TOKEN", Label: "Access Token", Secret: true},
-	}},
-	{"dns_netlify", "Netlify", "https://app.netlify.com/user/applications", []EnvField{
-		{Name: "NETLIFY_ACCESS_TOKEN", Label: "Personal Access Token", Secret: true},
-	}},
-	{"dns_dynv6", "dynv6", "https://dynv6.com/keys", []EnvField{
-		{Name: "DYNV6_TOKEN", Label: "HTTP API Token", Hint: "dynv6 → Keys 页面获取", Secret: true},
-	}},
-	{"dns_df", "dyndnsfree.de", "https://www.dyndnsfree.de/", []EnvField{
-		{Name: "DF_user", Label: "用户名"},
-		{Name: "DF_password", Label: "密码", Secret: true},
-	}},
-	{"dns_namesilo", "NameSilo", "https://www.namesilo.com/account/api-manager", []EnvField{
-		{Name: "Namesilo_Key", Label: "API Key", Secret: true},
-	}},
-	{"dns_conoha", "ConoHa", "https://www.conoha.jp/", []EnvField{
-		{Name: "CONOHA_Username", Label: "用户名"},
-		{Name: "CONOHA_Password", Label: "密码", Secret: true},
-		{Name: "CONOHA_TenantId", Label: "Tenant ID"},
-		{Name: "CONOHA_IdentityServiceApi", Label: "Identity Service API", Hint: "例如 https://identity.tyo1.conoha.io/v2.0"},
-	}},
-	{"dns_openprovider", "OpenProvider", "https://cp.openprovider.eu/", []EnvField{
-		{Name: "OPENPROVIDER_USER", Label: "用户名"},
-		{Name: "OPENPROVIDER_PASSWORDHASH", Label: "Password Hash", Secret: true},
-	}},
-	{"dns_mydnsjp", "MyDNS.JP", "https://www.mydns.jp/", []EnvField{
-		{Name: "MYDNSJP_MasterID", Label: "Master ID"},
-		{Name: "MYDNSJP_Password", Label: "密码", Secret: true},
-	}},
-	{"dns_easydns", "easyDNS", "https://my.easydns.com/", []EnvField{
-		{Name: "EASYDNS_Key", Label: "API Key", Secret: true},
-		{Name: "EASYDNS_Token", Label: "API Token", Secret: true},
-	}},
-	{"dns_constellix", "Constellix", "https://constellix.com/", []EnvField{
-		{Name: "CONSTELLIX_Key", Label: "API Key", Secret: true},
-		{Name: "CONSTELLIX_Secret", Label: "API Secret", Secret: true},
-	}},
-	{"dns_njalla", "Njalla", "https://njal.la/", []EnvField{
-		{Name: "NJALLA_Token", Label: "API Token", Secret: true},
-	}},
-	{"dns_arvan", "ArvanCloud", "https://panel.arvancloud.ir/", []EnvField{
-		{Name: "Arvan_Token", Label: "API Token", Secret: true},
-	}},
-	{"dns_baidu", "百度云 DNS", "https://console.bce.baidu.com/iam/", []EnvField{
-		{Name: "Baidu_AK", Label: "Access Key ID", Secret: true},
-		{Name: "Baidu_SK", Label: "Secret Access Key", Secret: true},
-	}},
-	{"dns_dpi", "DNSPod 国际站", "https://www.dnspod.com/", []EnvField{
-		{Name: "DPI_Id", Label: "API ID"},
-		{Name: "DPI_Key", Label: "API Token", Secret: true},
+	{"dns_tencent", "腾讯云 DNSPod", "https://console.cloud.tencent.com/cam/capi", []EnvField{
+		{Name: "Tencent_SecretId", Label: "SecretId", Secret: true},
+		{Name: "Tencent_SecretKey", Label: "SecretKey", Secret: true},
 	}},
 	{"dns_ultra", "UltraDNS", "https://www.ultradns.com/", []EnvField{
 		{Name: "ULTRA_USR", Label: "用户名"},
 		{Name: "ULTRA_PWD", Label: "密码", Secret: true},
+	}},
+	{"dns_vercel", "Vercel", "https://vercel.com/account/tokens", []EnvField{
+		{Name: "VERCEL_TOKEN", Label: "Access Token", Secret: true},
+	}},
+	{"dns_vultr", "Vultr", "https://my.vultr.com/settings/#settingsapi", []EnvField{
+		{Name: "VULTR_API_KEY", Label: "API Key", Secret: true},
 	}},
 }
 

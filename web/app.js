@@ -636,8 +636,11 @@
   $('#issue-btn').addEventListener('click', () => openIssueModal());
 
   function providerOptions(selected) {
-    return (state.catalog?.providers || []).map((p) =>
-      `<option value="${esc(p.code)}"${p.code === selected ? ' selected' : ''}>${esc(p.name)} (${esc(p.code)})</option>`).join('');
+    // 按 acme.sh code 字母序展示；后端目录已排序，这里再兜一层底。
+    return (state.catalog?.providers || []).slice()
+      .sort((a, b) => String(a.code).localeCompare(String(b.code)))
+      .map((p) =>
+        `<option value="${esc(p.code)}"${p.code === selected ? ' selected' : ''}>${esc(p.name)} (${esc(p.code)})</option>`).join('');
   }
 
   function websiteHTML(code) {

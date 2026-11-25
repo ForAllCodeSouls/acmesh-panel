@@ -1,9 +1,25 @@
 package main
 
 import (
+	"sort"
 	"strings"
 	"testing"
 )
+
+// 目录必须按 acme.sh code 字母序排列，页面下拉直接沿用这个顺序。
+func TestProviderCatalogSortedByCode(t *testing.T) {
+	codes := make([]string, 0, len(providerCatalog))
+	for _, p := range providerCatalog {
+		codes = append(codes, p.Code)
+	}
+	sorted := append([]string(nil), codes...)
+	sort.Strings(sorted)
+	for i := range codes {
+		if codes[i] != sorted[i] {
+			t.Fatalf("服务商目录未按 code 排序：位置 %d 是 %s，应为 %s", i, codes[i], sorted[i])
+		}
+	}
+}
 
 // 目录里的每个 code 都必须是 acme.sh 真实存在的脚本名（历史错误码由 normalizeProviderCode 兜底）。
 func TestProviderCatalogCodesAndWebsites(t *testing.T) {

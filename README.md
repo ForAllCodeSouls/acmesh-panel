@@ -533,49 +533,49 @@ Windows 上 acme.sh 需要 WSL / Git Bash 环境；只想用面板的话建议�
 
 | 服务商 | acme.sh code | 凭证字段 | 官网 |
 |---|---|---|---|
+| ACME-DNS | `dns_acmedns` | `ACMEDNS_SUBDOMAIN` / `ACMEDNS_USERNAME` / `ACMEDNS_PASSWORD` / `ACMEDNS_UPDATE_URL` | https://acme-dns.io/ |
 | 阿里云 DNS | `dns_ali` | `Ali_Key` / `Ali_Secret` | https://www.aliyun.com/product/dns |
-| Cloudflare | `dns_cf` | `CF_Token` / `CF_Account_ID` / `CF_Zone_ID` | https://dash.cloudflare.com/profile/api-tokens |
-| DNSPod (dnspod.cn) | `dns_dp` | `DP_Id` / `DP_Key` | https://www.dnspod.cn/ |
-| 腾讯云 DNSPod | `dns_tencent` | `Tencent_SecretId` / `Tencent_SecretKey` | https://console.cloud.tencent.com/cam/capi |
-| GoDaddy | `dns_gd` | `GD_Key` / `GD_Secret` | https://developer.godaddy.com/keys |
-| 华为云 DNS | `dns_huaweicloud` | `HUAWEICLOUD_Username` / `HUAWEICLOUD_Password` / `HUAWEICLOUD_ProjectID` | https://console.huaweicloud.com/dns/ |
+| ArvanCloud | `dns_arvan` | `Arvan_Token` | https://panel.arvancloud.ir/ |
 | AWS Route 53 | `dns_aws` | `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` / `AWS_REGION` | https://console.aws.amazon.com/iamv2/home#/users |
-| Namecheap | `dns_namecheap` | `NAMECHEAP_USERNAME` / `NAMECHEAP_API_KEY` / `NAMECHEAP_SOURCEIP` | https://www.namecheap.com/security/api-manager/ |
+| Azure DNS | `dns_azure` | `AZUREDNS_SUBSCRIPTIONID` / `AZUREDNS_TENANTID` / `AZUREDNS_APPID` / `AZUREDNS_CLIENTSECRET` | https://portal.azure.com/ |
+| 百度云 DNS | `dns_baidu` | `Baidu_AK` / `Baidu_SK` | https://console.bce.baidu.com/iam/ |
+| Bunny.net | `dns_bunny` | `BUNNY_API_KEY` | https://bunny.net/account/settings/api |
+| Cloudflare | `dns_cf` | `CF_Token` / `CF_Account_ID` / `CF_Zone_ID` | https://dash.cloudflare.com/profile/api-tokens |
+| ConoHa | `dns_conoha` | `CONOHA_Username` / `CONOHA_Password` / `CONOHA_TenantId` / `CONOHA_IdentityServiceApi` | https://www.conoha.jp/ |
+| Constellix | `dns_constellix` | `CONSTELLIX_Key` / `CONSTELLIX_Secret` | https://constellix.com/ |
+| deSEC | `dns_desec` | `DEDYN_TOKEN` | https://desec.io/login |
+| dyndnsfree.de | `dns_df` | `DF_user` / `DF_password` | https://www.dyndnsfree.de/ |
+| DigitalOcean | `dns_dgon` | `DO_API_KEY` | https://cloud.digitalocean.com/account/api/tokens |
+| DNSimple | `dns_dnsimple` | `DNSimple_OAUTH_TOKEN` | https://dnsimple.com/user/authorizations |
+| DNSPod (dnspod.cn) | `dns_dp` | `DP_Id` / `DP_Key` | https://www.dnspod.cn/ |
+| DNSPod 国际站 | `dns_dpi` | `DPI_Id` / `DPI_Key` | https://www.dnspod.com/ |
+| DuckDNS | `dns_duckdns` | `DuckDNS_Token` | https://www.duckdns.org/ |
 | Dynu DNS | `dns_dynu` | `Dynu_ClientId` / `Dynu_Secret` | https://www.dynu.com/en-US/ControlPanel/APICredentials |
-| Hurricane Electric | `dns_he` | `HE_Username` / `HE_Password` | https://dns.he.net/ |
+| dynv6 | `dns_dynv6` | `DYNV6_TOKEN` | https://dynv6.com/keys |
+| easyDNS | `dns_easydns` | `EASYDNS_Key` / `EASYDNS_Token` | https://my.easydns.com/ |
 | FreeDNS | `dns_freedns` | `FREEDNS_User` / `FREEDNS_Password` | https://freedns.afraid.org/ |
 | Gandi LiveDNS | `dns_gandi_livedns` | `GANDI_LIVEDNS_TOKEN` | https://www.gandi.net/en/my-account/credentials |
-| DigitalOcean | `dns_dgon` | `DO_API_KEY` | https://cloud.digitalocean.com/account/api/tokens |
-| Linode | `dns_linode_v4` | `LINODE_V4_API_KEY` | https://cloud.linode.com/profile/tokens |
-| Vultr | `dns_vultr` | `VULTR_API_KEY` | https://my.vultr.com/settings/#settingsapi |
-| Bunny.net | `dns_bunny` | `BUNNY_API_KEY` | https://bunny.net/account/settings/api |
-| Porkbun | `dns_porkbun` | `PORKBUN_API_KEY` / `PORKBUN_SECRET_API_KEY` | https://porkbun.com/account/api |
-| deSEC | `dns_desec` | `DEDYN_TOKEN` | https://desec.io/login |
-| DuckDNS | `dns_duckdns` | `DuckDNS_Token` | https://www.duckdns.org/ |
-| PowerDNS | `dns_pdns` | `PDNS_Url` / `PDNS_ServerId` / `PDNS_Token` / `PDNS_Ttl` | https://doc.powerdns.com/ |
-| RFC2136 / nsupdate | `dns_nsupdate` | `NSUPDATE_SERVER` / `NSUPDATE_SERVER_PORT` / `NSUPDATE_KEY` / `NSUPDATE_ZONE` / `NSUPDATE_OPT` | https://www.isc.org/bind/ |
-| OVHcloud | `dns_ovh` | `OVH_AK` / `OVH_AS` / `OVH_CK` / `OVH_END_POINT` | https://api.ovh.com/createToken/ |
-| Azure DNS | `dns_azure` | `AZUREDNS_SUBSCRIPTIONID` / `AZUREDNS_TENANTID` / `AZUREDNS_APPID` / `AZUREDNS_CLIENTSECRET` | https://portal.azure.com/ |
-| netcup | `dns_netcup` | `NC_CID` / `NC_Apikey` / `NC_Apipw` | https://www.netcup.de/ |
+| GoDaddy | `dns_gd` | `GD_Key` / `GD_Secret` | https://developer.godaddy.com/keys |
+| Hurricane Electric | `dns_he` | `HE_Username` / `HE_Password` | https://dns.he.net/ |
+| 华为云 DNS | `dns_huaweicloud` | `HUAWEICLOUD_Username` / `HUAWEICLOUD_Password` / `HUAWEICLOUD_ProjectID` | https://console.huaweicloud.com/dns/ |
 | INWX | `dns_inwx` | `INWX_User` / `INWX_Password` / `INWX_Shared_Secret` | https://www.inwx.de/ |
-| DNSimple | `dns_dnsimple` | `DNSimple_OAUTH_TOKEN` | https://dnsimple.com/user/authorizations |
-| ACME-DNS | `dns_acmedns` | `ACMEDNS_SUBDOMAIN` / `ACMEDNS_USERNAME` / `ACMEDNS_PASSWORD` / `ACMEDNS_UPDATE_URL` | https://acme-dns.io/ |
 | 京东云 DNS | `dns_jd` | `JD_ACCESS_KEY_ID` / `JD_ACCESS_KEY_SECRET` / `JD_REGION` | https://docs.jdcloud.com/cn/jd-cloud-dns/api |
-| Vercel | `dns_vercel` | `VERCEL_TOKEN` | https://vercel.com/account/tokens |
-| Netlify | `dns_netlify` | `NETLIFY_ACCESS_TOKEN` | https://app.netlify.com/user/applications |
-| dynv6 | `dns_dynv6` | `DYNV6_TOKEN` | https://dynv6.com/keys |
-| dyndnsfree.de | `dns_df` | `DF_user` / `DF_password` | https://www.dyndnsfree.de/ |
-| NameSilo | `dns_namesilo` | `Namesilo_Key` | https://www.namesilo.com/account/api-manager |
-| ConoHa | `dns_conoha` | `CONOHA_Username` / `CONOHA_Password` / `CONOHA_TenantId` / `CONOHA_IdentityServiceApi` | https://www.conoha.jp/ |
-| OpenProvider | `dns_openprovider` | `OPENPROVIDER_USER` / `OPENPROVIDER_PASSWORDHASH` | https://cp.openprovider.eu/ |
+| Linode | `dns_linode_v4` | `LINODE_V4_API_KEY` | https://cloud.linode.com/profile/tokens |
 | MyDNS.JP | `dns_mydnsjp` | `MYDNSJP_MasterID` / `MYDNSJP_Password` | https://www.mydns.jp/ |
-| easyDNS | `dns_easydns` | `EASYDNS_Key` / `EASYDNS_Token` | https://my.easydns.com/ |
-| Constellix | `dns_constellix` | `CONSTELLIX_Key` / `CONSTELLIX_Secret` | https://constellix.com/ |
+| Namecheap | `dns_namecheap` | `NAMECHEAP_USERNAME` / `NAMECHEAP_API_KEY` / `NAMECHEAP_SOURCEIP` | https://www.namecheap.com/security/api-manager/ |
+| NameSilo | `dns_namesilo` | `Namesilo_Key` | https://www.namesilo.com/account/api-manager |
+| netcup | `dns_netcup` | `NC_CID` / `NC_Apikey` / `NC_Apipw` | https://www.netcup.de/ |
+| Netlify | `dns_netlify` | `NETLIFY_ACCESS_TOKEN` | https://app.netlify.com/user/applications |
 | Njalla | `dns_njalla` | `NJALLA_Token` | https://njal.la/ |
-| ArvanCloud | `dns_arvan` | `Arvan_Token` | https://panel.arvancloud.ir/ |
-| 百度云 DNS | `dns_baidu` | `Baidu_AK` / `Baidu_SK` | https://console.bce.baidu.com/iam/ |
-| DNSPod 国际站 | `dns_dpi` | `DPI_Id` / `DPI_Key` | https://www.dnspod.com/ |
+| RFC2136 / nsupdate | `dns_nsupdate` | `NSUPDATE_SERVER` / `NSUPDATE_SERVER_PORT` / `NSUPDATE_KEY` / `NSUPDATE_ZONE` / `NSUPDATE_OPT` | https://www.isc.org/bind/ |
+| OpenProvider | `dns_openprovider` | `OPENPROVIDER_USER` / `OPENPROVIDER_PASSWORDHASH` | https://cp.openprovider.eu/ |
+| OVHcloud | `dns_ovh` | `OVH_AK` / `OVH_AS` / `OVH_CK` / `OVH_END_POINT` | https://api.ovh.com/createToken/ |
+| PowerDNS | `dns_pdns` | `PDNS_Url` / `PDNS_ServerId` / `PDNS_Token` / `PDNS_Ttl` | https://doc.powerdns.com/ |
+| Porkbun | `dns_porkbun` | `PORKBUN_API_KEY` / `PORKBUN_SECRET_API_KEY` | https://porkbun.com/account/api |
+| 腾讯云 DNSPod | `dns_tencent` | `Tencent_SecretId` / `Tencent_SecretKey` | https://console.cloud.tencent.com/cam/capi |
 | UltraDNS | `dns_ultra` | `ULTRA_USR` / `ULTRA_PWD` | https://www.ultradns.com/ |
+| Vercel | `dns_vercel` | `VERCEL_TOKEN` | https://vercel.com/account/tokens |
+| Vultr | `dns_vultr` | `VULTR_API_KEY` | https://my.vultr.com/settings/#settingsapi |
 
 > **从旧版升级**：早期版本里 Gandi / DigitalOcean / Linode 用的 code 分别是 `dns_gandi` / `dns_do` / `dns_linode`，这三个在 acme.sh 里其实不存在（正确为 `dns_gandi_livedns` / `dns_dgon` / `dns_linode_v4`）。0.1.51 已修正，旧凭证会自动映射到新 code，无需重新填写；新保存的凭证一律用表中的正确 code。
 
