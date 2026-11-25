@@ -31,8 +31,8 @@ var syncModes = []struct {
 	Hint string `json:"hint"`
 }{
 	{syncExact, "精确域名", "文件名里的域名与证书域名完全一样。例：sub.example.com_cert.pem 对应证书 example.com 时，需证书本身包含 sub.example.com"},
-	{syncSubdomain, "子域名（推荐）", "文件名里的域名是证书的子域即可。例：面板证书 *.example.com，命中 sub.example.com_cert.pem。已有独立证书的子域文件只归那张证书：文件名域名与某张证书完全同名时，泛域证书不会抢写"},
-	{syncWildcard, "仅通配符", "只按证书里 *. 开头的域名匹配，精确域名不算。适合严格限制泛域名证书；文件名域名已有同名独立证书时不抢写"},
+	{syncSubdomain, "子域名（推荐）", "只按证书里实际签发的域名匹配：文件名域名等于证书的 CN 或某个 SAN，或被通配符 SAN 覆盖（*.example.com 只覆盖 sub.example.com 这一级）。证书没签的域名一律不认：证书只签 mypython.example.net 时，不会去匹配其它 *.example.net 文件。已有独立证书的子域文件只归那张证书，泛域证书不会抢写"},
+	{syncWildcard, "仅通配符", "只按证书里 *. 开头的域名匹配（*.example.com 只覆盖 sub.example.com 这一级），精确域名不算。适合严格限制泛域名证书；文件名域名已有同名独立证书时不抢写"},
 	{syncFilename, "文件名模式", "用 * 或 ? 匹配文件名，不解析域名。例：*_cert.pem 匹配所有以 _cert.pem 结尾的文件"},
 	{syncSAN, "按现有证书内容（推荐）", "读取目录里已有证书，比对里面的域名。适合目标文件名与域名不一致的情况；文件名域名已有同名独立证书时不抢写"},
 }
@@ -483,7 +483,7 @@ func (e *SyncEngine) matchName(rule SyncRule, ci CertInfo, filename, domain stri
 		return domainMatches(domain, ci)
 	case syncWildcard:
 		for _, san := range ci.SANs {
-			if strings.HasPrefix(san, "*.") && isSubdomainOf(domain, strings.TrimPrefix(san, "*.")) {
+			if strings.HasPrefix(san, "*.") && isOneLevelSubdomain(strings.ToLower(domain), strings.TrimPrefix(san, "*.")) {
 				return true
 			}
 		}
@@ -513,7 +513,7 @@ func (e *SyncEngine) match(rule SyncRule, ci CertInfo, filename, domain, fullPat
 		return domainMatches(domain, ci)
 	case syncWildcard:
 		for _, san := range ci.SANs {
-			if strings.HasPrefix(san, "*.") && isSubdomainOf(domain, strings.TrimPrefix(san, "*.")) {
+			if strings.HasPrefix(san, "*.") && isOneLevelSubdomain(strings.ToLower(domain), strings.TrimPrefix(san, "*.")) {
 				return true
 			}
 		}
@@ -566,23 +566,54 @@ func (e *SyncEngine) matchBySAN(ci CertInfo, path string) bool {
 	return false
 }
 
-// domainMatches 判断目标域名是否等于证书主域名、或是它的子域（含通配 SAN）。
+// domainMatches 判断证书是否实际覆盖目标域名：只有证书里真实存在的域名才算——
+// 非通配 CN/SAN 精确相等，或通配符 SAN 覆盖的同一级子域。
+// 不做「主域名的任意子域」推断：证书只签了 a.b.com 就不能认领 x.b.com，
+// 这是用户报告的「证书明明只覆盖 mypython.example.net 却匹配了别的 *.example.net 文件」的根因。
 func domainMatches(domain string, ci CertInfo) bool {
-	if domain == "" {
+	return certCoversDomain(domain, ci)
+}
+
+// certCoversDomain 按证书内容（CN/SAN）判断实际覆盖范围。
+// ACME 通配符证书只覆盖一级子域：*.a.b 命中 x.a.b，不命中 x.y.a.b，也不命中 a.b 本身。
+func certCoversDomain(domain string, ci CertInfo) bool {
+	d := strings.ToLower(strings.TrimSpace(domain))
+	if d == "" {
 		return false
 	}
-	if strings.EqualFold(domain, ci.Domain) || isSubdomainOf(domain, ci.Domain) {
+	if strings.EqualFold(d, ci.Domain) {
 		return true
 	}
 	for _, san := range ci.SANs {
-		san = strings.TrimPrefix(san, "*.")
-		if strings.EqualFold(domain, san) || isSubdomainOf(domain, san) {
+		s := strings.ToLower(strings.TrimSpace(san))
+		if strings.HasPrefix(s, "*.") {
+			if isOneLevelSubdomain(d, strings.TrimPrefix(s, "*.")) {
+				return true
+			}
+		} else if d == s {
 			return true
 		}
 	}
 	return false
 }
 
+// isOneLevelSubdomain 判断 domain 是否为 base 的直接子域（只差一级标签）：
+// x.base 命中，x.y.base 不命中。head 是去掉 ".base" 后缀剩下的部分。
+func isOneLevelSubdomain(domain, base string) bool {
+	base = strings.ToLower(strings.TrimSpace(base))
+	if domain == "" || base == "" || len(domain) <= len(base)+1 {
+		return false
+	}
+	head, ok := strings.CutSuffix(domain, "."+base)
+	if !ok {
+		return false
+	}
+	return !strings.Contains(head, ".")
+}
+
+// isSubdomainOf 判断 domain 是否为 parent 的子域（任意层级）。
+// 仅用于远程主机「负责的域名」过滤（用户配置的主机管辖范围，按子域理解是本意）；
+// 证书匹配一律走 certCoversDomain（严格按证书实际签发的域名）。
 func isSubdomainOf(domain, parent string) bool {
 	if domain == "" || parent == "" {
 		return false

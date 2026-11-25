@@ -176,6 +176,103 @@ func TestMatchNamesRemote(t *testing.T) {
 	}
 }
 
+// 严格按证书实际签发的域名匹配（用户报告：证书只签了 mypython.example.net + *.mypython.example.net，
+// 面板却按「主域名的子域」推断匹配了别的 *.example.net 层级文件）。夹具用 RFC 占位域名。
+func TestCertCoversDomainStrict(t *testing.T) {
+	// 证书 CN=mypython.example.net，SAN=mypython.example.net, *.mypython.example.net
+	ci := certInfoFor("mypython.example.net", "mypython.example.net",
+		[]string{"mypython.example.net", "*.mypython.example.net"})
+	rule := subdomainRule()
+	e := &SyncEngine{}
+	match := func(name string) bool {
+		return e.match(rule, ci, name, certFileDomain(name), "/certs/"+name, nil)
+	}
+
+	if !match("mypython.example.net_cert.pem") {
+		t.Fatal("文件名域名与证书 CN 完全同名时应命中")
+	}
+	if !match("mypython.example.net_key.pem") {
+		t.Fatal("同名私钥文件应命中")
+	}
+	if !match("a.mypython.example.net_cert.pem") {
+		t.Fatal("通配 SAN 覆盖的一级子域应命中")
+	}
+	if match("a.b.mypython.example.net_cert.pem") {
+		t.Fatal("通配 SAN 不覆盖两级子域")
+	}
+	if match("web.example.net_cert.pem") {
+		t.Fatal("证书没签的同级域名不得命中（用户报告的乱匹配根因）")
+	}
+	if match("example.net_cert.pem") {
+		t.Fatal("证书没签的父域名不得命中")
+	}
+	if !match("other.mypython.example.net_key.pem") {
+		t.Fatal("一级子域私钥应命中")
+	}
+
+	// 没有通配 SAN 的证书：不认领任何子域。
+	plain := certInfoFor("base.example.net", "base.example.net", []string{"base.example.net"})
+	if e.match(rule, plain, "sub.base.example.net_cert.pem", "sub.base.example.net", "/c/sub.base.example.net_cert.pem", nil) {
+		t.Fatal("无非通配 SAN 的证书不得按主域名子域推断认领")
+	}
+
+	// SAN 精确列出的额外域名应命中（含对应私钥）。
+	extra := certInfoFor("multi.example.net", "multi.example.net",
+		[]string{"multi.example.net", "api.example.net"})
+	if !e.match(rule, extra, "api.example.net_cert.pem", "api.example.net", "/c/api.example.net_cert.pem", nil) {
+		t.Fatal("SAN 精确列出的域名应命中")
+	}
+	if !e.match(rule, extra, "api.example.net_key.pem", "api.example.net", "/c/api.example.net_key.pem", nil) {
+		t.Fatal("SAN 精确列出的域名对应私钥应命中")
+	}
+}
+
+func TestIsOneLevelSubdomain(t *testing.T) {
+	cases := []struct {
+		domain, base string
+		want         bool
+	}{
+		{"a.example.net", "example.net", true},
+		{"a.b.example.net", "example.net", false},
+		{"example.net", "example.net", false},
+		{"subexample.net", "example.net", false},
+		{"a.mypython.example.net", "mypython.example.net", true},
+		{"x.y.mypython.example.net", "mypython.example.net", false},
+		{"", "example.net", false},
+		{"a.example.net", "", false},
+	}
+	for _, c := range cases {
+		if got := isOneLevelSubdomain(c.domain, c.base); got != c.want {
+			t.Fatalf("isOneLevelSubdomain(%q,%q)=%v, want %v", c.domain, c.base, got, c.want)
+		}
+	}
+}
+
+// 远程文件列表排序：目录在前，其余按名称升序（大小写不敏感）。
+func TestSortRemoteFiles(t *testing.T) {
+	items := []RemoteFileItem{
+		{Name: "zoo.pem"},
+		{Name: "subdir", IsDir: true},
+		{Name: "Baihu.example.net_cert.pem"},
+		{Name: "api.example.net_key.pem"},
+		{Name: "another", IsDir: true},
+	}
+	sortRemoteFiles(items)
+	want := []string{"another", "subdir", "api.example.net_key.pem", "Baihu.example.net_cert.pem", "zoo.pem"}
+	for i, w := range want {
+		if items[i].Name != w {
+			t.Fatalf("排序结果不符: got %v, want %v",
+				func() []string {
+					out := []string{}
+					for _, x := range items {
+						out = append(out, x.Name)
+					}
+					return out
+				}(), want)
+		}
+	}
+}
+
 // 远程主机「负责域名」过滤：规则命中的所有文件不再全推给规则选中的每台主机，
 // 只推文件名域名属于该主机负责域名的文件（用户报告：某域名的文件被推到无关主机）。
 func TestHostWantsFile(t *testing.T) {

@@ -392,7 +392,19 @@ func listRemoteFiles(store *Store, h RemoteHost, dir string) ([]RemoteFileItem, 
 			ModTime: entry.ModTime().Format(time.RFC3339),
 		})
 	}
+	sortRemoteFiles(out)
 	return out, dir, nil
+}
+
+// sortRemoteFiles 排序展示顺序：目录在前，其余按文件名升序（大小写不敏感）。
+// SFTP ReadDir 返回顺序取决于服务器（通常是 inode 顺序），不排序会显得混乱。
+func sortRemoteFiles(items []RemoteFileItem) {
+	sort.Slice(items, func(i, j int) bool {
+		if items[i].IsDir != items[j].IsDir {
+			return items[i].IsDir
+		}
+		return strings.ToLower(items[i].Name) < strings.ToLower(items[j].Name)
+	})
 }
 
 // pushToRemote 通过 SFTP 推送文件。相比 scp -t 协议，SFTP 是标准子系统，
