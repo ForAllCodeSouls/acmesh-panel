@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 )
@@ -213,6 +214,30 @@ func TestGroupSyncEvents(t *testing.T) {
 	}
 	if groups[1].Scope != "local" || groups[2].Result != "fail" || groups[2].Detail != "写入失败" || groups[3].Merged != 1 {
 		t.Errorf("范围/结果/时间分组错误: %+v", groups[1:])
+	}
+}
+
+func TestBackupImportRejectsForeignKey(t *testing.T) {
+	_, stA := newBackupTestServer(t)
+	srvB, _ := newBackupTestServer(t) // 独立目录 → 不同 secret.key
+	if err := stA.PutProvider("p1", "dns_test", map[string]string{"token": "secret-value"}); err != nil {
+		t.Fatal(err)
+	}
+	bf := BackupFile{
+		Format: backupFormat, Version: backupVersion, AppVersion: "test",
+		ExportedAt: time.Now(), State: stA.Snapshot(),
+	}
+	body, err := json.Marshal(bf)
+	if err != nil {
+		t.Fatal(err)
+	}
+	w := httptest.NewRecorder()
+	srvB.handleBackupImport(w, backupReq(http.MethodPost, "/api/backup", body))
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("跨实例恢复应拒绝，实际 %d: %s", w.Code, w.Body.String())
+	}
+	if !strings.Contains(w.Body.String(), "secret.key") {
+		t.Errorf("错误应提示密钥不匹配: %s", w.Body.String())
 	}
 }
 

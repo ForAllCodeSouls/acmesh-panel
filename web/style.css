@@ -319,7 +319,7 @@ textarea { font-family: var(--mono); font-size: 12.5px; resize: vertical; min-he
 .event-detail.is-error { color: #ffbeb8; background: #2a1216; border-color: #6b2b31; }
 .event-note { font-size: 11.5px; color: var(--muted); }
 #sync-file-list, #remote-file-list { max-height: 220px; }
-#sync-event-list, #remote-event-list { max-height: 420px; }
+#sync-event-list { max-height: 420px; }
 #job-list { max-height: 420px; }
 .table-wrap.scroll-area { max-height: 340px; }
 #remote-list .btn { padding: 4px 9px; font-size: 11.5px; }
@@ -432,7 +432,7 @@ textarea { font-family: var(--mono); font-size: 12.5px; resize: vertical; min-he
   .modal { padding: 10px; }
   .modal-body { padding: var(--sp-3) var(--sp-4); }
   .event-route { font-size: 11.5px; }
-  #sync-file-list, #remote-file-list, #sync-event-list, #remote-event-list { max-height: 200px; }
+  #sync-file-list, #remote-file-list, #sync-event-list { max-height: 200px; }
   #job-list { max-height: 320px; }
   .table-wrap.scroll-area { max-height: 280px; }
 }

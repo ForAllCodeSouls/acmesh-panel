@@ -295,8 +295,8 @@ def main():
         st, _, _ = c.j("POST", "/api/update/settings", {"auto_check": True, "interval": "daily"})
         check("恢复默认检测设置", st == 200, st)
 
-        # 强制检测走实时刷新（GitHub 不可达时也应返回结构完整的响应，不影响面板）
-        st, _, j = c.j("GET", "/api/update/check?force=1")
+        # 强制检测走 POST（有副作用、受 CSRF 保护）；GET 只返回缓存，不再触发外部请求
+        st, _, j = c.j("POST", "/api/update/check", {})
         check("强制检测返回完整字段", st == 200 and all(k in j for k in ("current", "ok", "last_check")), (st, j))
 
         # ---- 本地/远程同步记录拆分、独立强制推送 ----
@@ -788,6 +788,20 @@ def main():
         state_raw = con.execute("SELECT value FROM state WHERE key='main'").fetchone()[0]
         con.close()
         check("密码加密落盘", PW_SECRET not in state_raw, "数据库含明文密码")
+        # 认证方式互切：空凭证就是清空，旧密码/私钥不得隐式回填导致双凭证冲突
+        st, _, j = c.j("POST", "/api/remote/hosts", {"host": {
+            "id": pw_host["id"], "name": "密码主机", "host": "192.0.2.11", "port": 22,
+            "user": "deploy", "remote_dir": "/etc/ssl/certs", "password": "", "key": FAKE_KEY,
+            "enabled": False}, "keep_password": False, "keep_key": False})
+        check("密码认证可切换为私钥", st == 200, (st, j))
+        st, _, j = c.j("GET", "/api/remote/hosts")
+        switched = next((h for h in j.get("hosts", []) if h.get("id") == pw_host["id"]), {})
+        check("切换后认证方式识别为私钥", switched.get("auth_mode") == "key", switched)
+        st, _, j = c.j("POST", "/api/remote/hosts", {"host": {
+            "id": pw_host["id"], "name": "密码主机", "host": "192.0.2.11", "port": 22,
+            "user": "deploy", "remote_dir": "/etc/ssl/certs", "password": PW_SECRET, "key": "",
+            "enabled": False}, "keep_password": False, "keep_key": False})
+        check("私钥认证可切换回密码", st == 200, (st, j))
         st, _, j = c.j("POST", "/api/remote/hosts", {"host": {
             "name": "双凭证", "host": "192.0.2.12", "port": 22, "user": "u",
             "remote_dir": "/tmp", "key": FAKE_KEY, "password": PW_SECRET, "enabled": False}})

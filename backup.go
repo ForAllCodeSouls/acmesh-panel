@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -64,6 +65,41 @@ func (s *Server) handleBackupExport(w http.ResponseWriter, r *http.Request) {
 	s.store.Audit(sess(r).User, clientIP(r, s.cfg.TrustProxy), "backup_export", name)
 }
 
+// ValidateRestore 在恢复前验证备份里的加密凭证能否被当前 secret.key 解开。
+// 备份本身不含主密钥；跨机器重建时若只复制了备份 JSON 而没有复制 secret.key，
+// 直接恢复会让所有凭证变成无法读取的密文，界面却显示"恢复成功"。
+func (s *Store) ValidateRestore(st State) error {
+	ns := s.aead.NonceSize()
+	openable := func(blob, aad, label string) error {
+		raw, err := base64.StdEncoding.DecodeString(blob)
+		if err != nil || len(raw) < ns {
+			return fmt.Errorf("%s 数据损坏", label)
+		}
+		if _, err := s.aead.Open(nil, raw[:ns], raw[ns:], []byte(aad)); err != nil {
+			return fmt.Errorf("%s 无法用当前 secret.key 解密（请在同一实例恢复，或一并迁移 secret.key）", label)
+		}
+		return nil
+	}
+	for name, enc := range st.Providers {
+		if err := openable(enc.Blob, name+"|"+enc.Code, "DNS 凭证 "+name); err != nil {
+			return err
+		}
+	}
+	for id := range st.Notifiers {
+		enc := st.Notifiers[id]
+		if err := openable(enc.Blob, id, "通知渠道 "+id); err != nil {
+			return err
+		}
+	}
+	for id := range st.RemoteHosts {
+		enc := st.RemoteHosts[id]
+		if err := openable(enc.Blob, id, "远程主机 "+id); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // handleBackupImport 校验并恢复一份配置备份。登录凭据不覆盖，会话保持有效。
 func (s *Server) handleBackupImport(w http.ResponseWriter, r *http.Request) {
 	var bf BackupFile
@@ -91,6 +127,10 @@ func (s *Server) handleBackupImport(w http.ResponseWriter, r *http.Request) {
 		st.SyncRules == nil && st.SyncEvents == nil && st.DefaultEmail == "" &&
 		st.CronHour == 0 && st.RetentionDays == 0 {
 		writeErr(w, http.StatusBadRequest, "备份内容为空或已损坏，已拒绝恢复")
+		return
+	}
+	if err := s.store.ValidateRestore(st); err != nil {
+		writeErr(w, http.StatusBadRequest, "备份与当前存储密钥不匹配："+err.Error())
 		return
 	}
 	counts := backupCounts(st)

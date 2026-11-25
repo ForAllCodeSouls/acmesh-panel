@@ -25,6 +25,9 @@
     syncPage: 0,
     syncTotal: 0,
     syncTimer: null,
+    auditSeq: 0,
+    syncSeq: 0,
+    keyViewTimer: null,
   };
 
   const AUDIT_PAGE_SIZE = 50;
@@ -125,6 +128,7 @@
   }
   function closeModal() {
     if ($('#modal').classList.contains('hidden')) return;
+    if (state.keyViewTimer) { clearTimeout(state.keyViewTimer); state.keyViewTimer = null; }
     if (typeof state.closeJobLog === 'function') state.closeJobLog();
     $('#modal').classList.add('hidden');
     $('#modal-body').innerHTML = '';
@@ -166,14 +170,18 @@
     else if (!$('#drawer').classList.contains('hidden')) closeDrawer();
   });
   // Tab 焦点陷阱：键盘用户不会跑到被弹窗遮住的背景上
-  $('#modal').addEventListener('keydown', (e) => {
-    if (e.key !== 'Tab') return;
-    const items = $$('button:not([disabled]), input:not([disabled]), select, textarea, a[href]', $('#modal'));
-    if (!items.length) return;
-    const first = items[0], last = items[items.length - 1];
-    if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
-    else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
-  });
+  const trapTab = (sel) => {
+    $(sel).addEventListener('keydown', (e) => {
+      if (e.key !== 'Tab') return;
+      const items = $$('button:not([disabled]), input:not([disabled]), select, textarea, a[href]', $(sel));
+      if (!items.length) return;
+      const first = items[0], last = items[items.length - 1];
+      if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+      else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+    });
+  };
+  trapTab('#modal');
+  trapTab('#drawer');
 
   async function copyText(text, label = '已复制') {
     try {
@@ -227,6 +235,7 @@
   $('#login-form').addEventListener('submit', async (e) => {
     e.preventDefault();
     const btn = $('#login-btn');
+    if (btn.disabled) return; // 表单天然支持 Enter，避免隐式提交与重复点击双发
     const err = $('#login-error');
     err.textContent = '';
     btn.disabled = true;
@@ -327,15 +336,47 @@
     if (b) switchView(b.dataset.view);
   });
 
-  // 页内分区：把长页面拆成少量明确分区，避免反复上下滚动
+  // 页内分区：把长页面拆成少量明确分区，避免反复上下滚动。
+  // 补齐 tab/tabpanel 语义，屏幕阅读器能读出当前分区，键盘可用左右方向键切换。
   function bindSubTabs(tabsSel, viewSel) {
+    const tabs = $$(tabsSel + ' [data-subtab]');
+    const panels = $$(viewSel + ' [data-subpanel]');
+    const viewId = viewSel.replace('#', '');
+    tabs.forEach((b) => {
+      const panelId = `panel-${viewId}-${b.dataset.subtab}`;
+      b.setAttribute('role', 'tab');
+      b.setAttribute('aria-controls', panelId);
+      const panel = panels.find((p) => p.dataset.subpanel === b.dataset.subtab);
+      if (panel) {
+        panel.id = panelId;
+        panel.setAttribute('role', 'tabpanel');
+      }
+    });
+    const activate = (btn) => {
+      const key = btn.dataset.subtab;
+      tabs.forEach((b) => {
+        const on = b === btn;
+        b.classList.toggle('active', on);
+        b.setAttribute('aria-selected', on ? 'true' : 'false');
+        b.tabIndex = on ? 0 : -1;
+      });
+      panels.forEach((p) => p.classList.toggle('hidden', p.dataset.subpanel !== key));
+      window.scrollTo({ top: 0, behavior: 'auto' });
+    };
+    const current = tabs.find((b) => b.classList.contains('active')) || tabs[0];
+    if (current) activate(current);
     $(tabsSel).addEventListener('click', (e) => {
       const btn = e.target.closest('[data-subtab]');
-      if (!btn) return;
-      const key = btn.dataset.subtab;
-      $$(tabsSel + ' [data-subtab]').forEach((b) => b.classList.toggle('active', b === btn));
-      $$(viewSel + ' [data-subpanel]').forEach((p) => p.classList.toggle('hidden', p.dataset.subpanel !== key));
-      window.scrollTo({ top: 0, behavior: 'auto' });
+      if (btn) activate(btn);
+    });
+    $(tabsSel).addEventListener('keydown', (e) => {
+      if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
+      const i = tabs.indexOf(document.activeElement);
+      if (i < 0) return;
+      e.preventDefault();
+      const next = tabs[(i + (e.key === 'ArrowRight' ? 1 : tabs.length - 1)) % tabs.length];
+      activate(next);
+      next.focus();
     });
   }
   bindSubTabs('#sync-tabs', '#view-sync');
@@ -644,12 +685,23 @@
       if (combCertEl && combCertEl.isConnected) combCertEl.value = '加载失败: ' + e.message;
     });
     $('#comb-cert-copy').addEventListener('click', () => copyText($('#comb-cert').value, '证书已复制'));
-    $('#comb-key-copy').addEventListener('click', () => copyText(keyPem, '私钥已复制'));
+    // 只从当前 DOM 取值：60 秒后文本框清空，复制/下载也必须同时失效。
+    $('#comb-key-copy').addEventListener('click', () => {
+      const v = $('#comb-key').value;
+      if (v) copyText(v, '私钥已复制');
+      else toast('私钥已自动清除，请重新验证查看', 'err');
+    });
     $('#comb-cert-dl').addEventListener('click', () => downloadText(`${cert.name}-${kind}.pem`, $('#comb-cert').value));
-    $('#comb-key-dl').addEventListener('click', () => downloadText(`${cert.domain}.key`, keyPem));
+    $('#comb-key-dl').addEventListener('click', () => {
+      const v = $('#comb-key').value;
+      if (v) downloadText(`${cert.domain}.key`, v);
+      else toast('私钥已自动清除，请重新验证查看', 'err');
+    });
     const keyBox = $('#comb-key');
     state.combinedKeyTimer = setTimeout(() => {
       if (keyBox) { keyBox.value = ''; keyBox.placeholder = '私钥已自动清除，请重新验证查看'; }
+      $('#comb-key-copy').disabled = true;
+      $('#comb-key-dl').disabled = true;
       state.combinedKeyTimer = null;
     }, 60000);
   }
@@ -665,13 +717,23 @@
     `, `<button class="btn ghost" id="key-close">关闭</button>`);
     const ta = $('#key-view');
     ta.value = pem;
-    $('#key-copy').addEventListener('click', () => copyText(pem, '私钥已复制到剪贴板'));
-    $('#key-dl').addEventListener('click', () => downloadText(`${cert.domain}.key`, pem));
+    $('#key-copy').addEventListener('click', () => {
+      const v = ta.value;
+      if (v) copyText(v, '私钥已复制到剪贴板');
+      else toast('私钥已自动清除，请重新验证查看', 'err');
+    });
+    $('#key-dl').addEventListener('click', () => {
+      const v = ta.value;
+      if (v) downloadText(`${cert.domain}.key`, v);
+      else toast('私钥已自动清除，请重新验证查看', 'err');
+    });
     $('#key-close').addEventListener('click', closeModal);
-    const timer = setTimeout(() => {
+    state.keyViewTimer = setTimeout(() => {
       if (ta) { ta.value = ''; ta.placeholder = '私钥已自动清除，请重新验证查看'; }
+      $('#key-copy').disabled = true;
+      $('#key-dl').disabled = true;
+      state.keyViewTimer = null;
     }, 60000);
-    $('#key-close').addEventListener('click', () => clearTimeout(timer), { once: true });
   }
 
   // ---------------- 签发 ----------------
@@ -1304,7 +1366,7 @@
       $('#cron-hour-hint').textContent = s.cron_last_day
         ? `今天（${s.cron_last_day}）已执行过自动检测；每天 ${String(s.cron_hour ?? 3).padStart(2, '0')}:00 检查一次，重启不会重复。`
         : `每天 ${String(s.cron_hour ?? 3).padStart(2, '0')}:00 自动检查续期与临期；同一天只执行一次，重启不会重复检测。`;
-      $('#sys-info').innerHTML = rows.map(([k, v]) => `<dt>${esc(k)}</dt><dd>${esc(v)}${k === 'Cookie Secure' ? '<div class="tiny muted">未开启表示登录 Cookie 不带 Secure 标记，仅适合 HTTP 本地访问；配置 HTTPS 反代后设为 1，Cookie 只在 HTTPS 下发送。</div>' : ''}${k === '密码来源' ? '<div class="tiny muted">环境变量只在首次启动（数据库里还没有密码时）写入账号密码；之后以数据库为准，Web 上「修改账号 / 修改密码」会持久保存，重启不会被 env 覆盖。忘记密码可用 ACME_PANEL_RESET_CREDENTIALS=1 配合 env 显式重置一次。数据库只存 PBKDF2 哈希，不存明文。任何方式都无法防止主机本身被入侵。</div>' : ''}${k === '面板版本' ? '<span id="update-slot"></span>' : ''}${k === '数据存储' ? '<span id="storage-slot" class="tiny muted"></span>' : ''}</dd>`).join('');
+      $('#sys-info').innerHTML = rows.map(([k, v]) => `<dt>${esc(k)}</dt><dd>${esc(v)}${k === '密码来源' ? '<div class="tiny muted">环境变量只在首次启动（数据库里还没有密码时）写入账号密码；之后以数据库为准，Web 上「修改账号 / 修改密码」会持久保存，重启不会被 env 覆盖。忘记密码可用 ACME_PANEL_RESET_CREDENTIALS=1 配合 env 显式重置一次。数据库只存 PBKDF2 哈希，不存明文。任何方式都无法防止主机本身被入侵。</div>' : ''}${k === '面板版本' ? '<span id="update-slot"></span>' : ''}${k === '数据存储' ? '<span id="storage-slot" class="tiny muted"></span>' : ''}</dd>`).join('');
       checkUpdate();
       checkStorage();
     } catch (e) { /* ignore */ }
@@ -1319,10 +1381,12 @@
     if (btn) btn.disabled = true;
     if (slot && !force) { slot.className = 'tiny muted'; slot.textContent = ' · 检测中…'; }
     try {
-      let r = await api('/api/update/check' + (force ? '?force=1' : ''));
+      // 强制检测用 POST（有副作用且受 CSRF 保护），GET 只返回缓存状态。
+      const forceCheck = () => api('/api/update/check', { method: 'POST', body: {} });
+      let r = force ? await forceCheck() : await api('/api/update/check');
       // 从未检测过（首次启动）：缓存为空，自动补一次实时检测，避免误显示"已是最新"。
       if (!force && (!r.last_check || String(r.last_check).startsWith('0001'))) {
-        r = await api('/api/update/check?force=1');
+        r = await forceCheck();
       }
       renderUpdate(r);
       if (force) toast(r.ok ? (r.need_update ? '发现新版本 ' + (r.latest || '') : '已是最新版本') : (r.error || '检测失败'), r.ok ? '' : 'warn');
@@ -1408,6 +1472,7 @@
 
   async function loadAudit(resetPage = false) {
     if (resetPage) state.auditPage = 0;
+    const seq = state.auditSeq = (state.auditSeq || 0) + 1;
     const f = auditFilters();
     const p = new URLSearchParams();
     Object.entries(f).forEach(([k, v]) => { if (v) p.set(k, v); });
@@ -1415,6 +1480,7 @@
     p.set('offset', String(state.auditPage * AUDIT_PAGE_SIZE));
     try {
       const r = await api('/api/audit?' + p.toString());
+      if (seq !== state.auditSeq) return; // 旧筛选条件的响应不得覆盖新结果
       state.auditTotal = r.total || 0;
       const tb = $('#audit-table tbody');
       tb.innerHTML = (r.entries || []).map((e) => `
@@ -1684,6 +1750,7 @@
 
   async function loadSyncEvents(resetPage = false) {
     if (resetPage) state.syncPage = 0;
+    const seq = state.syncSeq = (state.syncSeq || 0) + 1;
     const f = syncFilters();
     const p = new URLSearchParams();
     Object.entries(f).forEach(([k, v]) => { if (v) p.set(k, v); });
@@ -1691,6 +1758,7 @@
     p.set('offset', String(state.syncPage * SYNC_PAGE_SIZE));
     try {
       const r = await api('/api/sync/events?' + p.toString());
+      if (seq !== state.syncSeq) return; // 旧筛选条件的响应不得覆盖新结果
       state.syncTotal = r.total || 0;
       const entries = r.entries || [];
       renderSyncEvents(entries);
@@ -2194,11 +2262,6 @@
       toast(r.message || '配置已恢复，正在刷新页面');
       setTimeout(() => location.reload(), 600);
     } catch (e) { toast(e.message, 'err'); btn.disabled = false; btn.textContent = '恢复这份备份'; }
-  });
-
-  // 未登录时按 Enter 直接提交
-  $('#login-pass').addEventListener('keydown', (e) => {
-    if (e.key === 'Enter') $('#login-form').requestSubmit();
   });
 
   boot();

@@ -1,4 +1,5 @@
-VERSION ?= 0.1.20
+# 从 version.go 派生，避免本地构建/镜像 tag 与发布版本漂移
+VERSION ?= $(shell grep -oE '[0-9]+\.[0-9]+\.[0-9]+' version.go | head -1)
 IMAGE   ?= acmesh-panel
 BIN     := bin/acmesh-panel
 

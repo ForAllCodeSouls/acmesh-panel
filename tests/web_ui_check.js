@@ -156,7 +156,8 @@ check('设置页含自动更新配置卡', html.includes('id="update-auto"') && 
 check('检测频次五档齐全', ['off', 'startup', '6h', 'daily', 'weekly']
   .every((v) => html.includes(`value="${v}"`)) && html.includes('每天一次'));
 check('顶部全局更新横幅存在', html.includes('id="update-banner"') && css.includes('.update-banner'));
-check('前端立即检测强制刷新', app.includes("api('/api/update/check?force=1')")
+check('前端立即检测强制刷新走 POST', app.includes("api('/api/update/check', { method: 'POST', body: {} })")
+  && !app.includes("api('/api/update/check?force=1')")
   && app.includes("$('#update-check-now').addEventListener('click', () => checkUpdate(true))"));
 check('前端保存更新设置', app.includes("api('/api/update/settings'")
   && app.includes('auto_check: auto, interval'));
@@ -263,5 +264,43 @@ const goCompose = fs.readFileSync(path.join(root, 'docker-compose.yml'), 'utf8')
 check('Docker 透传重置/并发/代理层数变量', goCompose.includes('ACME_PANEL_RESET_CREDENTIALS: "${ACME_PANEL_RESET_CREDENTIALS:-0}"')
   && goCompose.includes('ACME_PANEL_PARALLEL: "${ACME_PANEL_PARALLEL:-2}"')
   && goCompose.includes('ACME_PANEL_TRUST_PROXY_HOPS: "${ACME_PANEL_TRUST_PROXY_HOPS:-1}"'));
+
+// 本轮全盘优化的结构性回归
+check('私钥 60 秒清除后复制/下载同步失效', app.includes("const v = $('#comb-key').value")
+  && app.includes("const v = ta.value") && app.includes("$('#comb-key-copy').disabled = true")
+  && app.includes("$('#key-dl').disabled = true"));
+check('筛选加载有请求序号防旧响应覆盖', app.includes("state.auditSeq = (state.auditSeq || 0) + 1")
+  && app.includes("state.syncSeq = (state.syncSeq || 0) + 1")
+  && (app.match(/seq !== state\.(audit|sync)Seq/g) || []).length >= 2);
+check('页内分区补齐 tab/tabpanel 语义与方向键', app.includes("setAttribute('role', 'tab')")
+  && app.includes("setAttribute('role', 'tabpanel')") && app.includes("setAttribute('aria-selected'")
+  && app.includes("e.key !== 'ArrowLeft'"));
+check('抽屉与弹窗共用 Tab 焦点陷阱', app.includes('const trapTab = (sel) =>')
+  && app.includes("trapTab('#modal')") && app.includes("trapTab('#drawer')"));
+check('登录 Enter 不再双提交', !app.includes('requestSubmit()')
+  && app.includes('if (btn.disabled) return; // 表单天然支持 Enter'));
+check('死代码已清理', !css.includes('#remote-event-list') && !app.includes("k === 'Cookie Secure'"));
+const goSync = fs.readFileSync(path.join(root, 'sync.go'), 'utf8');
+check('强制同步把 force 透传到远程', goSync.includes('pushAllRemotes(e.store, key.dir, files, force'));
+check('远程凭证切换只认 keep 标志', goApi.includes('if req.KeepPassword {')
+  && !goApi.includes('req.KeepPassword || h.Password == ""'));
+check('跨实例恢复先校验存储密钥', goBackup.includes('func (s *Store) ValidateRestore')
+  && goBackup.includes('s.store.ValidateRestore(st)'));
+check('强制检测只走 POST', goMain.includes('POST /api/update/check')
+  && !goApi.includes('r.URL.Query().Get("force")'));
+check('远程临时/备份文件名唯一', goRemote.includes('func remoteTempPath')
+  && goRemote.includes('".acmesh-bak-" + randToken(8)'));
+const appVer = (fs.readFileSync(path.join(root, 'version.go'), 'utf8').match(/[0-9]+\.[0-9]+\.[0-9]+/) || [''])[0];
+const installSh = fs.readFileSync(path.join(root, 'install.sh'), 'utf8');
+const releaseYml = fs.readFileSync(path.join(root, '.github/workflows/release.yml'), 'utf8');
+const mk = fs.readFileSync(path.join(root, 'Makefile'), 'utf8');
+const bugTpl = fs.readFileSync(path.join(root, '.github/ISSUE_TEMPLATE/bug_report.yml'), 'utf8');
+check('安装脚本默认版本与发布一致', installSh.includes('VERSION="${VERSION:-' + appVer + '}"')
+  && installSh.includes('SHA256SUMS') && installSh.includes('sha256sum "$TMP"'));
+check('Release 镜像 tag 与实际推送一致', releaseYml.includes('RELEASE_TAG_PLAIN')
+  && releaseYml.includes('plain=${V#v}') && !releaseYml.includes('acmesh-panel:${{ env.RELEASE_VERSION }}')
+  && releaseYml.includes('acmesh-panel-darwin-arm64'));
+check('Makefile 版本从 version.go 派生', mk.includes("grep -oE '[0-9]+\\.[0-9]+\\.[0-9]+' version.go"));
+check('issue 模板版本占位符同步', bugTpl.includes(`placeholder: "${appVer}"`));
 
 console.log(`web UI checks: ${passed} passed`);

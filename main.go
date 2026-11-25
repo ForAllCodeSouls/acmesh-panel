@@ -378,6 +378,7 @@ func (s *Server) routes() *http.ServeMux {
 	mux.HandleFunc("POST /api/logout", s.requireAuth(s.handleLogout))
 	mux.HandleFunc("GET /api/session", s.requireAuth(s.handleSession))
 	mux.HandleFunc("GET /api/update/check", s.requireAuth(s.handleUpdateCheck))
+	mux.HandleFunc("POST /api/update/check", s.requireAuth(s.handleUpdateCheck))
 	mux.HandleFunc("POST /api/update/settings", s.requireAuth(s.handleUpdateSettings))
 	mux.HandleFunc("GET /api/storage", s.requireAuth(s.handleStorage))
 	mux.HandleFunc("GET /api/overview", s.requireAuth(s.handleOverview))

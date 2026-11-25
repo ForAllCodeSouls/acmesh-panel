@@ -1,10 +1,10 @@
 #!/bin/sh
 # 从 GitHub Releases 安装 acmesh-panel 二进制（Linux amd64/arm64）
 # 用法：curl -fsSL https://raw.githubusercontent.com/ForAllCodeSouls/acmesh-panel/main/install.sh | sh
-#       VERSION=0.1.20 BINDIR=~/.local/bin sh install.sh
+#       VERSION=0.1.65 BINDIR=~/.local/bin sh install.sh
 set -eu
 
-VERSION="${VERSION:-0.1.49}"
+VERSION="${VERSION:-0.1.65}"
 REPO="ForAllCodeSouls/acmesh-panel"
 BINDIR="${BINDIR:-/usr/local/bin}"
 
@@ -16,10 +16,18 @@ esac
 
 URL="https://github.com/${REPO}/releases/download/v${VERSION}/acmesh-panel-linux-${ARCH}"
 TMP="$(mktemp)"
-trap 'rm -f "$TMP"' EXIT
+SUMS="$(mktemp)"
+trap 'rm -f "$TMP" "$SUMS"' EXIT
 
 echo "下载: $URL"
 curl -fsSL "$URL" -o "$TMP"
+# 一键安装也必须校验完整性：Release 同时发布 SHA256SUMS，不验真的二进制绝不能装。
+curl -fsSL "${URL%/*}/SHA256SUMS" -o "$SUMS"
+EXPECTED="$(awk -v f="acmesh-panel-linux-${ARCH}" '$2 == f { print $1; exit }' "$SUMS")"
+[ -n "$EXPECTED" ] || { echo "SHA256SUMS 里找不到 acmesh-panel-linux-${ARCH}" >&2; exit 1; }
+ACTUAL="$(sha256sum "$TMP" | awk '{ print $1 }')"
+[ "$ACTUAL" = "$EXPECTED" ] || { echo "SHA256 校验失败：已弃用下载文件，未安装" >&2; exit 1; }
+echo "SHA256 校验通过"
 chmod 755 "$TMP"
 mkdir -p "$BINDIR"
 mv "$TMP" "${BINDIR}/acmesh-panel"

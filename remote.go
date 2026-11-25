@@ -387,7 +387,7 @@ func listRemoteFiles(store *Store, h RemoteHost, dir string) ([]RemoteFileItem, 
 			break
 		}
 		// 隐藏推送过程中可能残留的临时文件（正常流程结束后会被改名掉）
-		if strings.HasSuffix(entry.Name(), ".acmesh-tmp") {
+		if strings.Contains(entry.Name(), ".acmesh-tmp-") {
 			continue
 		}
 		out = append(out, RemoteFileItem{
@@ -602,7 +602,7 @@ func pushMatchedToRemote(store *Store, certs *CertScanner, h RemoteHost, matches
 			continue
 		}
 		remotePath := path.Join(h.RemoteDir, name)
-		tmpPath := remotePath + ".acmesh-tmp"
+		tmpPath := remoteTempPath(remotePath)
 		rf, err := sftpClient.Create(tmpPath)
 		if err != nil {
 			fail(name, m.Source, "远程临时文件创建失败: "+err.Error())
@@ -685,7 +685,7 @@ func pushToRemote(store *Store, h RemoteHost, localFiles []string, localDir ...s
 		remotePath := path.Join(h.RemoteDir, name)
 		// 先写临时文件再原子改名：避免远端消费者（如 nginx）读到上传到一半的半写文件。
 		// 与本地同步的 writeAtomic 保持同一原子替换标准。
-		tmpPath := remotePath + ".acmesh-tmp"
+		tmpPath := remoteTempPath(remotePath)
 		rf, err := clientSFTP.Create(tmpPath)
 		if err != nil {
 			return fmt.Errorf("写入远程文件 %s 失败: %v", name, err)
@@ -713,6 +713,11 @@ func pushToRemote(store *Store, h RemoteHost, localFiles []string, localDir ...s
 	return nil
 }
 
+// remoteTempPath 给每次推送生成唯一临时名，避免并发任务写同一个 .acmesh-tmp 互相覆盖。
+func remoteTempPath(remotePath string) string {
+	return remotePath + ".acmesh-tmp-" + randToken(8)
+}
+
 // safeRemoteReplace 把临时文件原子替换到目标路径，绝不先删除目标文件。
 // 支持 posix-rename@openssh.com 时直接原子覆盖（OpenSSH 默认支持）；
 // 不支持时先把旧文件改名为备份，再把临时文件改到目标位置，成功后删除备份，
@@ -725,8 +730,8 @@ func safeRemoteReplace(client *sftp.Client, tmpPath, remotePath string) error {
 		return nil
 	}
 	// 无扩展：备份 → 替换 → 删除备份；任何一步失败都尽量恢复旧文件。
-	backup := remotePath + ".acmesh-bak"
-	_ = client.Remove(backup) // 清掉上一次可能残留的备份
+	// 备份名也必须唯一：否则并发任务会删掉另一路刚放好的旧文件副本。
+	backup := remotePath + ".acmesh-bak-" + randToken(8)
 	hadOld := true
 	if _, err := client.Stat(remotePath); err != nil {
 		hadOld = false // 目标本来就不存在，无需备份

@@ -42,6 +42,7 @@ jobs:
           fi
           [[ "$V" == v* ]] || V="v$V"
           echo "version=$V" >> "$GITHUB_OUTPUT"
+          echo "plain=${V#v}" >> "$GITHUB_OUTPUT"
           echo "版本: $V"
 
   binaries:
@@ -95,6 +96,8 @@ jobs:
     runs-on: ubuntu-latest
     env:
       RELEASE_VERSION: ${{ needs.prepare.outputs.version }}
+      # GHCR 镜像 tag 不带 v；Release 正文必须引导用户拉取真实存在的 tag。
+      RELEASE_TAG_PLAIN: ${{ needs.prepare.outputs.plain }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
@@ -121,6 +124,8 @@ jobs:
             | `acmesh-panel-linux-amd64` | Linux x86_64 服务器 |
             | `acmesh-panel-linux-arm64` | Linux ARM64（树莓派、ARM 云主机） |
             | `acmesh-panel-windows-amd64.exe` | Windows x86_64 |
+            | `acmesh-panel-darwin-amd64` | macOS Intel |
+            | `acmesh-panel-darwin-arm64` | macOS Apple Silicon |
             | `SHA256SUMS` | 校验文件完整性 |
 
             全部为静态链接二进制，下载后可直接执行（Windows 用 `.exe`）。
@@ -128,12 +133,12 @@ jobs:
             ### 方式一：Docker 镜像（推荐，自带 acme.sh）
 
             ```bash
-            docker pull ghcr.io/forallcodesouls/acmesh-panel:${{ env.RELEASE_VERSION }}
+            docker pull ghcr.io/forallcodesouls/acmesh-panel:${{ env.RELEASE_TAG_PLAIN }}
             docker run -d --name acmesh-panel -p 0.0.0.0:8800:8080 \
               -e ACME_PANEL_PASSWORD='换成你的长密码' \
               -e ACME_PANEL_EMAIL='you@example.com' \
               -v acme_home:/acme.sh -v panel_data:/data \
-              ghcr.io/forallcodesouls/acmesh-panel:${{ env.RELEASE_VERSION }}
+              ghcr.io/forallcodesouls/acmesh-panel:${{ env.RELEASE_TAG_PLAIN }}
             ```
 
             浏览器打开 `http://服务器IP:8800`，账号 `admin`。

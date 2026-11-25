@@ -264,7 +264,8 @@ func updateStatePayload(st UpdateState) map[string]any {
 // handleUpdateCheck 返回最近一次检测结果。带 force=1 时立即请求 GitHub 刷新。
 // 默认走缓存，避免打开设置页就打一次 GitHub，也便于后台自动检测统一口径。
 func (s *Server) handleUpdateCheck(w http.ResponseWriter, r *http.Request) {
-	if r.URL.Query().Get("force") == "1" {
+	// 强制检测会真实请求 GitHub 并写状态，属于有副变更的操作：只接受 POST（受 CSRF 保护）。
+	if r.Method == http.MethodPost {
 		st := s.runUpdateCheck(r.Context())
 		writeJSON(w, http.StatusOK, updateStatePayload(st))
 		return
@@ -1615,16 +1616,20 @@ func (s *Server) handleRemoteSave(w http.ResponseWriter, r *http.Request) {
 	if h.Port == 0 {
 		h.Port = 22
 	}
-	// 编辑时留空表示沿用旧凭证；切换到密码认证时清空旧私钥。
+	// 只有显式 keep_* 才沿用旧凭证；空值本身表示「清空」，
+	// 否则从密码认证切到私钥认证时旧密码会被无条件回填，导致两种凭证并存而保存失败。
 	old, _ := s.store.GetRemoteHost(h.ID)
-	if req.KeepKey || h.Key == "" {
+	if req.KeepKey {
 		h.Key = old.Key
 	}
-	if req.KeepPassword || h.Password == "" {
+	if req.KeepPassword {
 		h.Password = old.Password
 	}
 	if h.Password != "" && !req.KeepKey && strings.TrimSpace(req.Host.Key) == "" {
 		h.Key = ""
+	}
+	if h.Key != "" && !req.KeepPassword && strings.TrimSpace(req.Host.Password) == "" {
+		h.Password = ""
 	}
 	if err := validateRemoteHost(h); err != nil {
 		writeErr(w, http.StatusBadRequest, err.Error())
@@ -1881,18 +1886,22 @@ func (s *Server) handleRemoteTest(w http.ResponseWriter, r *http.Request) {
 	if h.Port == 0 {
 		h.Port = 22
 	}
-	if req.KeepKey || h.Key == "" {
+	// 与保存接口一致：空凭证就是清空，只有 keep_* 才沿用旧值。
+	if req.KeepKey {
 		if old, err := s.store.GetRemoteHost(h.ID); err == nil {
 			h.Key = old.Key
 		}
 	}
-	if req.KeepPassword || h.Password == "" {
+	if req.KeepPassword {
 		if old, err := s.store.GetRemoteHost(h.ID); err == nil {
 			h.Password = old.Password
 		}
 	}
 	if h.Password != "" && !req.KeepKey && strings.TrimSpace(req.Host.Key) == "" {
 		h.Key = ""
+	}
+	if h.Key != "" && !req.KeepPassword && strings.TrimSpace(req.Host.Password) == "" {
+		h.Password = ""
 	}
 	if err := testRemoteHost(s.store, h); err != nil {
 		writeErr(w, http.StatusBadRequest, err.Error())

@@ -116,7 +116,7 @@ func TestPushToRemoteWithPassword(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, e := range entries {
-		if strings.HasSuffix(e.Name(), ".acmesh-tmp") {
+		if strings.Contains(e.Name(), ".acmesh-tmp-") {
 			t.Fatalf("推送后残留临时文件: %s", e.Name())
 		}
 	}

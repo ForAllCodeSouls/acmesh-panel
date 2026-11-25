@@ -235,7 +235,8 @@ func (e *SyncEngine) run(trigger string, force bool) SyncRunResult {
 		if len(rule.RemoteHosts) == 0 {
 			continue
 		}
-		result.Events = append(result.Events, pushAllRemotes(e.store, key.dir, files, false, rule.RemoteHosts...)...)
+		// 强制同步对本地和远程使用同一个语义：忽略指纹/自动推送开关，重推规则选中的主机。
+		result.Events = append(result.Events, pushAllRemotes(e.store, key.dir, files, force, rule.RemoteHosts...)...)
 	}
 
 	if len(result.Events) > 0 {
