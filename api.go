@@ -1745,21 +1745,32 @@ func (s *Server) handleRemoteFiles(w http.ResponseWriter, r *http.Request) {
 			names = append(names, f.Name)
 		}
 	}
-	// 文件类型标注只来自「目标机器上的证书内容」与面板已签名证书的对比：
-	// 读得到内容的证书按 CN/SAN 精确匹配，私钥按同前缀配对继承。
-	// 绝不再用同步规则/文件名推断远程文件类型——那会把无关文件标成证书、把真证书漏标。
-	contentMatches := map[string]RemoteCertMatch{}
+	// 类型标注与同步匹配是两件事，互不牵连：
+	// ① 标注：读文件自身内容，是证书/私钥就标注，并给出它签的域名——
+	//    面板没签发同名证书不影响标注（例如目标机上的第三方证书仍需看得见）。
+	// ② 同步：只有内容与面板已签发证书对得上的文件才进入 contentMatches，
+	//    绝不用同步规则或文件名推断，避免把无关文件写坏。
 	kinds := map[string]string{}
-	if contents, err := readRemoteCertFiles(s.store, h, names); err == nil {
+	fileDomains := map[string][]string{}
+	contentMatches := map[string]RemoteCertMatch{}
+	if contents, err := readRemoteAllPEMFiles(s.store, h, names); err == nil {
+		for name, data := range contents {
+			kind, domains := detectRemoteFileInfo(data)
+			if kind != "" {
+				kinds[name] = kind
+			}
+			if len(domains) > 0 {
+				fileDomains[name] = domains
+			}
+		}
+		// 同步匹配用同一批内容（私钥读出来也没有证书块，不会误命中）。
 		all, _ := s.sync.certs.Scan()
 		contentMatches = matchRemoteCerts(names, contents, all)
-		for name, m := range contentMatches {
-			kinds[name] = m.Kind
-		}
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"ok": true, "host": h.Name, "dir": dir, "files": files,
-		"matched_kinds": kinds, "content_matches": contentMatches,
+		"matched_kinds": kinds, "file_domains": fileDomains,
+		"content_matches": contentMatches,
 	})
 }
 

@@ -412,10 +412,10 @@ func sortRemoteFiles(items []RemoteFileItem) {
 	})
 }
 
-// readRemoteCertFiles 通过 SFTP 批量读取远程目录里的证书文件内容（仅证书类文件，跳过私钥）。
-// 连接失败时返回空 map 与错误，调用方决定如何降级；对每个文件限制 1MB，避免异常大文件拖垮面板。
+// readRemoteCertFiles 通过 SFTP 批量读取远程目录里的证书文件内容。
+// 以前跳过私钥：因为同步匹配只需要证书内容。现在目录标注也要识别私钥，
+// 所以把「读哪些文件」交给参数控制，读取逻辑共用一份。
 func readRemoteCertFiles(store *Store, h RemoteHost, names []string) (map[string][]byte, error) {
-	out := map[string][]byte{}
 	candidates := []string{}
 	for _, name := range names {
 		lower := strings.ToLower(name)
@@ -423,10 +423,31 @@ func readRemoteCertFiles(store *Store, h RemoteHost, names []string) (map[string
 			continue
 		}
 		if syncFileKind(name) == "key" {
-			continue // 私钥无内容可比，按文件名配对处理
+			continue // 这条路径只服务同步匹配，私钥按文件名配对，不读内容
 		}
 		candidates = append(candidates, name)
 	}
+	return readRemoteNamedFiles(store, h, candidates)
+}
+
+// readRemoteAllPEMFiles 读取目录里所有 PEM/证书文件（含私钥），用于类型标注——
+// 私钥文件本身也需要读内容才能确认它确实是 PEM 私钥，而不是靠文件名猜。
+func readRemoteAllPEMFiles(store *Store, h RemoteHost, names []string) (map[string][]byte, error) {
+	candidates := []string{}
+	for _, name := range names {
+		lower := strings.ToLower(name)
+		if strings.HasSuffix(lower, ".pem") || strings.HasSuffix(lower, ".cer") ||
+			strings.HasSuffix(lower, ".crt") || strings.HasSuffix(lower, ".key") {
+			candidates = append(candidates, name)
+		}
+	}
+	return readRemoteNamedFiles(store, h, candidates)
+}
+
+// readRemoteNamedFiles 连接 SFTP 批量读取指定文件内容（单文件上限 1MB）。
+// 连接失败返回空 map 与错误；单个文件读不到不影响其它文件。
+func readRemoteNamedFiles(store *Store, h RemoteHost, candidates []string) (map[string][]byte, error) {
+	out := map[string][]byte{}
 	if len(candidates) == 0 {
 		return out, nil
 	}

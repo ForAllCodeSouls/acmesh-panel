@@ -1672,13 +1672,15 @@
     if (hosts.some((h) => h.id === prev)) sel.value = prev;
   }
 
-  // 类型标注只来自「目标机器证书内容」与面板已签名证书的对比（后端 matched_kinds），
-  // 不靠同步规则、也不靠文件名猜测；内容对不上的文件一律显示「文件」。
-  function renderRemoteFiles(files, dir, matchedKinds) {
+  // 类型标注只看文件自身内容（后端 matched_kinds）：证书/私钥都能识别，
+  // 不靠同步规则、不靠文件名、也不要求面板签发过同域证书。
+  // 是否会被同步由 contentMatches 决定，两者分开显示，避免「识别了却不同步」被误读成漏识别。
+  function renderRemoteFiles(files, dir, matchedKinds, fileDomains, contentMatches) {
     const box = $('#remote-file-list');
     const info = $('#remote-file-info');
-    const hits = Object.keys(matchedKinds || {}).length;
-    info.textContent = `${dir || '—'} · ${files.length} 个条目 · 证书内容匹配 ${hits} 个文件`;
+    const identified = Object.keys(matchedKinds || {}).length;
+    const hits = Object.keys(contentMatches || {}).length;
+    info.textContent = `${dir || '—'} · ${files.length} 个条目 · 识别 ${identified} 个证书文件 · 证书内容匹配 ${hits} 个`;
     if (!files.length) {
       box.innerHTML = '<div class="empty"><p>远程目录里没有文件</p><p class="tiny muted">目录取自主机配置，请确认路径正确且已有同步好的证书</p></div>';
       return;
@@ -1688,9 +1690,17 @@
       const k = KIND[(matchedKinds || {})[f.name]];
       const tag = k ? `<span class="chip ${k.cls}">${k.label}</span>`
                     : `<span class="chip">${f.is_dir ? '目录' : '文件'}</span>`;
+      const domains = (fileDomains || {})[f.name] || [];
+      const dom = domains.length
+        ? `<div class="tiny muted mt4">签发域名 ${esc(domains.slice(0, 4).join('、'))}${domains.length > 4 ? ' 等' : ''}</div>`
+        : '';
+      const matched = !!(contentMatches || {})[f.name];
+      const syncTag = k
+        ? (matched ? '<span class="chip green">可同步</span>' : '<span class="chip">面板未签发此域名</span>')
+        : '';
       return `<div class="row">
-        <span class="grow minw0 tiny">${esc(f.name)} <span class="muted">(${fmtSize(f.size)})</span></span>
-        ${tag}
+        <span class="grow minw0 tiny">${esc(f.name)} <span class="muted">(${fmtSize(f.size)})</span>${dom}</span>
+        ${tag}${syncTag}
         <span class="tiny muted">${esc((f.mod_time || '').slice(0, 16).replace('T', ' '))}</span>
       </div>`;
     }).join('');
@@ -1814,7 +1824,7 @@
     try {
       // 目录固定取主机配置，前端不再传自定义目录。
       const r = await api('/api/remote/files', { method: 'POST', body: { host_id: hostID } });
-      renderRemoteFiles(r.files || [], r.dir || '', r.matched_kinds || {});
+      renderRemoteFiles(r.files || [], r.dir || '', r.matched_kinds || {}, r.file_domains || {}, r.content_matches || {});
       toast(`已读取 ${(r.files || []).length} 个远程条目`);
     } catch (e) {
       $('#remote-file-info').textContent = e.message;

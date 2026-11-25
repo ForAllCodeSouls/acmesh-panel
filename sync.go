@@ -875,6 +875,29 @@ func remoteCertDomains(data []byte) []string {
 	return parseCertDomains(data)
 }
 
+// detectRemoteFileInfo 只根据文件自身内容识别类型与域名，用于远程目录的类型标注。
+// 能解析出 X.509 证书就是证书，PEM 私钥块就是私钥；两者都不要求域名与面板已签发证书匹配。
+// 「是否同步」另由 matchRemoteCerts 决定，标注与同步两个职责互不牵连。
+// 无法解析的内容（例如 AUTO_CERT_RENEW 文本、损坏文件）一律不标注。
+func detectRemoteFileInfo(data []byte) (string, []string) {
+	domains := parseCertDomains(data)
+	if len(domains) > 0 {
+		return "cert", domains
+	}
+	rest := data
+	for {
+		block, tail := pem.Decode(rest)
+		if block == nil {
+			break
+		}
+		rest = tail
+		if strings.Contains(strings.ToUpper(block.Type), "PRIVATE KEY") {
+			return "key", nil
+		}
+	}
+	return "", nil
+}
+
 // matchSignedCertByDomains 用目标证书里的域名与面板已签名证书对比：
 // 目标域名等于证书的 CN/非通配 SAN，或被证书的通配 SAN 覆盖（一级），即为命中。
 // 多张证书都命中时优先精确域名（不含通配），再按证书名排序保证结果稳定。

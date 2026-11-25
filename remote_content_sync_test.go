@@ -250,3 +250,75 @@ func TestHostNameNotUsedForDomainFilter(t *testing.T) {
 		t.Fatal("负责域名应按证书内容域名精确/子域判定")
 	}
 }
+
+// 用户场景：目标机上有 news.example.net 的证书，签的是 *.pythonscript.example.net，
+// 面板并没有签发这个域名。它仍应被识别为证书并显示签发域名，但不进入同步匹配。
+func TestDetectRemoteFileInfoIndependentOfPanelCert(t *testing.T) {
+	thirdPartyCert := testCertPEM(t, "*.pythonscript.example.net", "*.pythonscript.example.net")
+	kind, domains := detectRemoteFileInfo(thirdPartyCert)
+	if kind != "cert" || len(domains) == 0 || domains[0] != "*.pythonscript.example.net" {
+		t.Fatalf("第三方证书也应识别并给出域名，got kind=%q domains=%v", kind, domains)
+	}
+	// 面板只签发了别的域名：内容匹配不得命中，所以不会被同步覆盖。
+	home := t.TempDir()
+	makePanelCert(t, home, "pyworker.example.net_ecc", "pyworker.example.net", []string{"pyworker.example.net", "*.pyworker.example.net"})
+	certs := NewCertScanner(home)
+	all, err := certs.Scan()
+	if err != nil {
+		t.Fatal(err)
+	}
+	matches := matchRemoteCerts([]string{"news_cert.pem"}, map[string][]byte{"news_cert.pem": thirdPartyCert}, all)
+	if len(matches) != 0 {
+		t.Fatalf("面板未签发的域名不得进入同步匹配，got=%v", matches)
+	}
+}
+
+// 私钥和无关文件：私钥按 PEM 私钥块识别；文本/损坏内容不标注。
+func TestDetectRemoteFileInfoKeyAndJunk(t *testing.T) {
+	pemKey := []byte("-----BEGIN EC PRIVATE KEY-----\nMHcCAQEEIB0=\n-----END EC PRIVATE KEY-----\n")
+	if kind, _ := detectRemoteFileInfo(pemKey); kind != "key" {
+		t.Fatalf("PEM 私钥应识别为 key，got=%q", kind)
+	}
+	for _, junk := range [][]byte{[]byte("AUTO_CERT_RENEW=1\n"), []byte("not a certificate"), nil} {
+		if kind, domains := detectRemoteFileInfo(junk); kind != "" || len(domains) != 0 {
+			t.Fatalf("无关内容不得标注，got kind=%q domains=%v", kind, domains)
+		}
+	}
+}
+
+// readRemoteAllPEMFiles 通过真实 SFTP 读取私钥内容，供目录标注使用。
+func TestReadRemoteAllPEMFilesIncludesKeys(t *testing.T) {
+	port, stop := startSFTPTestServer(t, "TestPass123!")
+	defer stop()
+	remoteDir := t.TempDir()
+	certName := "news_cert.pem"
+	keyName := "news_key.pem"
+	certData := testCertPEM(t, "*.pythonscript.example.net", "*.pythonscript.example.net")
+	keyData := []byte("-----BEGIN EC PRIVATE KEY-----\nMHcCAQEEIB0=\n-----END EC PRIVATE KEY-----\n")
+	for n, data := range map[string][]byte{certName: certData, keyName: keyData, "readme.txt": []byte("notes")} {
+		if err := os.WriteFile(filepath.Join(remoteDir, n), data, 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	store := &Store{dir: t.TempDir()}
+	h := RemoteHost{
+		Name: "server", Host: "127.0.0.1", Port: port, User: "deploy",
+		RemoteDir: remoteDir, Password: "TestPass123!", Enabled: true,
+	}
+	contents, err := readRemoteAllPEMFiles(store, h, []string{certName, keyName, "readme.txt"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(contents[certName]) != string(certData) || string(contents[keyName]) != string(keyData) {
+		t.Fatalf("证书与私钥内容都应读到，got=%v", contents)
+	}
+	if _, ok := contents["readme.txt"]; ok {
+		t.Fatal("非 PEM 文件不应读取")
+	}
+	if ck, _ := detectRemoteFileInfo(contents[certName]); ck != "cert" {
+		t.Fatalf("远程证书应识别为 cert，got=%q", ck)
+	}
+	if kk, _ := detectRemoteFileInfo(contents[keyName]); kk != "key" {
+		t.Fatalf("远程私钥应识别为 key，got=%q", kk)
+	}
+}
