@@ -46,12 +46,30 @@ func TestSameOriginPortMismatch(t *testing.T) {
 		t.Fatal("https 反代应判为同源")
 	}
 
+	// nginx 未透传 Host：后端看到 127.0.0.1，但 X-Forwarded-Host 是公网域名
+	r = httptest.NewRequest("POST", "/api/login", nil)
+	r.Host = "127.0.0.1:8080"
+	r.Header.Set("X-Forwarded-Host", "example.com")
+	r.Header.Set("Origin", "https://example.com")
+	if !sameOrigin(r) {
+		t.Fatal("Host 为内网地址但 X-Forwarded-Host 匹配时应判为同源")
+	}
+
 	// 真正跨站必须拒绝
 	r = httptest.NewRequest("POST", "/api/login", nil)
 	r.Host = "example.com"
 	r.Header.Set("Origin", "http://evil.example.net:8800")
 	if sameOrigin(r) {
 		t.Fatal("不同主机名应判为跨站")
+	}
+
+	// X-Forwarded-Host 不匹配也不能放行
+	r = httptest.NewRequest("POST", "/api/login", nil)
+	r.Host = "127.0.0.1:8080"
+	r.Header.Set("X-Forwarded-Host", "example.net")
+	r.Header.Set("Origin", "https://example.com")
+	if sameOrigin(r) {
+		t.Fatal("X-Forwarded-Host 不匹配应判为跨站")
 	}
 
 	// Referer 路径同样忽略端口

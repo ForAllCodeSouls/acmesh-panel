@@ -2,6 +2,17 @@
 
 本文件遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)。
 
+## [0.1.57] - 2026-11-26
+
+### 修复
+- **HTTPS 反代登录失败**：面板彻底改为纯 HTTP 友好模式。会话 Cookie 不再带 `Secure`，统一用 `HttpOnly` + `SameSite=Lax`，HTTP 直连与 nginx/Caddy HTTPS 反代都能登录；此前 `Secure` Cookie 会导致 HTTP 侧登录失败，`Strict` 会让 HTTP→HTTPS 访问丢 Cookie 显示「未登录」。
+- **nginx 未透传 Host 导致登录被拒**：同源校验现在也接受 `X-Forwarded-Host` 匹配公网域名，后端看到 `127.0.0.1:8080` 时不再误判为跨站。
+- 面板不再自行下发 HSTS，HSTS 完全交给反代配置，避免反代头不一致时把 HTTP 站点锁死一年。
+
+### 变更
+- 移除 `ACME_PANEL_COOKIE_SECURE`、`ACME_PANEL_HSTS`、`ACME_PANEL_TLS_CERT` / `ACME_PANEL_TLS_KEY`；面板不再提供自身 TLS 终结。`ACME_PANEL_TRUST_PROXY` 保留但仅用于限流 IP 判断，与登录无关。
+- 三语 README、docker-compose、SECURITY 同步说明「面板只提供 HTTP，HTTPS 自己配 nginx」。
+
 ## [0.1.56] - 2026-11-26
 
 ### 修复

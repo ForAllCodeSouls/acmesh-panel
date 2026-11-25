@@ -208,10 +208,14 @@ check('登录失败抛出后端真实原因', app.includes("if (path === '/api/l
 check('非登录 401 静默回登录页', app.includes("showLogin('')"));
 const goMain = fs.readFileSync(path.join(root, 'main.go'), 'utf8');
 const goAuth = fs.readFileSync(path.join(root, 'auth.go'), 'utf8');
-check('HSTS 开关 ACME_PANEL_HSTS', goMain.includes('ACME_PANEL_HSTS') && goMain.includes('HSTS:'));
-check('HSTS 仅真实 HTTPS 下发', goMain.includes('s.cfg.HSTS && requestIsHTTPS(r, s.cfg.TrustProxy)'));
-check('真实 HTTPS 判断含反代协议头', goAuth.includes('func requestIsHTTPS') && goAuth.includes('X-Forwarded-Proto'));
+check('面板不再有 HSTS 开关', !goMain.includes('ACME_PANEL_HSTS') && !goMain.includes('HSTS:'));
+check('面板不下发 HSTS（交给反代）', goMain.includes('HSTS 由反代（nginx/Caddy）负责')
+  && !goMain.includes('Strict-Transport-Security'));
+check('面板固定纯 HTTP', goMain.includes('httpSrv.ListenAndServe()')
+  && !goMain.includes('ListenAndServeTLS'));
+check('Cookie 为 SameSite=Lax 且无 Secure', goApi.includes('SameSite: http.SameSiteLaxMode')
+  && !goApi.includes('Secure:'));
 check('同源校验忽略端口（反代登录不误判）', goAuth.includes('func hostNoPort')
-  && goAuth.includes('hostNoPort(strings.TrimPrefix(origin, p)) == want'));
+  && goAuth.includes('func originHost') && goAuth.includes('X-Forwarded-Host'));
 
 console.log(`web UI checks: ${passed} passed`);

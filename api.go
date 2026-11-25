@@ -78,6 +78,9 @@ func (s *Server) requireAuth(h http.HandlerFunc) http.HandlerFunc {
 	}
 }
 
+// setCookie 始终下发无 Secure、SameSite=Lax 的会话 Cookie：
+// 面板只监听 HTTP，HTTPS 由用户自己的 nginx 终结。带 Secure 会导致 HTTP 侧
+// 登录失败，Strict 会让 HTTP→HTTPS 跨协议访问丢 Cookie；Lax 两种部署都能用。
 func (s *Server) setCookie(w http.ResponseWriter, id string, longLived bool) {
 	maxAge := int(12 * time.Hour / time.Second)
 	if longLived {
@@ -88,8 +91,7 @@ func (s *Server) setCookie(w http.ResponseWriter, id string, longLived bool) {
 		Value:    id,
 		Path:     "/",
 		HttpOnly: true,
-		Secure:   s.cfg.CookieSecure,
-		SameSite: http.SameSiteStrictMode,
+		SameSite: http.SameSiteLaxMode,
 		MaxAge:   maxAge,
 	})
 }
@@ -100,8 +102,7 @@ func (s *Server) clearCookie(w http.ResponseWriter) {
 		Value:    "",
 		Path:     "/",
 		HttpOnly: true,
-		Secure:   s.cfg.CookieSecure,
-		SameSite: http.SameSiteStrictMode,
+		SameSite: http.SameSiteLaxMode,
 		MaxAge:   -1,
 	})
 }
@@ -331,8 +332,8 @@ func (s *Server) handleSession(w http.ResponseWriter, r *http.Request) {
 		"acme_home":       s.cfg.AcmeHome,
 		"default_ca":      s.cfg.DefaultCA,
 		"default_email":   s.store.DefaultEmail(),
-		"cookie_secure":   s.cfg.CookieSecure,
-		"tls":             s.cfg.TLSCert != "",
+		"cookie_secure":   false,
+		"tls":             false,
 		"cron":            s.cfg.Cron,
 		"cron_hour":       cronHour,
 		"cron_last_day":   lastDay,
@@ -809,7 +810,7 @@ func (s *Server) handleCatalog(w http.ResponseWriter, r *http.Request) {
 		"default_ca": s.cfg.DefaultCA,
 		"keylengths": []string{"ec-256", "ec-384", "2048", "4096"},
 		"version":    appVersion,
-		"cookie_sec": s.cfg.CookieSecure,
+		"cookie_sec": false,
 		"output_dir": filepath.Join(s.cfg.DataDir, "output"),
 		"acme_home":  s.cfg.AcmeHome,
 	})

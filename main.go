@@ -27,15 +27,11 @@ type Config struct {
 	User             string
 	Password         string
 	ResetCredentials bool
-	CookieSecure     bool
-	HSTS             bool
 	TrustProxy       bool
 	TrustHops        int
 	Cron             bool
 	DefaultCA        string
 	Email            string
-	TLSCert          string
-	TLSKey           string
 	Parallel         int
 	SyncDirs         []string
 }
@@ -64,23 +60,16 @@ func loadConfig() Config {
 		User:             env("ACME_PANEL_USER", "admin"),
 		Password:         os.Getenv("ACME_PANEL_PASSWORD"),
 		ResetCredentials: envBool("ACME_PANEL_RESET_CREDENTIALS", false),
-		CookieSecure:     envBool("ACME_PANEL_COOKIE_SECURE", false),
-		HSTS:             envBool("ACME_PANEL_HSTS", true),
 		TrustProxy:       envBool("ACME_PANEL_TRUST_PROXY", false),
 		TrustHops:        parseInt(env("ACME_PANEL_TRUST_PROXY_HOPS", "1")),
 		Cron:             envBool("ACME_PANEL_CRON", true),
 		DefaultCA:        env("ACME_PANEL_CA", "letsencrypt"),
 		Email:            env("ACME_PANEL_EMAIL", ""),
-		TLSCert:          os.Getenv("ACME_PANEL_TLS_CERT"),
-		TLSKey:           os.Getenv("ACME_PANEL_TLS_KEY"),
 		Parallel:         parseInt(env("ACME_PANEL_PARALLEL", "2")),
 		SyncDirs:         parseSyncDirs(env("ACME_PANEL_SYNC_DIR", "")),
 	}
 	if c.AcmeBin == "" {
 		c.AcmeBin = filepath.Join(c.AcmeHome, "acme.sh")
-	}
-	if c.TLSCert != "" && c.TLSKey != "" {
-		c.CookieSecure = true
 	}
 	if _, ok := allowedCA[c.DefaultCA]; !ok {
 		c.DefaultCA = "letsencrypt"
@@ -224,13 +213,8 @@ func main() {
 
 	go func() {
 		banner(cfg, store.Username(), generated, initialPwd, acme.Version(ctx), store.DefaultEmail())
-		var err error
-		if cfg.TLSCert != "" && cfg.TLSKey != "" {
-			err = httpSrv.ListenAndServeTLS(cfg.TLSCert, cfg.TLSKey)
-		} else {
-			err = httpSrv.ListenAndServe()
-		}
-		if err != nil && !errors.Is(err, http.ErrServerClosed) {
+		// 面板固定纯 HTTP；TLS 由用户自己的 nginx/Caddy 终结。
+		if err := httpSrv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			log.Fatalf("HTTP 服务退出: %v", err)
 		}
 	}()
@@ -286,11 +270,8 @@ func (s *Server) securityHeaders(next http.Handler) http.Handler {
 		h.Set("Permissions-Policy", "geolocation=(), microphone=(), camera=()")
 		h.Set("Cross-Origin-Opener-Policy", "same-origin")
 		h.Set("Cross-Origin-Resource-Policy", "same-origin")
-		// HSTS 仅在开关开启、且本次连接确实是 HTTPS 时下发。
-		// 纯 HTTP（含未信任反代的 XFP）不下发，避免被浏览器强制升级锁死一年。
-		if s.cfg.HSTS && requestIsHTTPS(r, s.cfg.TrustProxy) {
-			h.Set("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
-		}
+		// HSTS 由反代（nginx/Caddy）负责；面板固定 HTTP，不再自己下发，
+		// 避免反代头配置不一致时把 HTTP 站点锁死一年。
 		if strings.HasPrefix(r.URL.Path, "/api/") {
 			h.Set("Cache-Control", "no-store")
 		} else if r.URL.Path == "/" || strings.HasSuffix(r.URL.Path, ".html") {

@@ -127,13 +127,11 @@ A systemd unit example and macOS/Windows instructions are in the Chinese README 
 | `ACME_BIN` | auto | Path to the acme.sh script (binary deployments) |
 | `ACME_PANEL_CA` | `letsencrypt` | `letsencrypt` / `zerossl` / `buypass` / `google` / `letsencrypt_test` |
 | `ACME_PANEL_EMAIL` | empty | Passed as `--accountemail`; overrides the web-saved default |
-| `ACME_PANEL_COOKIE_SECURE` | `0` | Set `1` behind HTTPS: adds `Secure` + HSTS |
-| `ACME_PANEL_TRUST_PROXY` | `0` | Trust `X-Forwarded-For` (only with a fully trusted reverse proxy) |
+| `ACME_PANEL_TRUST_PROXY` | `0` | **Optional**; only chooses the IP used by rate limiting, never affects HTTP/HTTPS login. Trust `X-Forwarded-For` only behind a fully trusted reverse proxy |
 | `ACME_PANEL_TRUST_PROXY_HOPS` | `1` | Number of trusted proxy hops (taken right-to-left from XFF) |
 | `ACME_PANEL_ALLOW_LOCAL_WEBHOOK` | `0` | Local e2e testing only; allows webhooks to loopback/LAN (never in production) |
 | `ACME_PANEL_CRON` | `1` | Daily renewal scheduler on/off |
 | `ACME_PANEL_PARALLEL` | `2` | Task concurrency |
-| `ACME_PANEL_TLS_CERT` / `ACME_PANEL_TLS_KEY` | empty | Mount paths for panel-terminated TLS |
 | `TZ` | `Asia/Shanghai` | Timezone for notifications and records |
 | `ACME_PANEL_SYNC_DIR` | empty | Comma/semicolon-separated sync directories |
 
@@ -142,14 +140,15 @@ A systemd unit example and macOS/Windows instructions are in the Chinese README 
 ## Security model (summary)
 
 - Passwords stored as PBKDF2-HMAC-SHA256 (600k iterations, random salt, constant-time compare).
-- Sessions: in-memory + `HttpOnly`/`SameSite=Strict` cookies; session ID rotates on login.
+- Sessions: in-memory + `HttpOnly`/`SameSite=Lax` cookies without `Secure` (works over plain HTTP and behind an HTTPS reverse proxy); session ID rotates on login.
+- The panel serves HTTP only. HTTPS and HSTS are terminated by your nginx/Caddy; the panel no longer emits HSTS itself.
 - CSRF: token + Origin/Referer checks on every state-changing request.
 - Brute force: exponential per-IP/username lockout + security notifications.
 - Credentials (DNS API keys, notify channels, SSH keys/passwords) encrypted with AES-256-GCM; API returns masked values; logs are scrubbed.
 - Web UI: strict CSP, no inline scripts/styles, no CDN.
 - Container: non-root uid 10001, `read_only` rootfs, `cap_drop ALL` (only `CHOWN` added).
 
-Known boundaries: single account (no RBAC); private keys are viewable by the admin by design; acme.sh writes DNS credentials in plain text to `/acme.sh/account.conf`; the panel does not terminate TLS by default. See [SECURITY.md](SECURITY.md).
+Known boundaries: single account (no RBAC); private keys are viewable by the admin by design; acme.sh writes DNS credentials in plain text to `/acme.sh/account.conf`; the panel never terminates TLS itself. See [SECURITY.md](SECURITY.md).
 
 ---
 
@@ -158,7 +157,7 @@ Known boundaries: single account (no RBAC); private keys are viewable by the adm
 - **Forgot the password?** Set `ACME_PANEL_USER` + `ACME_PANEL_PASSWORD` + `ACME_PANEL_RESET_CREDENTIALS=1`, restart once, then remove the reset flag.
 - **Login works but issuance fails?** Check DNS provider credentials and that the domain's NS points at the provider zone; the job log shows the acme.sh output verbatim.
 - **Port already in use?** Change the left side of `8800:8080` in `docker-compose.yml`.
-- **Behind a reverse proxy?** Terminate HTTPS on the proxy, set `ACME_PANEL_COOKIE_SECURE=1`, and if the proxy is in the same Docker network set `ACME_PANEL_TRUST_PROXY=1`.
+- **Behind a reverse proxy?** Terminate HTTPS and HSTS on nginx/Caddy. No panel-side Cookie/HSTS switches are needed; optionally set `ACME_PANEL_TRUST_PROXY=1` only so rate limiting sees the real client IP.
 
 ---
 

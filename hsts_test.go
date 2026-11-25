@@ -1,73 +1,44 @@
 package main
 
 import (
-	"crypto/tls"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 )
 
-func TestRequestIsHTTPS(t *testing.T) {
-	// 直连 TLS
-	r := httptest.NewRequest(http.MethodGet, "/", nil)
-	r.TLS = &tls.ConnectionState{}
-	if !requestIsHTTPS(r, false) {
-		t.Fatal("直连 TLS 应判定为 HTTPS")
-	}
-
-	// 纯 HTTP
-	r = httptest.NewRequest(http.MethodGet, "/", nil)
-	if requestIsHTTPS(r, false) {
-		t.Fatal("纯 HTTP 不应判定为 HTTPS")
-	}
-
-	// 未信任代理时，X-Forwarded-Proto 不可信
-	r = httptest.NewRequest(http.MethodGet, "/", nil)
-	r.Header.Set("X-Forwarded-Proto", "https")
-	if requestIsHTTPS(r, false) {
-		t.Fatal("未信任代理时 XFP=https 不应判定为 HTTPS")
-	}
-
-	// 信任代理 + XFP=https
-	r = httptest.NewRequest(http.MethodGet, "/", nil)
-	r.Header.Set("X-Forwarded-Proto", "https")
-	if !requestIsHTTPS(r, true) {
-		t.Fatal("信任代理 + XFP=https 应判定为 HTTPS")
-	}
-
-	// 信任代理 + XFP=http
-	r = httptest.NewRequest(http.MethodGet, "/", nil)
-	r.Header.Set("X-Forwarded-Proto", "http")
-	if requestIsHTTPS(r, true) {
-		t.Fatal("信任代理 + XFP=http 不应判定为 HTTPS")
-	}
-
-	// 多跳：客户端伪造左侧 https，可信代理写入右侧 http，取右侧
-	oldHops := trustedProxyHops
-	trustedProxyHops = 1
-	defer func() { trustedProxyHops = oldHops }()
-	r = httptest.NewRequest(http.MethodGet, "/", nil)
-	r.Header.Set("X-Forwarded-Proto", "https, http")
-	if requestIsHTTPS(r, true) {
-		t.Fatal("多跳时右侧可信值为 http，不应判定为 HTTPS")
-	}
-	r.Header.Set("X-Forwarded-Proto", "http, https")
-	if !requestIsHTTPS(r, true) {
-		t.Fatal("多跳时右侧可信值为 https，应判定为 HTTPS")
+func TestNoHSTSHeader(t *testing.T) {
+	// 面板固定 HTTP，HSTS 交给反代；即使请求带了 X-Forwarded-Proto 也不下发。
+	for _, xfp := range []string{"", "https", "http, https"} {
+		r := httptest.NewRequest(http.MethodGet, "/api/session", nil)
+		if xfp != "" {
+			r.Header.Set("X-Forwarded-Proto", xfp)
+		}
+		w := httptest.NewRecorder()
+		(&Server{}).securityHeaders(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusOK)
+		})).ServeHTTP(w, r)
+		if got := w.Header().Get("Strict-Transport-Security"); got != "" {
+			t.Fatalf("XFP=%q 时面板不应下发 HSTS，得到 %q", xfp, got)
+		}
 	}
 }
 
-func TestHSTSConfigDefaultAndToggle(t *testing.T) {
-	t.Setenv("ACME_PANEL_HSTS", "")
-	if !loadConfig().HSTS {
-		t.Fatal("HSTS 默认应开启")
+func TestSessionCookieHTTPFriendly(t *testing.T) {
+	w := httptest.NewRecorder()
+	s := &Server{}
+	s.setCookie(w, "sid", false)
+	raw := w.Header().Get("Set-Cookie")
+	if raw == "" {
+		t.Fatal("登录响应应写入会话 Cookie")
 	}
-	t.Setenv("ACME_PANEL_HSTS", "0")
-	if loadConfig().HSTS {
-		t.Fatal("ACME_PANEL_HSTS=0 应关闭 HSTS")
+	if strings.Contains(strings.ToLower(raw), "secure") {
+		t.Fatalf("面板只提供 HTTP，Cookie 不应带 Secure：%s", raw)
 	}
-	t.Setenv("ACME_PANEL_HSTS", "1")
-	if !loadConfig().HSTS {
-		t.Fatal("ACME_PANEL_HSTS=1 应开启 HSTS")
+	if !strings.Contains(raw, "SameSite=Lax") {
+		t.Fatalf("Cookie 应为 SameSite=Lax，兼容 HTTP/HTTPS 反代：%s", raw)
+	}
+	if !strings.Contains(raw, "HttpOnly") || !strings.Contains(raw, "Path=/") {
+		t.Fatalf("Cookie 缺少 HttpOnly/Path：%s", raw)
 	}
 }

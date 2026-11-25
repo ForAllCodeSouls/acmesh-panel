@@ -127,13 +127,11 @@ systemd ユニット例および macOS / Windows の手順は中国語版 README
 | `ACME_BIN` | 自動 | バイナリデプロイ時の acme.sh スクリプトパス |
 | `ACME_PANEL_CA` | `letsencrypt` | `letsencrypt` / `zerossl` / `buypass` / `google` / `letsencrypt_test` |
 | `ACME_PANEL_EMAIL` | 空 | `--accountemail` として渡す；Web 保存の既定メールより優先 |
-| `ACME_PANEL_COOKIE_SECURE` | `0` | HTTPS 背後では `1`：`Secure` + HSTS を付与 |
-| `ACME_PANEL_TRUST_PROXY` | `0` | `X-Forwarded-For` を信頼（完全に信頼できるリバースプロキシのみ） |
+| `ACME_PANEL_TRUST_PROXY` | `0` | **任意**。レート制限の IP 判定にのみ影響し、HTTP/HTTPS ログインには無関係。完全に信頼できるリバースプロキシのみで `X-Forwarded-For` を信頼 |
 | `ACME_PANEL_TRUST_PROXY_HOPS` | `1` | 信頼するプロキシの段数（XFF の右から N 番目） |
 | `ACME_PANEL_ALLOW_LOCAL_WEBHOOK` | `0` | ローカル e2e テスト専用；ループバック / LAN 向け Webhook を許可（本番では禁止） |
 | `ACME_PANEL_CRON` | `1` | 日次更新スケジューラの ON/OFF |
 | `ACME_PANEL_PARALLEL` | `2` | タスク並列数 |
-| `ACME_PANEL_TLS_CERT` / `ACME_PANEL_TLS_KEY` | 空 | パネル自身で TLS 終端する場合の証明書パス |
 | `TZ` | `Asia/Shanghai` | 通知・記録のタイムゾーン |
 | `ACME_PANEL_SYNC_DIR` | 空 | 同期ディレクトリ（カンマ / セミコロン区切り） |
 
@@ -142,14 +140,15 @@ systemd ユニット例および macOS / Windows の手順は中国語版 README
 ## セキュリティモデル（要約）
 
 - パスワードは PBKDF2-HMAC-SHA256（600k 反復、ランダムソルト、定数時間比較）で保存。
-- セッション：インメモリ + `HttpOnly` / `SameSite=Strict` Cookie、ログイン時にセッション ID を再生成。
+- セッション：インメモリ + `HttpOnly` / `SameSite=Lax` Cookie（`Secure` なし、HTTP と HTTPS リバースプロキシの両方で動作）、ログイン時にセッション ID を再生成。
+- パネルは HTTP のみ提供。HTTPS / HSTS は nginx/Caddy で終端し、パネル自身は HSTS を送信しません。
 - CSRF：状態変更リクエストすべてにトークン + Origin/Referer 検証。
 - 総当たり：IP + ユーザー名ごとの指数バックオフロック + セキュリティ通知。
 - 認証情報（DNS API キー・通知チャネル・SSH 鍵/パスワード）は AES-256-GCM で暗号化保存；API はマスク値のみ返却；ログは値をマスキング。
 - Web UI：厳格 CSP、インラインスクリプト / スタイルなし、CDN 不使用。
 - コンテナ：非 root uid 10001、`read_only` ルートfs、`cap_drop ALL`（`CHOWN` のみ追加）。
 
-既知の限界：単一アカウント（RBAC なし）；秘密鍵は設計上管理者が閲覧可能；acme.sh は DNS 認証情報を `/acme.sh/account.conf` に平文で書き込む；既定ではパネルは TLS を終端しない。詳細は [SECURITY.md](SECURITY.md)。
+既知の限界：単一アカウント（RBAC なし）；秘密鍵は設計上管理者が閲覧可能；acme.sh は DNS 認証情報を `/acme.sh/account.conf` に平文で書き込む；パネルは TLS を終端しません。詳細は [SECURITY.md](SECURITY.md)。
 
 ---
 
@@ -158,7 +157,7 @@ systemd ユニット例および macOS / Windows の手順は中国語版 README
 - **パスワードを忘れた**：`ACME_PANEL_USER` + `ACME_PANEL_PASSWORD` + `ACME_PANEL_RESET_CREDENTIALS=1` を設定して一度再起動し、完了後は必ず解除。
 - **ログインできるが発行に失敗する**：DNS プロバイダの認証情報とドメイン NS の向きを確認；ジョブログに acme.sh の出力がそのまま表示されます。
 - **ポート競合**：`docker-compose.yml` の `8800:8080` の左側を変更。
-- **リバースプロキシ背後**：プロキシ側で HTTPS 終端し、`ACME_PANEL_COOKIE_SECURE=1` を設定。同一 Docker ネットワーク内なら `ACME_PANEL_TRUST_PROXY=1` も。
+- **リバースプロキシ背後**：nginx/Caddy 側で HTTPS と HSTS を終端。パネル側の Cookie / HSTS スイッチは不要。レート制限を実クライアント IP で取りたい場合のみ `ACME_PANEL_TRUST_PROXY=1` を設定。
 
 ---
 

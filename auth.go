@@ -236,30 +236,6 @@ func clientIP(r *http.Request, trustProxy bool) string {
 	return host
 }
 
-// requestIsHTTPS 判断到客户端的这一段连接是否为 HTTPS。
-// 只有确认是 HTTPS 才允许下发 HSTS——否则纯 HTTP 访问也会被浏览器永久升级，
-// 配错一次就把自己锁死一年。
-// 直连 TLS：r.TLS 非空；反代终结 TLS：仅在信任代理时按可信跳数取 X-Forwarded-Proto。
-func requestIsHTTPS(r *http.Request, trustProxy bool) bool {
-	if r.TLS != nil {
-		return true
-	}
-	if !trustProxy {
-		return false
-	}
-	xfp := r.Header.Get("X-Forwarded-Proto")
-	if xfp == "" {
-		return false
-	}
-	parts := strings.Split(xfp, ",")
-	// 与 clientIP 一致：从右侧可信跳取值，客户端可伪造左侧条目。
-	idx := len(parts) - trustedProxyHops
-	if idx < 0 || idx >= len(parts) {
-		idx = 0
-	}
-	return strings.EqualFold(strings.TrimSpace(parts[idx]), "https")
-}
-
 // hostNoPort 把 host 归一到「主机名」：去掉端口、统一小写、去方括号。
 // nginx 反代常用 proxy_set_header Host $host（不带端口），而浏览器 Origin
 // 带端口（如 http://example.com:8800）。按主机名比较才能兼容反代，否则
@@ -289,35 +265,56 @@ func hostNoPort(h string) string {
 	return strings.ToLower(h)
 }
 
+// originHost 从 Origin / Referer 中取出主机名；只接受 http/https，忽略端口与路径。
+func originHost(v string) (string, bool) {
+	v = strings.TrimSpace(v)
+	for _, p := range []string{"http://", "https://"} {
+		if !strings.HasPrefix(v, p) {
+			continue
+		}
+		rest := strings.TrimPrefix(v, p)
+		if i := strings.IndexByte(rest, '/'); i >= 0 {
+			rest = rest[:i]
+		}
+		return hostNoPort(rest), true
+	}
+	return "", false
+}
+
 // sameOrigin 校验 Origin/Referer 与目标主机一致，抵御跨站表单提交（登录接口的第一道闸）。
-// 比较按「主机名」进行，忽略端口差异，兼容 nginx 反代把 Host 去掉端口的场景。
+// 规则按「主机名」比较，忽略端口与协议差异，兼容两种常见反代写法：
+//   - proxy_set_header Host $host：后端 Host 是公网主机名（无端口），浏览器 Origin 带端口；
+//   - 未设置 Host：后端看到 127.0.0.1:8080，但 nginx 会带 X-Forwarded-Host 公网主机名。
+//
+// 两者任一匹配即视为同源；攻击者无法从浏览器伪造 X-Forwarded-Host 越过这一关。
 func sameOrigin(r *http.Request) bool {
-	want := hostNoPort(r.Host)
-	origin := r.Header.Get("Origin")
-	if origin != "" {
-		origin = strings.TrimSuffix(origin, "/")
-		for _, p := range []string{"http://", "https://"} {
-			if strings.HasPrefix(origin, p) {
-				return hostNoPort(strings.TrimPrefix(origin, p)) == want
+	hosts := []string{hostNoPort(r.Host)}
+	if xfh := r.Header.Get("X-Forwarded-Host"); xfh != "" {
+		// X-Forwarded-Host 可能是逗号列表，第一项是原始请求主机。
+		hosts = append(hosts, hostNoPort(strings.TrimSpace(strings.Split(xfh, ",")[0])))
+	}
+
+	check := func(v string) bool {
+		h, ok := originHost(v)
+		if !ok {
+			return false
+		}
+		for _, want := range hosts {
+			if want != "" && h == want {
+				return true
 			}
 		}
 		return false
 	}
+
+	if origin := r.Header.Get("Origin"); origin != "" {
+		return check(origin)
+	}
 	// 没有 Origin 时看 Referer（部分浏览器同源 POST 不带 Origin）
-	ref := r.Header.Get("Referer")
-	if ref == "" {
-		return true // 非浏览器客户端（curl 等）自行通过 CSRF token 防护
+	if ref := r.Header.Get("Referer"); ref != "" {
+		return check(ref)
 	}
-	for _, p := range []string{"http://", "https://"} {
-		if strings.HasPrefix(ref, p) {
-			rest := strings.TrimPrefix(ref, p)
-			if i := strings.IndexByte(rest, '/'); i >= 0 {
-				rest = rest[:i]
-			}
-			return hostNoPort(rest) == want
-		}
-	}
-	return false
+	return true // 非浏览器客户端（curl 等）自行通过 CSRF token 防护
 }
 
 func constantTimeEq(a, b string) bool {

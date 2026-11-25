@@ -71,7 +71,7 @@ English / 日本語 版为精简指南，覆盖部署与日常使用所需的全
 
 | 分类 | 能力 |
 |---|---|
-| **登录认证** | 单账号 + PBKDF2-HMAC-SHA256（600k 次迭代）；Cookie `HttpOnly` + `SameSite=Strict`；CSRF Token + Origin 校验；5 次失败按 IP 指数退避锁定；可选「保持登录」90 天；环境变量仅首次初始化账号密码，之后可在设置页修改并持久保存，无 Web 注册入口 |
+| **登录认证** | 单账号 + PBKDF2-HMAC-SHA256（600k 次迭代）；Cookie `HttpOnly` + `SameSite=Lax`（HTTP/HTTPS 反代通用）；CSRF Token + Origin 校验；5 次失败按 IP 指数退避锁定；可选「保持登录」90 天；环境变量仅首次初始化账号密码，之后可在设置页修改并持久保存，无 Web 注册入口 |
 | **证书管理** | 扫描 acme.sh home，解析 x509：SAN、签发者、有效期、密钥类型、剩余天数、过期告警 |
 | **签发** | DNS API 自动验证，支持泛域名；内置 43 家 DNS 服务商（见 [5.2 服务商清单](#52-签发证书)），每家都带官网直达链接，字段与 acme.sh 官方脚本逐一核对；ECC 256/384、RSA 2048/4096 |
 | **邮箱** | 全局默认 ACME 邮箱 + 按域名覆盖，留空自动回落 |
@@ -136,7 +136,6 @@ openssl rand -base64 24        # 复制输出，填到 .env 的 ACME_PANEL_PASSW
 ACMESH_IMAGE_TAG=latest
 ACME_PANEL_USER=admin
 ACME_PANEL_PASSWORD=HF4ARz1IIZarLtvv
-ACME_PANEL_COOKIE_SECURE=0
 ACME_PANEL_TRUST_PROXY=0
 ACME_PANEL_CRON=1
 ACME_PANEL_CA=letsencrypt
@@ -226,7 +225,6 @@ services:
     environment:
       ACME_PANEL_USER: "admin"
       ACME_PANEL_PASSWORD: "HF4ARz1IIZarLtvv"
-      ACME_PANEL_COOKIE_SECURE: "0"
       ACME_PANEL_TRUST_PROXY: "0"
       ACME_PANEL_CRON: "1"
       ACME_PANEL_CA: "letsencrypt"
@@ -312,14 +310,15 @@ server {
     location / {
         proxy_pass http://127.0.0.1:8800;
         proxy_set_header Host $host;
-        proxy_set_header X-Forwarded-For $remote_addr;   # 同时设 ACME_PANEL_TRUST_PROXY=1
+        proxy_set_header X-Forwarded-For $remote_addr;   # 可选：仅当想让限流按真实 IP 统计时才设 ACME_PANEL_TRUST_PROXY=1
+        proxy_set_header X-Forwarded-Host $host;         # 推荐：后端 Host 被覆盖时也能识别公网域名
         proxy_buffering off;                              # SSE 实时日志需要
         proxy_read_timeout 3600s;
     }
 }
 ```
 
-也可以让面板自己终结 TLS：挂载证书并设置 `ACME_PANEL_TLS_CERT` / `ACME_PANEL_TLS_KEY`，端口照样映射 8800。
+面板只监听 HTTP，不再提供自身 TLS 终结；HTTPS、HSTS 都在 nginx 这一层配置即可，面板侧无需任何 Cookie / HSTS 开关。
 
 ### 3.8 数据卷与备份
 
@@ -739,14 +738,11 @@ gofmt -w *.go && go vet ./...
 | `ACME_BIN` | 空（容器内自动发现） | 二进制部署时指定 acme.sh 脚本路径 |
 | `ACME_PANEL_CA` | `letsencrypt` | `letsencrypt` / `zerossl` / `buypass` / `google` / `letsencrypt_test` |
 | `ACME_PANEL_EMAIL` | 空 | 签发时传给 `--accountemail`；设置后会覆盖 Web 里保存的默认邮箱 |
-| `ACME_PANEL_COOKIE_SECURE` | `0` | 走 HTTPS 后设 `1`，Cookie 加 `Secure`；挂了 TLS 证书时会强制为 `1` |
-| `ACME_PANEL_HSTS` | `1` | 是否下发 HSTS（一年 `max-age`）。**仅当请求确为 HTTPS 时才下发**：直连 TLS，或开启 `TRUST_PROXY` 且反代传来 `X-Forwarded-Proto: https`。纯 HTTP 访问不会下发，避免配错被浏览器锁死一年；不需要可设 `0` |
-| `ACME_PANEL_TRUST_PROXY` | `0` | 信任 `X-Forwarded-For` / `X-Forwarded-Proto`（仅反代可信时开启） |
+| `ACME_PANEL_TRUST_PROXY` | `0` | **可选**，只影响限流按哪个 IP 统计；不影响 HTTP/HTTPS 登录。反代可信时才开，读取 `X-Forwarded-For` |
 | `ACME_PANEL_TRUST_PROXY_HOPS` | `1` | 可信代理层数；从 XFF 右侧取第 N 个地址，默认取代理写入的真实客户端 |
 | `ACME_PANEL_ALLOW_LOCAL_WEBHOOK` | `0` | 仅供本地端到端测试；设为 `1` 时允许 Webhook 指向本机 / 内网（生产勿开） |
 | `ACME_PANEL_CRON` | `1` | 每日自动续期检测开关（关闭后仍按设定时间检查临期） |
 | `ACME_PANEL_PARALLEL` | `2` | 任务并发数 |
-| `ACME_PANEL_TLS_CERT` / `ACME_PANEL_TLS_KEY` | 空 | 自终结 TLS 时挂载证书路径 |
 | `TZ` | `Asia/Shanghai` | 时区，影响通知与记录时间 |
 | `ACME_PANEL_SYNC_DIR` | 空 | 证书同步的挂载目录，多个用逗号 / 分号分隔 |
 
@@ -757,8 +753,8 @@ gofmt -w *.go && go vet ./...
 | 关注点 | 措施 |
 |---|---|
 | 密码存储 | PBKDF2-HMAC-SHA256（600k 次），随机盐，恒定时间比对 |
-| 会话 | 内存会话 + `HttpOnly` / `SameSite=Strict` Cookie，空闲与最长有效期双重限制，登录即换 ID；会话只存内存，**面板重启后需重新登录**（浏览器留着旧 Cookie 时会静默回到干净的登录页，不再误报「会话已过期」） |
-| HSTS | 仅在确认 HTTPS 时下发，可用 `ACME_PANEL_HSTS=0` 关闭，避免反代配置错误导致浏览器长期强制 HTTPS |
+| 会话 | 内存会话 + `HttpOnly` / `SameSite=Lax` Cookie（不带 `Secure`，HTTP 与 nginx HTTPS 反代通用），空闲与最长有效期双重限制，登录即换 ID；会话只存内存，**面板重启后需重新登录**（浏览器留着旧 Cookie 时会静默回到干净的登录页，不再误报「会话已过期」） |
+| HTTPS / HSTS | 面板只提供 HTTP，HTTPS 与 HSTS 全部由 nginx/Caddy 反代终结；面板不再下发 HSTS，避免反代头不一致把 HTTP 站点锁死 |
 | CSRF | 状态变更接口校验 Token 与 Origin/Referer |
 | 暴力破解 | 按 IP + 用户名的指数退避锁定，安全事件推送通知 |
 | 凭证 | DNS 凭证、通知渠道、远程主机密码/私钥 AES-256-GCM 加密落盘；API 只回掩码；日志按值脱敏 |

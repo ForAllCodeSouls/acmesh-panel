@@ -1241,7 +1241,7 @@
         ['数据存储', 'SQLite · panel.db'],
         ['默认 CA', s.default_ca],
         ['自动续期', s.cron ? `已开启（每天 ${String(s.cron_hour ?? 3).padStart(2, '0')}:00 检查一次）` : '已关闭'],
-        ['Cookie Secure', s.cookie_secure ? '已开启' : '未开启'],
+        ['服务模式', 'HTTP（HTTPS 由 nginx/Caddy 反代终结）'],
         ['面板版本', c.version || '-'],
       ];
       const hourSel = $('#cron-hour');

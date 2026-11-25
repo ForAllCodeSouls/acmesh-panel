@@ -62,7 +62,6 @@ ENV ACME_HOME=/acme.sh \
     ACME_PANEL_LISTEN=0.0.0.0:8080 \
     ACME_PANEL_USER=admin \
     ACME_PANEL_CA=letsencrypt \
-    ACME_PANEL_COOKIE_SECURE=0 \
     ACME_PANEL_CRON=1 \
     ACME_PANEL_SYNC_DIR=""
 

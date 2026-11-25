@@ -197,7 +197,9 @@ def main():
         st, hd, _ = anon.req("GET", "/api/certs")
         check("未登录访问证书接口 → 401", st == 401, st)
         check("API 响应 no-store", hd.get("cache-control") == ["no-store"])
-        check("纯 HTTP 访问不下发 HSTS", "strict-transport-security" not in hd, hd.get("strict-transport-security"))
+        check("面板不下发 HSTS（由反代负责）", "strict-transport-security" not in hd, hd.get("strict-transport-security"))
+        st, hd_xfp, _ = anon.req("GET", "/api/certs", headers={"X-Forwarded-Proto": "https"})
+        check("收到 X-Forwarded-Proto 也不下发 HSTS", "strict-transport-security" not in hd_xfp, hd_xfp.get("strict-transport-security"))
 
         # ---- 同源校验（反代端口差异）----
         # nginx 反代常把 Host 设为不带端口的主机名，浏览器 Origin 带端口；
@@ -207,6 +209,19 @@ def main():
         st, _, j = rp.j("POST", "/api/login", {"username": "admin", "password": PASSWORD},
                         headers={"Host": BASE_HOST, "Origin": origin_port})
         check("反代 Host 无端口+Origin 带端口仍可登录", st == 200, (st, j))
+
+        # HTTPS 反代：浏览器 Origin 为 https，后端仍收到 HTTP 请求
+        https_rp = Client()
+        st, _, j = https_rp.j("POST", "/api/login", {"username": "admin", "password": PASSWORD},
+                              headers={"Host": BASE_HOST, "Origin": f"https://{BASE_HOST}"})
+        check("HTTPS 反代 Origin 仍可登录", st == 200, (st, j))
+
+        # nginx 未透传 Host 时，X-Forwarded-Host 是公网域名
+        xfh = Client()
+        st, _, j = xfh.j("POST", "/api/login", {"username": "admin", "password": PASSWORD},
+                         headers={"Host": "127.0.0.1:8080", "X-Forwarded-Host": BASE_HOST,
+                                  "Origin": f"https://{BASE_HOST}"})
+        check("内网 Host + X-Forwarded-Host 仍可登录", st == 200, (st, j))
 
         cross = Client()
         st, _, j = cross.j("POST", "/api/login", {"username": "admin", "password": PASSWORD},
@@ -224,7 +239,8 @@ def main():
         c.csrf = j.get("csrf")
         sc = " ".join(hd.get("set-cookie", []))
         check("Cookie HttpOnly", "HttpOnly" in sc, sc)
-        check("Cookie SameSite=Strict", "SameSite=Strict" in sc, sc)
+        check("Cookie SameSite=Lax", "SameSite=Lax" in sc, sc)
+        check("Cookie 不带 Secure（HTTP/HTTPS 反代通用）", "; Secure" not in sc and "; secure" not in sc, sc)
         check("登录返回 CSRF token", bool(c.csrf))
 
         # 每日检测时间可配置
