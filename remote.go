@@ -1,0 +1,436 @@
+package main
+
+import (
+	"crypto/rand"
+	"encoding/base64"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"net"
+	"os"
+	"path"
+	"path/filepath"
+	"sort"
+	"strconv"
+	"strings"
+	"sync"
+	"time"
+
+	"github.com/pkg/sftp"
+	"golang.org/x/crypto/ssh"
+	"golang.org/x/crypto/ssh/knownhosts"
+)
+
+// ---------------- 远程主机（加密存储） ----------------
+
+func (s *Store) PutRemoteHost(h RemoteHost) error {
+	if h.ID == "" || h.Name == "" || h.Host == "" || h.User == "" || h.RemoteDir == "" {
+		return errors.New("ID / 名称 / 主机 / 用户 / 远程目录不能为空")
+	}
+	if h.Port == 0 {
+		h.Port = 22
+	}
+	if h.Port < 1 || h.Port > 65535 {
+		return errors.New("端口必须在 1-65535 之间")
+	}
+	plain, err := json.Marshal(h)
+	if err != nil {
+		return err
+	}
+	nonce := make([]byte, s.aead.NonceSize())
+	if _, err := rand.Read(nonce); err != nil {
+		return err
+	}
+	ct := s.aead.Seal(nil, nonce, plain, []byte(h.ID))
+	blob := base64.StdEncoding.EncodeToString(append(nonce, ct...))
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.state.RemoteHosts == nil {
+		s.state.RemoteHosts = map[string]EncRemote{}
+	}
+	s.state.RemoteHosts[h.ID] = EncRemote{Blob: blob}
+	return s.saveLocked()
+}
+
+func (s *Store) GetRemoteHost(id string) (RemoteHost, error) {
+	s.mu.RLock()
+	enc, ok := s.state.RemoteHosts[id]
+	s.mu.RUnlock()
+	if !ok {
+		return RemoteHost{}, errors.New("远程主机不存在")
+	}
+	b, err := base64.StdEncoding.DecodeString(enc.Blob)
+	if err != nil || len(b) < s.aead.NonceSize() {
+		return RemoteHost{}, errors.New("远程主机数据损坏")
+	}
+	nonce, ct := b[:s.aead.NonceSize()], b[s.aead.NonceSize():]
+	plain, err := s.aead.Open(nil, nonce, ct, []byte(id))
+	if err != nil {
+		return RemoteHost{}, errors.New("远程主机解密失败")
+	}
+	var h RemoteHost
+	if json.Unmarshal(plain, &h) != nil {
+		return RemoteHost{}, errors.New("远程主机数据格式错误")
+	}
+	if h.Port == 0 {
+		h.Port = 22
+	}
+	return h, nil
+}
+
+func (s *Store) DeleteRemoteHost(id string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	delete(s.state.RemoteHosts, id)
+	return s.saveLocked()
+}
+
+func (s *Store) ListRemoteHosts() []RemoteHostView {
+	s.mu.RLock()
+	ids := make([]string, 0, len(s.state.RemoteHosts))
+	for id := range s.state.RemoteHosts {
+		ids = append(ids, id)
+	}
+	s.mu.RUnlock()
+	sort.Strings(ids)
+	out := make([]RemoteHostView, 0, len(ids))
+	for _, id := range ids {
+		h, err := s.GetRemoteHost(id)
+		if err != nil {
+			continue
+		}
+		authMode := "key"
+		if h.Password != "" {
+			authMode = "password"
+		}
+		out = append(out, RemoteHostView{
+			ID: h.ID, Name: h.Name, Host: h.Host, Port: h.Port,
+			User: h.User, RemoteDir: h.RemoteDir,
+			KeyMasked: mask(h.Key), HasKey: h.Key != "",
+			PasswordMasked: mask(h.Password), HasPassword: h.Password != "",
+			AuthMode: authMode, AutoPush: h.AutoPush, Enabled: h.Enabled,
+		})
+	}
+	return out
+}
+
+// ---------------- SSH 推送（纯 Go，不使用 ssh/scp 外部命令） ----------------
+
+// validateRemoteHost 校验远程配置：主机、用户、路径严格白名单，杜绝命令/路径注入。
+func validateRemoteHost(h RemoteHost) error {
+	name := strings.TrimSpace(h.Name)
+	if name == "" || len(name) > 64 || strings.ContainsAny(name, "\t\n\r\x00<>&\"'") {
+		return errors.New("名称不能为空且不能含换行或尖括号等特殊字符")
+	}
+	if h.Host == "" || len(h.Host) > 253 || strings.ContainsAny(h.Host, " /\\\t\n\r\x00'\"$;`|&*?<>") {
+		return errors.New("主机名含非法字符")
+	}
+	if h.User == "" || len(h.User) > 64 || strings.ContainsAny(h.User, " /\\\t\n\r\x00'\"$;`|&*?<>") {
+		return errors.New("用户名含非法字符")
+	}
+	// 目标运行环境是 Linux（/...），同时兼容 Windows 上的盘符绝对路径（本地测试用）。
+	if (!strings.HasPrefix(h.RemoteDir, "/") && !filepath.IsAbs(h.RemoteDir)) || strings.Contains(h.RemoteDir, "..") ||
+		strings.ContainsAny(h.RemoteDir, "\t\n\r\x00'\"$;`|&*?<>") {
+		return errors.New("远程目录必须是绝对路径且不含非法字符")
+	}
+	if h.Port < 1 || h.Port > 65535 {
+		return errors.New("端口非法")
+	}
+	if h.Key == "" && h.Password == "" {
+		return errors.New("请配置 SSH 私钥或登录密码")
+	}
+	if h.Key != "" && h.Password != "" {
+		return errors.New("私钥与密码只能选一种认证方式")
+	}
+	if len(h.Password) > 1024 || len(h.Key) > 1024*1024 {
+		return errors.New("凭证内容过长")
+	}
+	return nil
+}
+
+var hostKeyMu sync.Mutex
+
+// hostKeyCallback 首次信任（TOFU）并在 known_hosts 中记录主机密钥；
+// 之后严格校验，主机密钥变化直接拒绝，防止中间人攻击。
+func hostKeyCallback(store *Store) (ssh.HostKeyCallback, error) {
+	path := filepath.Join(store.dir, "known_hosts")
+	if err := ensurePrivateFile(path); err != nil {
+		return nil, err
+	}
+	cb, err := knownhosts.New(path)
+	if err != nil {
+		return nil, err
+	}
+	return func(hostname string, remote net.Addr, key ssh.PublicKey) error {
+		err := cb(hostname, remote, key)
+		if err == nil {
+			return nil
+		}
+		var keyErr *knownhosts.KeyError
+		if !errors.As(err, &keyErr) || len(keyErr.Want) > 0 {
+			return err // 密钥不匹配或文件格式错误，拒绝
+		}
+		// 该主机尚无记录：重新读文件确认，避免闭包缓存导致密钥变化被误当成首次连接
+		hostKeyMu.Lock()
+		defer hostKeyMu.Unlock()
+		if fresh, e := knownhosts.New(path); e == nil {
+			e2 := fresh(hostname, remote, key)
+			if e2 == nil {
+				return nil // 已被其它并发请求写入且密钥一致
+			}
+			var freshErr *knownhosts.KeyError
+			if errors.As(e2, &freshErr) && len(freshErr.Want) > 0 {
+				return e2 // 密钥已变，拒绝连接（防中间人攻击）
+			}
+		}
+		line := knownhosts.Line([]string{knownhosts.Normalize(hostname)}, key) + "\n"
+		f, e := os.OpenFile(path, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600)
+		if e != nil {
+			return e
+		}
+		_, e = f.WriteString(line)
+		_ = f.Close()
+		if e != nil {
+			return e
+		}
+		logRemoteInfof("已记录远程主机 %s 的密钥指纹 %s", hostname, ssh.FingerprintSHA256(key))
+		return nil
+	}, nil
+}
+
+func ensurePrivateFile(path string) error {
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_APPEND|os.O_RDWR, 0o600)
+	if err != nil {
+		return err
+	}
+	return f.Close()
+}
+
+// dialRemote 建立 SSH 连接。密码/私钥只存在于内存，不写入命令行或临时文件。
+func dialRemote(store *Store, h RemoteHost) (*ssh.Client, error) {
+	if err := validateRemoteHost(h); err != nil {
+		return nil, err
+	}
+	var auths []ssh.AuthMethod
+	if h.Password != "" {
+		// 同时提供 password 与 keyboard-interactive：不少 SSH 服务（群晖、Windows OpenSSH、
+		// 启用 PAM 的 OpenSSH）只开放后者，只发 ssh.Password 会被服务器拒绝。
+		auths = []ssh.AuthMethod{
+			ssh.Password(h.Password),
+			ssh.KeyboardInteractive(func(user, instruction string, questions []string, echos []bool) ([]string, error) {
+				answers := make([]string, len(questions))
+				for i := range questions {
+					answers[i] = h.Password
+				}
+				return answers, nil
+			}),
+		}
+	} else {
+		signer, err := ssh.ParsePrivateKey([]byte(h.Key))
+		if err != nil {
+			return nil, fmt.Errorf("SSH 私钥解析失败: %v", err)
+		}
+		auths = []ssh.AuthMethod{ssh.PublicKeys(signer)}
+	}
+	hcb, err := hostKeyCallback(store)
+	if err != nil {
+		return nil, err
+	}
+	cfg := &ssh.ClientConfig{
+		User:            h.User,
+		Auth:            auths,
+		HostKeyCallback: hcb,
+		Timeout:         10 * time.Second,
+	}
+	addr := net.JoinHostPort(h.Host, strconv.Itoa(h.Port))
+	client, err := ssh.Dial("tcp", addr, cfg)
+	if err != nil {
+		var authErr *ssh.ServerAuthError
+		if errors.As(err, &authErr) {
+			return nil, fmt.Errorf("SSH 认证失败（%s）。请确认账号密码正确、服务器已开启密码或交互式登录；若只允许公钥认证，请改用 SSH 私钥。",
+				strings.Trim(authErr.Error(), "[]"))
+		}
+		return nil, fmt.Errorf("SSH 连接失败: %v", err)
+	}
+	return client, nil
+}
+
+// resolveSyncLocalPath 把同步目录内的文件名解析为唯一的绝对路径。
+// 调用方可能传相对文件名（本地同步写入结果）或已经是绝对路径（手动强制推送），
+// 这里统一归一化，杜绝 filepath.Join("/certs", "/certs/x.pem") 变成 /certs/certs/x.pem。
+func resolveSyncLocalPath(localDir, name string) (string, error) {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return "", errors.New("本地文件名为空")
+	}
+	if !filepath.IsAbs(localDir) {
+		return "", errors.New("本地同步目录必须是绝对路径")
+	}
+	base := filepath.Clean(localDir)
+	full := name
+	if !filepath.IsAbs(full) {
+		full = filepath.Join(base, full)
+	} else {
+		full = filepath.Clean(full)
+	}
+	if !filepath.IsAbs(full) || strings.Contains(full, "..") {
+		return "", fmt.Errorf("本地文件路径非法: %s", name)
+	}
+	// 绝对路径也必须落在本次同步目录内，避免误推无关文件。
+	rel, err := filepath.Rel(base, full)
+	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return "", fmt.Errorf("本地文件不在同步目录 %s 内: %s", base, name)
+	}
+	return full, nil
+}
+
+// pushToRemote 通过 SFTP 推送文件。相比 scp -t 协议，SFTP 是标准子系统，
+// 对 OpenSSH 9+ / 群晖 / Windows OpenSSH 兼容性更好，且能可靠创建目录与设置权限。
+func pushToRemote(store *Store, h RemoteHost, localFiles []string, localDir ...string) error {
+	if !h.Enabled || len(localFiles) == 0 {
+		return nil
+	}
+	// 兼容既有调用：未显式传目录时，以第一个文件的父目录为基准。
+	base := ""
+	if len(localDir) > 0 {
+		base = localDir[0]
+	} else {
+		base = filepath.Dir(localFiles[0])
+	}
+	client, err := dialRemote(store, h)
+	if err != nil {
+		return err
+	}
+	defer client.Close()
+
+	clientSFTP, err := sftp.NewClient(client)
+	if err != nil {
+		return fmt.Errorf("启动 SFTP 失败（目标主机需开启 sftp 子系统）: %v", err)
+	}
+	defer clientSFTP.Close()
+
+	if err := clientSFTP.MkdirAll(h.RemoteDir); err != nil {
+		return fmt.Errorf("创建远程目录 %s 失败: %v", h.RemoteDir, err)
+	}
+
+	for _, raw := range localFiles {
+		f, err := resolveSyncLocalPath(base, raw)
+		if err != nil {
+			return err
+		}
+		data, err := os.ReadFile(f)
+		if err != nil {
+			if os.IsNotExist(err) {
+				return fmt.Errorf("读取本地文件失败: %s（路径 %s 不存在）。请检查面板容器内 ACME_PANEL_SYNC_DIR 的挂载路径，不要填写宿主机路径", filepath.Base(f), f)
+			}
+			return fmt.Errorf("读取本地文件失败: %s（路径 %s）: %v", filepath.Base(f), f, err)
+		}
+		name := filepath.Base(f)
+		if strings.ContainsAny(name, "\n\r\x00") {
+			return errors.New("文件名含非法字符")
+		}
+		mode := os.FileMode(0o644)
+		if syncFileKind(name) == "key" {
+			mode = 0o600
+		}
+		remotePath := path.Join(h.RemoteDir, name)
+		rf, err := clientSFTP.Create(remotePath)
+		if err != nil {
+			return fmt.Errorf("写入远程文件 %s 失败: %v", name, err)
+		}
+		if _, err := rf.Write(data); err != nil {
+			_ = rf.Close()
+			return fmt.Errorf("写入远程文件 %s 失败: %v", name, err)
+		}
+		if err := rf.Chmod(mode); err != nil {
+			_ = rf.Close()
+			return fmt.Errorf("设置远程文件权限失败: %v", err)
+		}
+		if err := rf.Close(); err != nil {
+			return fmt.Errorf("关闭远程文件失败: %v", err)
+		}
+	}
+	return nil
+}
+
+// pushAllRemotes 把文件推到启用的远程主机，返回每台主机的推送结果（scope=remote）。
+// onlyHostID 非空时只推指定主机；每条记录都对应一次真实的远端推送尝试。
+func pushAllRemotes(store *Store, localDir string, files []string, force bool, onlyHostID ...string) []SyncEvent {
+	out := []SyncEvent{}
+	paths := make([]string, 0, len(files))
+	var pathErr error
+	for _, f := range files {
+		resolved, err := resolveSyncLocalPath(localDir, f)
+		if err != nil {
+			pathErr = err
+			break
+		}
+		paths = append(paths, resolved)
+	}
+	if len(files) == 0 {
+		return out // 没有文件时不产生空结果记录
+	}
+	for _, view := range store.ListRemoteHosts() {
+		if !view.Enabled {
+			continue
+		}
+		if len(onlyHostID) > 0 && view.ID != onlyHostID[0] {
+			continue
+		}
+		// 本地同步触发时只推开启了「自动推送」的主机；手动强制推送忽略此开关
+		if !force && !view.AutoPush {
+			continue
+		}
+		h, err := store.GetRemoteHost(view.ID)
+		if err != nil {
+			continue
+		}
+		ev := SyncEvent{
+			Time:   time.Now().Format(time.RFC3339),
+			Scope:  "remote",
+			Rule:   "远程同步 · " + h.Name,
+			Source: localDir,
+			Target: fmt.Sprintf("%s@%s:%s", h.User, h.Host, h.RemoteDir),
+			Result: "fail",
+		}
+		if pathErr != nil {
+			ev.Detail = pathErr.Error()
+			out = append(out, ev)
+			continue
+		}
+		if err := pushToRemote(store, h, paths, localDir); err == nil {
+			names := make([]string, 0, len(paths))
+			for _, p := range paths {
+				names = append(names, filepath.Base(p))
+			}
+			ev.Result, ev.Count, ev.Files = "ok", len(names), names
+			ev.Detail = fmt.Sprintf("推送 %d 个文件到远程主机", len(names))
+		} else {
+			ev.Detail = err.Error()
+		}
+		out = append(out, ev)
+	}
+	return out
+}
+
+// testRemoteHost 测试 SSH 连接与认证是否可用。
+func testRemoteHost(store *Store, h RemoteHost) error {
+	client, err := dialRemote(store, h)
+	if err != nil {
+		return err
+	}
+	defer client.Close()
+	session, err := client.NewSession()
+	if err != nil {
+		return fmt.Errorf("创建 SSH 会话失败: %v", err)
+	}
+	defer session.Close()
+	if err := session.Run("true"); err != nil {
+		return fmt.Errorf("SSH 会话测试失败: %v", err)
+	}
+	return nil
+}
+
+// logRemoteInfof 由 main 包注入日志函数，避免此处依赖 log 包。
+var logRemoteInfof = func(format string, args ...any) {}
