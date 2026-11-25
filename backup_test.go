@@ -22,9 +22,9 @@ func TestFilterSyncEvents(t *testing.T) {
 			Result: "skip", Detail: "内容未变化"},
 	}
 	cases := []struct {
-		name                              string
-		q, result, scope, from, to        string
-		want                              int
+		name                       string
+		q, result, scope, from, to string
+		want                       int
 	}{
 		{"无筛选返回全部", "", "", "", "", "", 3},
 		{"关键词命中规则", "NAS", "", "", "", "", 1},

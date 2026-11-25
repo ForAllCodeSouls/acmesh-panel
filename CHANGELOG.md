@@ -2,6 +2,12 @@
 
 本文件遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)。
 
+## [0.1.36] - 2026-11-25
+
+### 修复
+
+- **CI gofmt 检查失败**：`backup_test.go`（struct 字段对齐）与 `update_test.go`（单行 struct 字面量展开为多行、map 键对齐）已按 `gofmt` 标准格式化；`make check` 与 GitHub Actions 的格式门槛现可通过
+
 ## [0.1.35] - 2026-11-25
 
 ### 文档

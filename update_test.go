@@ -21,10 +21,10 @@ func TestValidUpdateInterval(t *testing.T) {
 
 func TestUpdateIntervalDuration(t *testing.T) {
 	cases := map[string]time.Duration{
-		"6h":     6 * time.Hour,
-		"daily":  24 * time.Hour,
-		"weekly": 168 * time.Hour,
-		"off":    0,
+		"6h":      6 * time.Hour,
+		"daily":   24 * time.Hour,
+		"weekly":  168 * time.Hour,
+		"off":     0,
 		"startup": 0,
 	}
 	for k, want := range cases {
@@ -35,7 +35,10 @@ func TestUpdateIntervalDuration(t *testing.T) {
 }
 
 func TestVersionNewer(t *testing.T) {
-	cases := []struct{ a, b string; want bool }{
+	cases := []struct {
+		a, b string
+		want bool
+	}{
 		{"v0.1.25", "0.1.24", true},
 		{"0.2.0", "0.1.99", true},
 		{"1.0.0", "0.9.9", true},
