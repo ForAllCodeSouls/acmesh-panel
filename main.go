@@ -277,6 +277,10 @@ func (s *Server) securityHeaders(next http.Handler) http.Handler {
 		} else if r.URL.Path == "/" || strings.HasSuffix(r.URL.Path, ".html") {
 			// 退出登录后浏览器不应从缓存里翻出面板页面
 			h.Set("Cache-Control", "no-cache, must-revalidate")
+		} else if strings.HasSuffix(r.URL.Path, ".js") || strings.HasSuffix(r.URL.Path, ".css") {
+			// 前端脚本/样式必须每次取最新的，否则升级后浏览器仍跑旧版 JS，
+			// 会把首屏 401 显示成旧文案「未登录」，误导排查。
+			h.Set("Cache-Control", "no-store")
 		}
 		next.ServeHTTP(w, r)
 	})

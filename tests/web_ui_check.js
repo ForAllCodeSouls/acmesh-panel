@@ -213,6 +213,8 @@ check('面板不下发 HSTS（交给反代）', goMain.includes('HSTS 由反代�
   && !goMain.includes('Strict-Transport-Security'));
 check('面板固定纯 HTTP', goMain.includes('httpSrv.ListenAndServe()')
   && !goMain.includes('ListenAndServeTLS'));
+check('JS/CSS 不缓存（避免旧前端文案）', goMain.includes('strings.HasSuffix(r.URL.Path, ".js")')
+  && goMain.includes('strings.HasSuffix(r.URL.Path, ".css")') && goMain.includes('"no-store"'));
 check('Cookie 为普通 Cookie（无 SameSite/Secure）', !goApi.includes('SameSite:')
   && !goApi.includes('Secure:') && goApi.includes('HttpOnly: true'));
 check('登录不再按 Host/Origin 拦截', goAuth.includes('func sameOrigin(r *http.Request) bool { return true }'));

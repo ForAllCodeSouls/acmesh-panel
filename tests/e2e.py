@@ -190,6 +190,7 @@ def main():
         check("维护者替换图片说明已删除", "维护者替换图片" not in html)
         st, hd2, js = anon.req("GET", "/app.js")
         check("静态资源可访问", st == 200 and b"api(" in js)
+        check("app.js 不被缓存（升级后不再跑旧前端）", hd2.get("cache-control") == ["no-store"], hd2.get("cache-control"))
         st, hd_img, img = anon.req("GET", "/assets/wechat-pay.png")
         check("赞赏码图片已内嵌到二进制", st == 200 and len(img) > 1000, st)
 
