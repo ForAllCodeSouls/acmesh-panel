@@ -236,6 +236,30 @@ func clientIP(r *http.Request, trustProxy bool) string {
 	return host
 }
 
+// requestIsHTTPS 判断到客户端的这一段连接是否为 HTTPS。
+// 只有确认是 HTTPS 才允许下发 HSTS——否则纯 HTTP 访问也会被浏览器永久升级，
+// 配错一次就把自己锁死一年。
+// 直连 TLS：r.TLS 非空；反代终结 TLS：仅在信任代理时按可信跳数取 X-Forwarded-Proto。
+func requestIsHTTPS(r *http.Request, trustProxy bool) bool {
+	if r.TLS != nil {
+		return true
+	}
+	if !trustProxy {
+		return false
+	}
+	xfp := r.Header.Get("X-Forwarded-Proto")
+	if xfp == "" {
+		return false
+	}
+	parts := strings.Split(xfp, ",")
+	// 与 clientIP 一致：从右侧可信跳取值，客户端可伪造左侧条目。
+	idx := len(parts) - trustedProxyHops
+	if idx < 0 || idx >= len(parts) {
+		idx = 0
+	}
+	return strings.EqualFold(strings.TrimSpace(parts[idx]), "https")
+}
+
 // sameOrigin 校验 Origin/Referer 与 Host 一致，抵御跨站表单提交（登录接口的第一道闸）。
 func sameOrigin(r *http.Request) bool {
 	origin := r.Header.Get("Origin")

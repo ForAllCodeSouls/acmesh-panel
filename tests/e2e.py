@@ -197,6 +197,7 @@ def main():
         st, hd, _ = anon.req("GET", "/api/certs")
         check("未登录访问证书接口 → 401", st == 401, st)
         check("API 响应 no-store", hd.get("cache-control") == ["no-store"])
+        check("纯 HTTP 访问不下发 HSTS", "strict-transport-security" not in hd, hd.get("strict-transport-security"))
 
         # ---- 登录失败 ----
         st, _, j = anon.j("POST", "/api/login", {"username": "admin", "password": "wrong-pass"})

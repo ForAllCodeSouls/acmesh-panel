@@ -28,6 +28,7 @@ type Config struct {
 	Password         string
 	ResetCredentials bool
 	CookieSecure     bool
+	HSTS             bool
 	TrustProxy       bool
 	TrustHops        int
 	Cron             bool
@@ -64,6 +65,7 @@ func loadConfig() Config {
 		Password:         os.Getenv("ACME_PANEL_PASSWORD"),
 		ResetCredentials: envBool("ACME_PANEL_RESET_CREDENTIALS", false),
 		CookieSecure:     envBool("ACME_PANEL_COOKIE_SECURE", false),
+		HSTS:             envBool("ACME_PANEL_HSTS", true),
 		TrustProxy:       envBool("ACME_PANEL_TRUST_PROXY", false),
 		TrustHops:        parseInt(env("ACME_PANEL_TRUST_PROXY_HOPS", "1")),
 		Cron:             envBool("ACME_PANEL_CRON", true),
@@ -284,7 +286,9 @@ func (s *Server) securityHeaders(next http.Handler) http.Handler {
 		h.Set("Permissions-Policy", "geolocation=(), microphone=(), camera=()")
 		h.Set("Cross-Origin-Opener-Policy", "same-origin")
 		h.Set("Cross-Origin-Resource-Policy", "same-origin")
-		if s.cfg.CookieSecure {
+		// HSTS 仅在开关开启、且本次连接确实是 HTTPS 时下发。
+		// 纯 HTTP（含未信任反代的 XFP）不下发，避免被浏览器强制升级锁死一年。
+		if s.cfg.HSTS && requestIsHTTPS(r, s.cfg.TrustProxy) {
 			h.Set("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
 		}
 		if strings.HasPrefix(r.URL.Path, "/api/") {

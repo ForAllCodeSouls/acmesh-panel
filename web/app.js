@@ -60,7 +60,15 @@
       clearTimeout(timeout);
     }
     if (res.status === 401) {
-      showLogin('会话已过期，请重新登录');
+      // 401 有多种原因，先读出后端真实 error，再决定怎么呈现。
+      let reason = '';
+      try { const j = await res.json(); reason = (j && j.error) || ''; } catch (_) { /* ignore */ }
+      // 首屏探测「未登录」或会话失效：静默回登录页，不显示吓人的红字。
+      // 真正的登录失败（密码错误等）由调用方在表单里显示后端返回的具体原因。
+      if (path === '/api/login') {
+        throw new Error(reason || '登录失败');
+      }
+      showLogin('');
       throw new Error('未登录');
     }
     if (!res.ok) {

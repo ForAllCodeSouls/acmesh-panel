@@ -739,8 +739,9 @@ gofmt -w *.go && go vet ./...
 | `ACME_BIN` | 空（容器内自动发现） | 二进制部署时指定 acme.sh 脚本路径 |
 | `ACME_PANEL_CA` | `letsencrypt` | `letsencrypt` / `zerossl` / `buypass` / `google` / `letsencrypt_test` |
 | `ACME_PANEL_EMAIL` | 空 | 签发时传给 `--accountemail`；设置后会覆盖 Web 里保存的默认邮箱 |
-| `ACME_PANEL_COOKIE_SECURE` | `0` | 走 HTTPS 后设 `1`，Cookie 加 `Secure` 并下发 HSTS |
-| `ACME_PANEL_TRUST_PROXY` | `0` | 信任 `X-Forwarded-For`（仅反代可信时开启） |
+| `ACME_PANEL_COOKIE_SECURE` | `0` | 走 HTTPS 后设 `1`，Cookie 加 `Secure`；挂了 TLS 证书时会强制为 `1` |
+| `ACME_PANEL_HSTS` | `1` | 是否下发 HSTS（一年 `max-age`）。**仅当请求确为 HTTPS 时才下发**：直连 TLS，或开启 `TRUST_PROXY` 且反代传来 `X-Forwarded-Proto: https`。纯 HTTP 访问不会下发，避免配错被浏览器锁死一年；不需要可设 `0` |
+| `ACME_PANEL_TRUST_PROXY` | `0` | 信任 `X-Forwarded-For` / `X-Forwarded-Proto`（仅反代可信时开启） |
 | `ACME_PANEL_TRUST_PROXY_HOPS` | `1` | 可信代理层数；从 XFF 右侧取第 N 个地址，默认取代理写入的真实客户端 |
 | `ACME_PANEL_ALLOW_LOCAL_WEBHOOK` | `0` | 仅供本地端到端测试；设为 `1` 时允许 Webhook 指向本机 / 内网（生产勿开） |
 | `ACME_PANEL_CRON` | `1` | 每日自动续期检测开关（关闭后仍按设定时间检查临期） |
@@ -756,7 +757,8 @@ gofmt -w *.go && go vet ./...
 | 关注点 | 措施 |
 |---|---|
 | 密码存储 | PBKDF2-HMAC-SHA256（600k 次），随机盐，恒定时间比对 |
-| 会话 | 内存会话 + `HttpOnly` / `SameSite=Strict` Cookie，空闲与最长有效期双重限制，登录即换 ID |
+| 会话 | 内存会话 + `HttpOnly` / `SameSite=Strict` Cookie，空闲与最长有效期双重限制，登录即换 ID；会话只存内存，**面板重启后需重新登录**（浏览器留着旧 Cookie 时会静默回到干净的登录页，不再误报「会话已过期」） |
+| HSTS | 仅在确认 HTTPS 时下发，可用 `ACME_PANEL_HSTS=0` 关闭，避免反代配置错误导致浏览器长期强制 HTTPS |
 | CSRF | 状态变更接口校验 Token 与 Origin/Referer |
 | 暴力破解 | 按 IP + 用户名的指数退避锁定，安全事件推送通知 |
 | 凭证 | DNS 凭证、通知渠道、远程主机密码/私钥 AES-256-GCM 加密落盘；API 只回掩码；日志按值脱敏 |

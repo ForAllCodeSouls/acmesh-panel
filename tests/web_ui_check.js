@@ -201,4 +201,15 @@ check('README 引用全部四张示意图', readme.includes('docs/01-overview.sv
   && readme.includes('docs/03-domain-matching.svg')
   && readme.includes('docs/04-remote-sync.svg'));
 
+// 401 文案：首屏/会话失效静默回登录页，登录失败显示后端真实原因
+check('401 不再无条件显示会话已过期', !app.includes("showLogin('会话已过期，请重新登录')"));
+check('登录失败抛出后端真实原因', app.includes("if (path === '/api/login')") && app.includes('throw new Error(reason')
+  && app.includes('j && j.error'));
+check('非登录 401 静默回登录页', app.includes("showLogin('')"));
+const goMain = fs.readFileSync(path.join(root, 'main.go'), 'utf8');
+const goAuth = fs.readFileSync(path.join(root, 'auth.go'), 'utf8');
+check('HSTS 开关 ACME_PANEL_HSTS', goMain.includes('ACME_PANEL_HSTS') && goMain.includes('HSTS:'));
+check('HSTS 仅真实 HTTPS 下发', goMain.includes('s.cfg.HSTS && requestIsHTTPS(r, s.cfg.TrustProxy)'));
+check('真实 HTTPS 判断含反代协议头', goAuth.includes('func requestIsHTTPS') && goAuth.includes('X-Forwarded-Proto'));
+
 console.log(`web UI checks: ${passed} passed`);
