@@ -66,6 +66,7 @@ with tempfile.TemporaryDirectory() as tmp:
 
 remote_src = (ROOT / "remote.go").read_text(encoding="utf-8")
 api_src = (ROOT / "api.go").read_text(encoding="utf-8")
+go_sync_src = (ROOT / "sync.go").read_text(encoding="utf-8")
 check("后端存在统一路径解析", "func resolveSyncLocalPath" in remote_src)
 check("不再直接 filepath.Join(localDir, f)", "filepath.Join(localDir, f)" not in remote_src)
 check("手动远程推送只传文件名", "pushAllRemotesOnce(s.store, dir, names, req.Force" in api_src)
@@ -85,9 +86,11 @@ readme_src = (ROOT / "README.md").read_text(encoding="utf-8")
 check("远程目录固定取主机配置、忽略请求值",
       "listRemoteFiles(s.store, h, h.RemoteDir)" in api_src and "_ = req.Dir" in api_src)
 check("远程文件返回规则命中类型",
-      '"matched_kinds": s.remoteMatchedKinds()' in api_src
-      and "func (s *Server) remoteMatchedKinds()" in api_src)
-check("远程文件类型来自现有证书的规则预览", "s.sync.Preview(rule)" in api_src)
+      '"matched_kinds": s.remoteMatchedKinds(names)' in api_src
+      and "func (s *Server) remoteMatchedKinds(remoteNames []string)" in api_src)
+check("远程文件类型来自现有证书的规则预览与文件名匹配",
+      "s.sync.Preview(rule)" in api_src and "s.sync.MatchNames(rule, remoteNames)" in api_src
+      and "func (e *SyncEngine) MatchNames" in go_sync_src)
 check("合并记录筛选函数存在", "func filterSyncEvents(" in api_src and "AllSyncEvents()" in api_src)
 check("同步记录接口返回合并结果与总数", '"entries":' in api_src and '"total":' in api_src)
 check("备份接口已注册", '"GET /api/backup"' in main_src and '"POST /api/backup"' in main_src)

@@ -96,7 +96,8 @@ check('远程目录输入框已删除', !html.includes('id="remote-file-dir"') &
 check('远程目录直接读主机配置', html.includes('目录直接读取主机配置')
   && app.includes("body: { host_id: hostID }") && goApi.includes('listRemoteFiles(s.store, h, h.RemoteDir)'));
 check('远程文件按规则命中标注类型', app.includes('matched_kinds') && app.includes('KIND[(matchedKinds')
-  && goApi.includes('func (s *Server) remoteMatchedKinds()') && goApi.includes('s.sync.Preview(rule)'));
+  && goApi.includes('func (s *Server) remoteMatchedKinds(remoteNames []string)') && goApi.includes('s.sync.Preview(rule)')
+  && goApi.includes('s.sync.MatchNames(rule, remoteNames)'));
 check('同步记录合并为单一列表', !html.includes('id="remote-event-list"')
   && html.includes('id="sync-event-list"') && html.includes('本地写入与远程同步的结果合并展示'));
 check('同步记录筛选栏齐备', ['sync-q', 'sync-result', 'sync-scope', 'sync-from', 'sync-to', 'sync-reset']

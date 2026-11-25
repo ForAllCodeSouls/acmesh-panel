@@ -426,6 +426,80 @@ func certExactClaims(all []CertInfo) map[string]string {
 
 // match 判断目标文件是否命中规则。claims 为精确归属映射（见 certExactClaims），
 // 目标文件已归属其它证书时，本证书不得通过子域/通配/SAN 途径认领。
+// MatchNames 按文件名直接判断一条规则会命中哪些文件（不需要读取文件内容）。
+// 用于远程目录的类型标注：远程文件读不到内容，按文件名域名参与匹配。
+// 返回 文件名 -> 类型（key/cert/chain）。SAN 模式在远程场景退化为按文件名域名的常规判定；
+// 精确归属判定与本地一致：文件名域名已有独立证书时只归那张证书，泛域不抢标。
+func (e *SyncEngine) MatchNames(rule SyncRule, names []string) map[string]string {
+	out := map[string]string{}
+	if !rule.Enabled || !syncModeCodes[rule.Mode] {
+		return out
+	}
+	all, err := e.certs.Scan()
+	if err != nil {
+		return out
+	}
+	return e.matchNames(rule, names, all)
+}
+
+func (e *SyncEngine) matchNames(rule SyncRule, names []string, all []CertInfo) map[string]string {
+	out := map[string]string{}
+	if !syncModeCodes[rule.Mode] {
+		return out
+	}
+	claims := certExactClaims(all)
+	for _, name := range names {
+		domain := certFileDomain(name)
+		for _, ci := range all {
+			if ci.Status == "invalid" || ci.Status == "expired" {
+				continue
+			}
+			if rule.Source != "" && rule.Source != "*" && rule.Source != ci.Name {
+				continue
+			}
+			if e.matchName(rule, ci, name, domain, claims) {
+				if _, exists := out[name]; !exists {
+					out[name] = syncFileKind(name)
+				}
+				break
+			}
+		}
+	}
+	return out
+}
+
+// matchName 与 match 的判定规则一致，但不依赖目标文件内容（远程场景）：
+// SAN 模式退化为文件名域名与证书域名的常规判定（相等或子域）。
+func (e *SyncEngine) matchName(rule SyncRule, ci CertInfo, filename, domain string, claims map[string]string) bool {
+	if domain != "" && len(claims) > 0 {
+		if owner, ok := claims[strings.ToLower(domain)]; ok && !strings.EqualFold(owner, ci.Name) {
+			return false
+		}
+	}
+	switch rule.Mode {
+	case syncExact:
+		return domain != "" && strings.EqualFold(domain, ci.Domain)
+	case syncSubdomain:
+		return domainMatches(domain, ci)
+	case syncWildcard:
+		for _, san := range ci.SANs {
+			if strings.HasPrefix(san, "*.") && isSubdomainOf(domain, strings.TrimPrefix(san, "*.")) {
+				return true
+			}
+		}
+		return false
+	case syncFilename:
+		if rule.Pattern == "" {
+			return false
+		}
+		ok, err := filepath.Match(rule.Pattern, filename)
+		return err == nil && ok
+	case syncSAN:
+		return domainMatches(domain, ci)
+	}
+	return false
+}
+
 func (e *SyncEngine) match(rule SyncRule, ci CertInfo, filename, domain, fullPath string, claims map[string]string) bool {
 	if domain != "" && len(claims) > 0 {
 		if owner, ok := claims[strings.ToLower(domain)]; ok && !strings.EqualFold(owner, ci.Name) {

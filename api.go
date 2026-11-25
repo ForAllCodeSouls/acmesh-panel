@@ -1626,10 +1626,11 @@ func (s *Server) handleRemotePush(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// remoteMatchedKinds 复用「本地同步」那套同步规则，从当前已有的证书里算出会被命中的
-// 本地文件，返回 文件名 -> 类型（key / cert / chain）。远程目录只有命中规则的文件才标类型，
-// 不再按文件名里有没有 key/cert 去猜。
-func (s *Server) remoteMatchedKinds() map[string]string {
+// remoteMatchedKinds 复用「同步规则」页签那套规则计算远程文件的类型标注，返回 文件名 -> 类型（key / cert / chain）。
+// 两个来源取并集：① 本地挂载目录里被规则命中的文件（面板实际会远程写入的同名文件）；
+// ② 远程目录里的文件按自身文件名直接参与匹配（远程文件读不到内容，SAN 模式退化为按文件名域名判定），
+// 这样远程目录里本地没有的证书/私钥也能正确标注，而不是只显示「文件」。
+func (s *Server) remoteMatchedKinds(remoteNames []string) map[string]string {
 	out := map[string]string{}
 	for _, rule := range s.store.ListSyncRules() {
 		if !rule.Enabled {
@@ -1638,6 +1639,11 @@ func (s *Server) remoteMatchedKinds() map[string]string {
 		for _, m := range s.sync.Preview(rule) {
 			if _, ok := out[m.File]; !ok {
 				out[m.File] = m.Kind
+			}
+		}
+		for name, kind := range s.sync.MatchNames(rule, remoteNames) {
+			if _, ok := out[name]; !ok {
+				out[name] = kind
 			}
 		}
 	}
@@ -1675,9 +1681,15 @@ func (s *Server) handleRemoteFiles(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadGateway, err.Error())
 		return
 	}
+	names := make([]string, 0, len(files))
+	for _, f := range files {
+		if !f.IsDir {
+			names = append(names, f.Name)
+		}
+	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"ok": true, "host": h.Name, "dir": dir, "files": files,
-		"matched_kinds": s.remoteMatchedKinds(),
+		"matched_kinds": s.remoteMatchedKinds(names),
 	})
 }
 
