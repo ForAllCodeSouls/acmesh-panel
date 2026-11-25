@@ -332,7 +332,7 @@ func (s *Server) handleSession(w http.ResponseWriter, r *http.Request) {
 	cronHour, lastDay := s.store.CronSchedule()
 	// cred_source 描述当前凭据来源；username_source / password_source 作为兼容别名保留。
 	credSource := s.store.CredSource()
-	writeJSON(w, http.StatusOK, map[string]any{
+	j := map[string]any{
 		"user":            sess.User,
 		"cred_source":     credSource,
 		"username_source": credSource,
@@ -350,6 +350,38 @@ func (s *Server) handleSession(w http.ResponseWriter, r *http.Request) {
 		"retention_days":  s.store.RetentionDays(),
 		"update":          s.store.UpdateConfig(),
 		"server_time":     time.Now(),
+	}
+	enforced, pinned := s.httpsOnly()
+	j["force_https"] = enforced
+	j["force_https_pinned"] = pinned
+	j["https_now"] = requestIsHTTPS(r)
+	writeJSON(w, http.StatusOK, j)
+}
+
+// handleHTTPSSettings 切换「仅允许 HTTPS 访问」。
+// 环境变量已显式指定时拒绝修改界面状态，避免用户以为保存成功但策略未生效。
+func (s *Server) handleHTTPSSettings(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		ForceHTTPS *bool `json:"force_https"`
+	}
+	if err := readJSON(w, r, &req); err != nil || req.ForceHTTPS == nil {
+		writeErr(w, http.StatusBadRequest, "请求格式错误：需要 force_https 布尔值")
+		return
+	}
+	if _, pinned := s.httpsOnly(); pinned {
+		writeErr(w, http.StatusConflict, "仅允许 HTTPS 访问已由环境变量 ACME_PANEL_FORCE_HTTPS 锁定，请在部署环境修改后重启面板")
+		return
+	}
+	if err := s.store.SetForceHTTPS(*req.ForceHTTPS); err != nil {
+		writeErr(w, http.StatusInternalServerError, "保存失败："+err.Error())
+		return
+	}
+	s.store.Audit(sess(r).User, clientIP(r, s.cfg.TrustProxy), "https_settings", strconv.FormatBool(*req.ForceHTTPS))
+	enforced, pinned := s.httpsOnly()
+	writeJSON(w, http.StatusOK, map[string]any{
+		"force_https":        enforced,
+		"force_https_pinned": pinned,
+		"https_now":          requestIsHTTPS(r),
 	})
 }
 

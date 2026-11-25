@@ -36,6 +36,7 @@
 | 分類 | 機能 |
 |---|---|
 | **認証** | 単一アカウント + PBKDF2-HMAC-SHA256（600k 反復）；スマートセッション Cookie（HTTP では素の `HttpOnly`、HTTPS 確認時は `Secure` + `SameSite=Lax` を自動付与）；CSRF トークン + スマート同一オリジン検証（ホスト名比較、リバースプロキシ対応、設定不要）；IP ごとに 5 回失敗で指数バックオフロック；任意の 90 日「ログイン保持」。環境変数は**初回起動時のみ**認証情報を初期化し、以後は Web UI での変更が永続化。Web 登録画面なし |
+| **HTTPS 限定（任意）** | 設定 → システムで有効化すると HTTP 直アクセスを拒否（コンテナのヘルスチェック用 `/api/health` は例外）。リバースプロキシは `X-Forwarded-Proto: https` を渡す必要あり。非常時は `ACME_PANEL_FORCE_HTTPS=0` で再起動して解除 |
 | **証明書管理** | acme.sh home を走査して X.509 を解析：SAN・発行者・有効期限・鍵種別・残日数・期限切れ警告 |
 | **発行** | DNS API 自動検証、ワイルドカード対応；43 種類の DNS プロバイダ内蔵（認証情報フィールドは acme.sh 公式スクリプトと照合済み、各プロバイダの公式サイトへのリンク付き、全一覧は [README.md §5.2](README.md#52-签发证书)）；ECC 256/384、RSA 2048/4096 |
 | **メール** | グローバル既定 ACME メール + ドメイン別上書き |
@@ -127,6 +128,7 @@ systemd ユニット例および macOS / Windows の手順は中国語版 README
 | `ACME_BIN` | 自動 | バイナリデプロイ時の acme.sh スクリプトパス |
 | `ACME_PANEL_CA` | `letsencrypt` | `letsencrypt` / `zerossl` / `buypass` / `google` / `letsencrypt_test` |
 | `ACME_PANEL_EMAIL` | 空 | `--accountemail` として渡す；Web 保存の既定メールより優先 |
+| `ACME_PANEL_FORCE_HTTPS` | 未設定 | **任意**。HTTPS 限定スイッチを上書き。`1` 強制オン（HTTP 拒否）、`0` 強制オフ（非常時復旧）。未設定なら Web の設定値を使用。設定時は UI から変更不可 |
 | `ACME_PANEL_TRUST_PROXY` | `0` | **任意**。レート制限の IP 判定にのみ影響し、HTTP/HTTPS ログインには無関係。完全に信頼できるリバースプロキシのみで `X-Forwarded-For` を信頼 |
 | `ACME_PANEL_TRUST_PROXY_HOPS` | `1` | 信頼するプロキシの段数（XFF の右から N 番目） |
 | `ACME_PANEL_ALLOW_LOCAL_WEBHOOK` | `0` | ローカル e2e テスト専用；ループバック / LAN 向け Webhook を許可（本番では禁止） |
@@ -142,6 +144,7 @@ systemd ユニット例および macOS / Windows の手順は中国語版 README
 - パスワードは PBKDF2-HMAC-SHA256（600k 反復、ランダムソルト、定数時間比較）で保存。
 - セッション：インメモリ + スマート Cookie。平文 HTTP では素の `HttpOnly` Cookie、HTTPS 確認時（`X-Forwarded-Proto: https` または直接 TLS）は自動で `Secure` + `SameSite=Lax` を付与。設定なしで HTTP / HTTPS 両方で動作、ログイン時にセッション ID を再生成。
 - パネルは HTTP のみ提供。HTTPS は nginx/Caddy で終端。HSTS は HTTPS 確認時のみパネルが送信し、平文 HTTP では送信しないため自分をロック out しません。
+- 任意の HTTPS 限定スイッチは平文 HTTP を拒否します（`/api/health` は例外）。プロキシは `X-Forwarded-Proto: https` を渡す必要があり、設定ミス時は `ACME_PANEL_FORCE_HTTPS=0` で再起動して復旧できます。
 - CSRF：状態変更リクエストすべてにトークンを検証。同一オリジン検証はホスト名で比較（ポート/スキーム無視、`X-Forwarded-Host` 対応）するため、リバースプロキシが Host を書き換えてもログインでき、公開ホスト名が分かる場合はクロスサイトを拒否します。
 - 静的アセットは URL にバージョンを付与し、アップグレード時に古いプロキシキャッシュを自動で回避します。
 - 総当たり：IP + ユーザー名ごとの指数バックオフロック + セキュリティ通知。

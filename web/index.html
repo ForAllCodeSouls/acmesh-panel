@@ -286,6 +286,13 @@
         <div class="panel">
           <h3>运行信息</h3>
           <dl class="kv" id="sys-info"></dl>
+          <div class="field mt12">
+            <label class="check-line" for="force-https"><input id="force-https" type="checkbox"> 仅允许 HTTPS 访问</label>
+            <div class="row mt4">
+              <button class="btn small" id="force-https-save" type="button">保存</button>
+            </div>
+            <p class="hint" id="force-https-hint">开启后，通过 IP / 端口的 HTTP 直连会被拒绝，只能经 HTTPS 反代访问；反代需传递 <code>X-Forwarded-Proto: https</code>。健康检查 <code>/api/health</code> 不受限制。若 HTTPS 也打不开，设置 <code>ACME_PANEL_FORCE_HTTPS=0</code> 重启即可临时关闭。</p>
+          </div>
           <div class="update-panel mt12">
             <div class="panel-head">
               <h3>面板版本更新</h3>

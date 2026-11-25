@@ -1363,6 +1363,22 @@
       if (hourSel) hourSel.value = String(s.cron_hour ?? 3);
       const rd = $('#retention-days');
       if (rd) rd.value = String(s.retention_days ?? 30);
+      const fh = $('#force-https');
+      if (fh) { fh.checked = !!s.force_https; fh.disabled = !!s.force_https_pinned; }
+      const fhSave = $('#force-https-save');
+      if (fhSave) fhSave.disabled = !!s.force_https_pinned;
+      const fhHint = $('#force-https-hint');
+      if (fhHint) {
+        if (s.force_https_pinned) {
+          fhHint.textContent = `已由环境变量 ACME_PANEL_FORCE_HTTPS=${s.force_https ? '1' : '0'} 锁定，界面不可修改；在部署环境改动后重启生效。`;
+        } else if (s.force_https) {
+          fhHint.textContent = s.https_now
+            ? '当前生效中：HTTP 直连已被拒绝，仅 HTTPS 反代可访问；健康检查 /api/health 不受限制。'
+            : '当前生效中，但本次请求不是 HTTPS——反代需传递 X-Forwarded-Proto: https；若已无法访问，设 ACME_PANEL_FORCE_HTTPS=0 重启恢复。';
+        } else {
+          fhHint.textContent = '当前未开启。开启后，通过 IP / 端口的 HTTP 直连会被拒绝，只能经 HTTPS 反代访问；反代需传递 X-Forwarded-Proto: https。若 HTTPS 也打不开，设 ACME_PANEL_FORCE_HTTPS=0 重启即可临时关闭。';
+        }
+      }
       $('#cron-hour-hint').textContent = s.cron_last_day
         ? `今天（${s.cron_last_day}）已执行过自动检测；每天 ${String(s.cron_hour ?? 3).padStart(2, '0')}:00 检查一次，重启不会重复。`
         : `每天 ${String(s.cron_hour ?? 3).padStart(2, '0')}:00 自动检查续期与临期；同一天只执行一次，重启不会重复检测。`;
@@ -1600,6 +1616,26 @@
       toast(days === 0 ? '已设为永不清理' : `保留天数已设为 ${days} 天`);
       await loadSysInfo();
     } catch (e) { toast(e.message, 'err'); }
+  });
+
+  $('#force-https-save').addEventListener('click', async () => {
+    const box = $('#force-https');
+    if (!box || box.disabled) return;
+    const on = box.checked;
+    if (on && !confirm('开启后，直接通过 IP / 端口访问面板（包括当前页面）会立即被拒绝，只能通过 HTTPS 反代地址访问。请确认反代已传递 X-Forwarded-Proto: https。确定开启？')) {
+      box.checked = false;
+      return;
+    }
+    const done = busyButton($('#force-https-save'), '保存中…');
+    try {
+      const r = await api('/api/https/settings', { method: 'POST', body: { force_https: on } });
+      toast(on ? '已开启：仅允许 HTTPS 访问' : '已关闭：HTTP 与 HTTPS 均可访问');
+      await loadSysInfo();
+      if (on && r && r.https_now === false) toast('本次请求不是 HTTPS，反代可能未传递 X-Forwarded-Proto', 'err');
+    } catch (e) {
+      box.checked = !on;
+      toast(e.message, 'err');
+    } finally { done(); }
   });
 
   $('#update-save').addEventListener('click', async () => {

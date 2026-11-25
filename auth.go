@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	"net"
 	"net/http"
+	"os"
 	"strings"
 	"sync"
 	"time"
@@ -307,6 +308,25 @@ func requestIsHTTPS(r *http.Request) bool {
 		return false
 	}
 	return true
+}
+
+// forceHTTPSOverride 解析部署环境的显式覆盖。
+// ok=false 表示未设置，使用面板内开关；ok=true 时 v 为强制值。
+// 这是防止反代未透传 X-Forwarded-Proto 把自己锁死在 HTTP 之外的恢复入口：
+// 设 ACME_PANEL_FORCE_HTTPS=0 重启即可临时关闭，无需数据库或界面访问。
+func forceHTTPSOverride() (v, ok bool) {
+	raw, exists := os.LookupEnv("ACME_PANEL_FORCE_HTTPS")
+	if !exists || strings.TrimSpace(raw) == "" {
+		return false, false
+	}
+	switch strings.ToLower(strings.TrimSpace(raw)) {
+	case "1", "true", "yes", "on":
+		return true, true
+	case "0", "false", "no", "off":
+		return false, true
+	default:
+		return false, false
+	}
 }
 
 // isInternalHost 判断主机名是否为本机/内网地址（反代把 Host 改写后的常见形态）。

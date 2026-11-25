@@ -1010,6 +1010,33 @@ def main():
         check("兼容字段同步为 web", j.get("username_source") == "web" and j.get("password_source") == "web",
               (j.get("username_source"), j.get("password_source")))
 
+        # ---- 仅允许 HTTPS 访问开关 ----
+        st, _, j = c.j("GET", "/api/session")
+        # 上面的账号变更让旧会话失效并重新登录；CSRF token 需从新会话取一次。
+        c.csrf = j.get("csrf")
+        check("HTTPS 开关默认关闭且未被环境变量锁定",
+              j.get("force_https") is False and j.get("force_https_pinned") is False, (st, j.get("force_https")))
+        # 用反代语义 XFP=https 修改，避免当前 HTTP 会话被自己的策略切断。
+        st, _, j = c.j("POST", "/api/https/settings", {"force_https": True},
+                       headers={"X-Forwarded-Proto": "https"})
+        check("开启仅 HTTPS 成功", st == 200 and j.get("force_https") is True, (st, j))
+        st, _, _ = c.j("GET", "/api/session")
+        check("HTTP 直连被拒绝", st == 403, st)
+        st, _, body = c.j("GET", "/")
+        check("HTTP 首页返回可恢复的说明页", st == 403 and b"ACME_PANEL_FORCE_HTTPS=0" in body, (st, body[:120]))
+        st, _, _ = c.j("GET", "/api/health")
+        check("健康检查不受开关限制", st == 200, st)
+        st, _, j = c.j("GET", "/api/session", headers={"X-Forwarded-Proto": "https"})
+        check("HTTPS 反代仍可访问并识别为 HTTPS", st == 200 and j.get("https_now") is True,
+              (st, j.get("https_now") if isinstance(j, dict) else j))
+        st, _, j = c.j("POST", "/api/https/settings", {}, headers={"X-Forwarded-Proto": "https"})
+        check("缺少参数时拒绝修改", st == 400, st)
+        st, _, j = c.j("POST", "/api/https/settings", {"force_https": False},
+                       headers={"X-Forwarded-Proto": "https"})
+        check("关闭仅 HTTPS 成功", st == 200 and j.get("force_https") is False, (st, j))
+        st, _, _ = c.j("GET", "/api/session")
+        check("关闭后 HTTP 恢复访问", st == 200, st)
+
     finally:
         notify_server.shutdown()
         proc.terminate()

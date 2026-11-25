@@ -136,6 +136,7 @@ type State struct {
 	CronLastDay   string                 `json:"cron_last_day"`  // 上次自动检测的本地日期 YYYY-MM-DD
 	RetentionDays int                    `json:"retention_days"` // 任务/审计/同步记录保留天数，0 表示不清理
 	Update        UpdateState            `json:"update"`         // 面板版本自动检测配置与结果
+	ForceHTTPS    bool                   `json:"force_https"`    // 仅允许 HTTPS 访问（HTTP 直连一律拒绝）
 }
 
 // Store 负责状态持久化、凭证加解密、密码校验与审计日志。
@@ -955,6 +956,22 @@ func (s *Store) SetRetentionDays(days int) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.state.RetentionDays = days
+	return s.saveLocked()
+}
+
+// ForceHTTPS 返回「仅允许 HTTPS 访问」开关的持久化值。
+// 环境变量 ACME_PANEL_FORCE_HTTPS 的覆盖由 Server.httpsOnly 统一处理。
+func (s *Store) ForceHTTPS() bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.state.ForceHTTPS
+}
+
+// SetForceHTTPS 保存「仅允许 HTTPS 访问」开关。
+func (s *Store) SetForceHTTPS(v bool) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.state.ForceHTTPS = v
 	return s.saveLocked()
 }
 

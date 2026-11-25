@@ -303,4 +303,18 @@ check('Release 镜像 tag 与实际推送一致', releaseYml.includes('RELEASE_T
 check('Makefile 版本从 version.go 派生', mk.includes("grep -oE '[0-9]+\\.[0-9]+\\.[0-9]+' version.go"));
 check('issue 模板版本占位符同步', bugTpl.includes(`placeholder: "${appVer}"`));
 
+// ---- 仅允许 HTTPS 开关 ----
+check('设置页有 HTTPS 开关与状态提示', html.includes('id="force-https"')
+  && html.includes('id="force-https-save"') && html.includes('id="force-https-hint"'));
+check('前端读取会话状态并二次确认', app.includes('s.force_https_pinned')
+  && app.includes('s.https_now') && app.includes("api('/api/https/settings'")
+  && app.includes('确定开启？'));
+check('后端有开关接口与审计', goApi.includes('handleHTTPSSettings')
+  && goApi.includes('"https_settings"') && goMain.includes('POST /api/https/settings'));
+check('强制 HTTPS 中间件放行健康检查', goMain.includes('srv.requireHTTPS(mux)')
+  && goMain.includes('r.URL.Path == "/api/health"') && goMain.includes('httpsOnlyPage'));
+check('环境变量覆盖与恢复说明已文档化',
+  fs.readFileSync(path.join(root, '.env.example'), 'utf8').includes('ACME_PANEL_FORCE_HTTPS=1')
+  && fs.readFileSync(path.join(root, 'README.md'), 'utf8').includes('ACME_PANEL_FORCE_HTTPS=0'));
+
 console.log(`web UI checks: ${passed} passed`);

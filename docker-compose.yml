@@ -21,6 +21,8 @@ services:
       # 可选：反代在同一 docker 网络内时设为 1，仅用于从 XFF 取真实客户端 IP 做限流。
       ACME_PANEL_TRUST_PROXY: "${ACME_PANEL_TRUST_PROXY:-0}"
       ACME_PANEL_TRUST_PROXY_HOPS: "${ACME_PANEL_TRUST_PROXY_HOPS:-1}"
+      # 可选：=1 强制仅 HTTPS（HTTP 直连拒绝）；=0 强制关闭（应急恢复）；留空用界面开关
+      ACME_PANEL_FORCE_HTTPS: "${ACME_PANEL_FORCE_HTTPS:-}"
       # 自动续期：面板内置调度（每 12 小时 acme.sh --cron），不依赖 cron 守护进程
       ACME_PANEL_CRON: "${ACME_PANEL_CRON:-1}"
       # 证书同步目录：多个用逗号或分号分隔，留空禁用

@@ -193,7 +193,7 @@ func main() {
 	srv.static = http.FileServer(http.FS(sub))
 
 	mux := srv.routes()
-	handler := srv.securityHeaders(mux)
+	handler := srv.securityHeaders(srv.requireHTTPS(mux))
 
 	httpSrv := &http.Server{
 		Addr:              cfg.Listen,
@@ -212,7 +212,8 @@ func main() {
 	go srv.updateLoop(ctx)
 
 	go func() {
-		banner(cfg, store.Username(), generated, initialPwd, acme.Version(ctx), store.DefaultEmail())
+		enforce, pinned := srv.httpsOnly()
+		banner(cfg, store.Username(), generated, initialPwd, acme.Version(ctx), store.DefaultEmail(), enforce, pinned)
 		// 面板固定纯 HTTP；TLS 由用户自己的 nginx/Caddy 终结。
 		if err := httpSrv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			log.Fatalf("HTTP 服务退出: %v", err)
@@ -227,7 +228,7 @@ func main() {
 	log.Println("已退出")
 }
 
-func banner(cfg Config, user string, generated bool, pwd, acmeVer, defaultEmail string) {
+func banner(cfg Config, user string, generated bool, pwd, acmeVer, defaultEmail string, httpsOnly, pinned bool) {
 	log.Printf("acmesh-panel 启动")
 	log.Printf("  监听       : %s", cfg.Listen)
 	log.Printf("  acme.sh    : %s (%s)", cfg.AcmeBin, orNone(acmeVer))
@@ -238,6 +239,13 @@ func banner(cfg Config, user string, generated bool, pwd, acmeVer, defaultEmail 
 	log.Printf("  登录账号   : %s", user)
 	if generated {
 		log.Printf("  ⚠ 初始密码 : %s  （仅本次显示，请登录后立即在「设置」中修改）", pwd)
+	}
+	if httpsOnly {
+		source := "面板设置"
+		if pinned {
+			source = "环境变量 ACME_PANEL_FORCE_HTTPS"
+		}
+		log.Printf("  HTTPS 强制 : 已开启（%s）；HTTP 直连将被拒绝，恢复用 ACME_PANEL_FORCE_HTTPS=0 重启", source)
 	}
 }
 
@@ -299,6 +307,55 @@ func (s *Server) securityHeaders(next http.Handler) http.Handler {
 			h.Set("Cache-Control", "no-store")
 		}
 		next.ServeHTTP(w, r)
+	})
+}
+
+// httpsOnly 返回「仅允许 HTTPS」的生效值，以及是否被环境变量锁定。
+// 环境变量优先：=1 强制开启（界面不可关），=0 强制关闭（反代未透传 XFP 时的恢复入口），
+// 未设置时才使用设置页保存的值。
+func (s *Server) httpsOnly() (enforced, pinned bool) {
+	if v, ok := forceHTTPSOverride(); ok {
+		return v, true
+	}
+	if s.store == nil {
+		return false, false
+	}
+	return s.store.ForceHTTPS(), false
+}
+
+// httpsOnlyPage 是不依赖任何静态资源的拒绝页。CSP 只允许外链样式，
+// 因此这里保持纯语义 HTML，确保在策略生效时也能正常显示。
+const httpsOnlyPage = `<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>需要 HTTPS 访问</title></head>
+<body><h1>需要 HTTPS 访问</h1>
+<p>面板已开启「仅允许 HTTPS 访问」，通过 IP / 端口的 HTTP 直连已被拒绝。</p>
+<p>请改用反代后的 HTTPS 地址访问。</p>
+<h2>如果 HTTPS 也打不开</h2>
+<p>反代需要向面板传递 <code>X-Forwarded-Proto: https</code>。确认配置后重启反代再试。</p>
+<p>临时恢复：在面板运行环境设置 <code>ACME_PANEL_FORCE_HTTPS=0</code> 并重启面板，即可关闭强制策略后重新登录调整。</p>
+<p>健康检查 <code>/api/health</code> 不受此策略限制。</p>
+</body></html>`
+
+// requireHTTPS 在开关生效时拒绝非 HTTPS 请求。
+// 面板固定只监听纯 HTTP，HTTPS 由用户自己的反代终结，因此判定统一走
+// requestIsHTTPS（直连 TLS 或可信反代的 X-Forwarded-Proto: https）。
+// 放行 /api/health 是为了容器健康检查不因策略切换而判定服务失活；该接口
+// 只返回运行状态，不含任何凭证。
+func (s *Server) requireHTTPS(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		enforced, _ := s.httpsOnly()
+		if !enforced || requestIsHTTPS(r) || r.URL.Path == "/api/health" {
+			next.ServeHTTP(w, r)
+			return
+		}
+		if strings.HasPrefix(r.URL.Path, "/api/") {
+			writeErr(w, http.StatusForbidden, "已开启「仅允许 HTTPS 访问」，请通过 HTTPS 反代地址访问；如反代未生效，可设 ACME_PANEL_FORCE_HTTPS=0 重启恢复")
+			return
+		}
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		w.WriteHeader(http.StatusForbidden)
+		_, _ = w.Write([]byte(httpsOnlyPage))
 	})
 }
 
@@ -405,6 +462,7 @@ func (s *Server) routes() *http.ServeMux {
 	mux.HandleFunc("POST /api/username", s.requireAuth(s.handleUsername))
 	mux.HandleFunc("POST /api/cron/schedule", s.requireAuth(s.handleCronSchedule))
 	mux.HandleFunc("POST /api/retention", s.requireAuth(s.handleRetention))
+	mux.HandleFunc("POST /api/https/settings", s.requireAuth(s.handleHTTPSSettings))
 	mux.HandleFunc("POST /api/cleanup", s.requireAuth(s.handleCleanup))
 	mux.HandleFunc("GET /api/catalog", s.requireAuth(s.handleCatalog))
 	mux.HandleFunc("GET /api/backup", s.requireAuth(s.handleBackupExport))
