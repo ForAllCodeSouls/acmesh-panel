@@ -1889,9 +1889,9 @@
         <div id="sy-remote-hosts">${remoteHosts.length
           ? remoteHosts.map((h) => `<label class="check"><input type="checkbox" value="${esc(h.id)}" ${(r.remote_hosts || []).includes(h.id) ? 'checked' : ''}> ${esc(h.name)} · ${esc(h.user)}@${esc(h.host)}</label>`).join('')
           : '<p class="hint">还没有远程主机，请先在「远程同步」分区添加。</p>'}</div>
-        <p class="hint">不选主机表示这条规则只做本地覆盖、不参与远程同步；这套规则同时用于本地同步和远程同步，只会同步规则命中的文件。主机配置了「负责域名」时，该主机只接收文件名域名属于它的文件——例：规则命中 a.com 和 b.com 的证书，主机只负责 b.com 时，a.com 的文件不会推给这台主机。</p>
+        <p class="hint">不选主机表示这条规则只做本地覆盖、不参与自动远程同步。规则用于本地挂载目录的自动覆盖；远程同步的「立即同步」按目标机器证书内容与面板证书对比，不依赖这里的规则。主机配置了「负责域名」时，只会覆盖属于它的文件。</p>
       </div>
-      <p class="hint">匹配到文件后自动按文件名判断写入内容：名字含 key 写新私钥，含 cert/fullchain 写新证书，含 chain/ca 写新证书链。无需配置目标文件名。</p>
+      <p class="hint">匹配到文件后按文件名结尾的标记判断写入内容：_key / .key 写新私钥，_cert / _fullchain 写新证书，_chain / ca. 写证书链。域名里出现 key 等字样不会误判。</p>
       <label class="check card"><input id="sy-enabled" type="checkbox" ${r.enabled !== false ? 'checked' : ''}> 启用此规则</label>
       <div class="mt8"><button class="btn small" id="sy-preview" type="button">🔍 预览匹配</button></div>
       <div id="sy-preview-result" class="mt8"></div>`;

@@ -476,39 +476,29 @@ func (e *SyncEngine) matchNames(rule SyncRule, names []string, all []CertInfo) m
 	return out
 }
 
-// matchName 与 match 的判定规则一致，但不依赖目标文件内容（远程场景）：
-// SAN 模式退化为文件名域名与证书域名的常规判定（相等或子域）。
+// matchName 用于远程标注等读不到文件内容的场景：SAN 模式退化为文件名域名判定。
 func (e *SyncEngine) matchName(rule SyncRule, ci CertInfo, filename, domain string, claims map[string]string) bool {
-	if domain != "" && len(claims) > 0 {
-		if owner, ok := claims[strings.ToLower(domain)]; ok && !strings.EqualFold(owner, ci.Name) {
-			return false
-		}
-	}
-	switch rule.Mode {
-	case syncExact:
-		return domain != "" && strings.EqualFold(domain, ci.Domain)
-	case syncSubdomain:
-		return domainMatches(domain, ci)
-	case syncWildcard:
-		for _, san := range ci.SANs {
-			if strings.HasPrefix(san, "*.") && isOneLevelSubdomain(strings.ToLower(domain), strings.TrimPrefix(san, "*.")) {
-				return true
-			}
-		}
-		return false
-	case syncFilename:
-		if rule.Pattern == "" {
-			return false
-		}
-		ok, err := filepath.Match(rule.Pattern, filename)
-		return err == nil && ok
-	case syncSAN:
-		return domainMatches(domain, ci)
-	}
-	return false
+	return matchTarget(rule, ci, filename, domain, nil, claims)
 }
 
+// match 用于本地写入：内容模式读取目标文件，其余模式按文件名域名判定。
 func (e *SyncEngine) match(rule SyncRule, ci CertInfo, filename, domain, fullPath string, claims map[string]string) bool {
+	var content []byte
+	if rule.Mode == syncSAN {
+		if b, err := os.ReadFile(fullPath); err == nil && len(b) <= 1<<20 {
+			content = b
+		}
+	}
+	return matchTarget(rule, ci, filename, domain, content, claims)
+}
+
+// matchTarget 是本地写入、远程标注、规则预览共用的唯一匹配判定入口。
+// content 是目标证书文件的 PEM 内容；读不到时按文件名域名兜底。
+// 精确归属优先：文件名域名已被某张证书签发出时，其它证书不得抢写。
+func matchTarget(rule SyncRule, ci CertInfo, filename, domain string, content []byte, claims map[string]string) bool {
+	if !syncModeCodes[rule.Mode] {
+		return false
+	}
 	if domain != "" && len(claims) > 0 {
 		if owner, ok := claims[strings.ToLower(domain)]; ok && !strings.EqualFold(owner, ci.Name) {
 			return false
@@ -518,14 +508,9 @@ func (e *SyncEngine) match(rule SyncRule, ci CertInfo, filename, domain, fullPat
 	case syncExact:
 		return domain != "" && strings.EqualFold(domain, ci.Domain)
 	case syncSubdomain:
-		return domainMatches(domain, ci)
+		return certCoversDomain(domain, ci)
 	case syncWildcard:
-		for _, san := range ci.SANs {
-			if strings.HasPrefix(san, "*.") && isOneLevelSubdomain(strings.ToLower(domain), strings.TrimPrefix(san, "*.")) {
-				return true
-			}
-		}
-		return false
+		return certWildcardCovers(domain, ci)
 	case syncFilename:
 		if rule.Pattern == "" {
 			return false
@@ -533,76 +518,88 @@ func (e *SyncEngine) match(rule SyncRule, ci CertInfo, filename, domain, fullPat
 		ok, err := filepath.Match(rule.Pattern, filename)
 		return err == nil && ok
 	case syncSAN:
-		return e.matchBySAN(ci, fullPath)
-	}
-	return false
-}
-
-// matchBySAN 读取目标证书，比较 CN/SAN 与源证书是否有交集，或目标是源证书的子域。
-func (e *SyncEngine) matchBySAN(ci CertInfo, path string) bool {
-	b, err := os.ReadFile(path)
-	if err != nil || len(b) > 1<<20 {
-		return false
-	}
-	block, _ := pem.Decode(b)
-	if block == nil {
-		// 私钥等无法解析为证书的文件：按文件名域名兜底匹配
-		return domainMatches(certFileDomain(filepath.Base(path)), ci)
-	}
-	cert, err := x509.ParseCertificate(block.Bytes)
-	if err != nil {
-		// 私钥 PEM 的 block 存在但不是证书：同样按文件名域名兜底
-		return domainMatches(certFileDomain(filepath.Base(path)), ci)
-	}
-	source := map[string]bool{}
-	for _, s := range ci.SANs {
-		source[strings.ToLower(s)] = true
-	}
-	source[strings.ToLower(ci.Domain)] = true
-	for _, s := range cert.DNSNames {
-		if source[strings.ToLower(s)] {
-			return true
+		// 内容优先：目标证书能解析出域名时只按内容判定。
+		// 旧实现在内容不匹配时还会按文件名放行，正是「内容对不上却仍被覆盖」的来源。
+		domains := parseCertDomains(content)
+		if len(domains) > 0 {
+			for _, d := range domains {
+				if certMatchScore(d, ci) > 0 || (strings.HasPrefix(d, "*.") && wildcardScore(d, ci) > 0) {
+					return true
+				}
+			}
+			return false
 		}
-	}
-	if source[strings.ToLower(cert.Subject.CommonName)] {
-		return true
-	}
-	// 通配 SAN 的常规副作用：目标证书是 *.xxx 的某个子域证书。
-	if domainMatches(certFileDomain(filepath.Base(path)), ci) {
-		return true
+		// 私钥 / 非证书文件：按文件名域名兜底（与远程标注一致）。
+		return domain != "" && certCoversDomain(domain, ci)
 	}
 	return false
 }
 
-// domainMatches 判断证书是否实际覆盖目标域名：只有证书里真实存在的域名才算——
-// 非通配 CN/SAN 精确相等，或通配符 SAN 覆盖的同一级子域。
-// 不做「主域名的任意子域」推断：证书只签了 a.b.com 就不能认领 x.b.com，
-// 这是用户报告的「证书明明只覆盖 mypython.example.net 却匹配了别的 *.example.net 文件」的根因。
-func domainMatches(domain string, ci CertInfo) bool {
-	return certCoversDomain(domain, ci)
-}
-
-// certCoversDomain 按证书内容（CN/SAN）判断实际覆盖范围。
-// ACME 通配符证书只覆盖一级子域：*.a.b 命中 x.a.b，不命中 x.y.a.b，也不命中 a.b 本身。
-func certCoversDomain(domain string, ci CertInfo) bool {
+// certWildcardCovers 只按证书的 *. 通配 SAN 判定（精确域名不算）。
+func certWildcardCovers(domain string, ci CertInfo) bool {
 	d := strings.ToLower(strings.TrimSpace(domain))
 	if d == "" {
 		return false
 	}
-	if strings.EqualFold(d, ci.Domain) {
-		return true
-	}
 	for _, san := range ci.SANs {
 		s := strings.ToLower(strings.TrimSpace(san))
-		if strings.HasPrefix(s, "*.") {
-			if isOneLevelSubdomain(d, strings.TrimPrefix(s, "*.")) {
-				return true
-			}
-		} else if d == s {
+		if strings.HasPrefix(s, "*.") && isOneLevelSubdomain(d, strings.TrimPrefix(s, "*.")) {
 			return true
 		}
 	}
 	return false
+}
+
+// wildcardScore 判定目标证书自己是泛域证书时，面板是否签发了同一张泛域证书。
+// 只有精确同名的泛域证书才算归属，普通域名证书不能抢写泛域文件。
+func wildcardScore(domain string, ci CertInfo) int {
+	if !strings.HasPrefix(strings.ToLower(strings.TrimSpace(domain)), "*.") {
+		return 0
+	}
+	wild := strings.ToLower(strings.TrimSpace(domain))
+	if wild == strings.ToLower(strings.TrimSpace(ci.Domain)) {
+		return 3
+	}
+	for _, san := range ci.SANs {
+		if strings.EqualFold(strings.TrimSpace(san), wild) {
+			return 3
+		}
+	}
+	return 0
+}
+
+// certMatchScore 是「证书是否覆盖某域名」的唯一判定入口，返回匹配强度：
+//
+//	0 = 不覆盖；1 = 通配 SAN 覆盖的一级子域；2 = 非通配 SAN 精确；3 = 主域名精确。
+//
+// 本地写入、远程内容对比、文件类型标注全部走这里，杜绝多套规则各说各话。
+// 不做「主域名的任意子域」推断：证书只签了 a.b.com 就不能认领 x.b.com。
+func certMatchScore(domain string, ci CertInfo) int {
+	d := strings.ToLower(strings.TrimSpace(domain))
+	if d == "" || ci.Status == "invalid" || ci.Status == "expired" {
+		return 0
+	}
+	if strings.EqualFold(d, strings.ToLower(strings.TrimSpace(ci.Domain))) {
+		return 3
+	}
+	score := 0
+	for _, san := range ci.SANs {
+		s := strings.ToLower(strings.TrimSpace(san))
+		if strings.HasPrefix(s, "*.") {
+			if isOneLevelSubdomain(d, strings.TrimPrefix(s, "*.")) && score < 1 {
+				score = 1
+			}
+		} else if d == s && score < 2 {
+			score = 2
+		}
+	}
+	return score
+}
+
+// certCoversDomain 按证书实际签发的域名（CN/SAN）判断覆盖范围。
+// 通配 SAN 只覆盖同一级子域：*.a.b 命中 x.a.b，不命中 x.y.a.b，也不命中 a.b 本身。
+func certCoversDomain(domain string, ci CertInfo) bool {
+	return certMatchScore(domain, ci) > 0
 }
 
 // isOneLevelSubdomain 判断 domain 是否为 base 的直接子域（只差一级标签）：
@@ -841,19 +838,15 @@ type RemoteCertMatch struct {
 	Kind   string `json:"kind"`
 }
 
-// remoteCertDomains 解析 PEM 内容里所有证书块的 CN 与 DNS SAN。
-// 私有 key 文件不含证书块，返回空列表；调用方按文件名配对处理。
-func remoteCertDomains(data []byte) []string {
+// parseCertDomains 解析 PEM 内容里所有证书块的 CN 与 DNS SAN（保留 *. 标记）。
+// fullchain 含多张证书时全部解析——叶子证书通常在最后一块，只解析第一块会漏掉真实域名。
+// 私钥等非证书内容返回空列表，调用方按文件名兜底。
+func parseCertDomains(data []byte) []string {
 	out := []string{}
 	seen := map[string]bool{}
 	add := func(s string) {
 		s = strings.ToLower(strings.TrimSpace(s))
-		if s == "" {
-			return
-		}
-		// 保留 *. 前缀交给匹配阶段处理：泛域证书内容可能只有 *.example.com，
-		// 直接丢弃会整张匹配不上；但也不能去掉前缀当精确域名，否则非泛域证书会抢写。
-		if !seen[s] {
+		if s != "" && !seen[s] {
 			seen[s] = true
 			out = append(out, s)
 		}
@@ -880,6 +873,11 @@ func remoteCertDomains(data []byte) []string {
 	return out
 }
 
+// remoteCertDomains 是内容域名解析的远程入口，与本地内容模式共用 parseCertDomains。
+func remoteCertDomains(data []byte) []string {
+	return parseCertDomains(data)
+}
+
 // matchSignedCertByDomains 用目标证书里的域名与面板已签名证书对比：
 // 目标域名等于证书的 CN/非通配 SAN，或被证书的通配 SAN 覆盖（一级），即为命中。
 // 多张证书都命中时优先精确域名（不含通配），再按证书名排序保证结果稳定。
@@ -897,36 +895,10 @@ func matchSignedCertByDomains(domains []string, all []CertInfo) (CertInfo, strin
 			if dl == "" {
 				continue
 			}
-			score := 0
-			if strings.HasPrefix(dl, "*.") {
-				// 目标证书自己是泛域证书：只有面板也签了同一张泛域证书才算归属，
-				// 普通域名证书不能抢写泛域文件。
-				wild := "*." + strings.TrimPrefix(dl, "*.")
-				if strings.EqualFold(wild, ci.Domain) {
-					score = 3
-				} else {
-					for _, san := range ci.SANs {
-						if strings.EqualFold(strings.TrimSpace(san), wild) {
-							score = 3
-							break
-						}
-					}
-				}
-			} else if strings.EqualFold(dl, ci.Domain) {
-				score = 3 // 精确主域名
-			} else {
-				for _, san := range ci.SANs {
-					s := strings.ToLower(strings.TrimSpace(san))
-					if s == dl {
-						if score < 3 {
-							score = 2 // 精确 SAN
-						}
-					} else if strings.HasPrefix(s, "*.") && isOneLevelSubdomain(dl, strings.TrimPrefix(s, "*.")) {
-						if score < 1 {
-							score = 1 // 通配覆盖的一级子域
-						}
-					}
-				}
+			// 与本地内容模式共用同一套强度判定；泛域目标证书要求同名泛域归属。
+			score := certMatchScore(dl, ci)
+			if score == 0 {
+				score = wildcardScore(dl, ci)
 			}
 			if score > bestScore || (score == bestScore && score > 0 && (best.Name == "" || ci.Name < best.Name)) {
 				best, bestDomain, bestScore, found = ci, dl, score, true
@@ -942,6 +914,7 @@ func matchSignedCertByDomains(domains []string, all []CertInfo) (CertInfo, strin
 // 这样 dockge.xxx_cert.pem 命中后，配套的 dockge.xxx_key.pem 也会一起标注/同步。
 func matchRemoteCerts(names []string, certContents map[string][]byte, all []CertInfo) map[string]RemoteCertMatch {
 	out := map[string]RemoteCertMatch{}
+	claims := certExactClaims(all)
 	// 第一轮：能解析的证书文件按内容匹配。
 	for _, name := range names {
 		data, ok := certContents[name]
@@ -953,6 +926,11 @@ func matchRemoteCerts(names []string, certContents map[string][]byte, all []Cert
 			continue
 		}
 		if ci, domain, ok := matchSignedCertByDomains(domains, all); ok {
+			// 精确归属优先：文件名域名已有独立证书时，泛域证书不得按内容抢写。
+			// 交给第二轮按文件名域名认领真正归属的证书。
+			if owner, claimed := claims[strings.ToLower(certFileDomain(name))]; claimed && !strings.EqualFold(owner, ci.Name) {
+				continue
+			}
 			out[name] = RemoteCertMatch{Source: ci.Name, Domain: domain, Kind: syncFileKind(name)}
 		}
 	}
