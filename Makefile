@@ -35,7 +35,7 @@ run: build
 	ACME_BIN=$(CURDIR)/tests/fake-acme.sh \
 	ACME_PANEL_DATA=$(CURDIR)/.dev/data \
 	ACME_PANEL_LISTEN=0.0.0.0:8800 \
-	ACME_PANEL_PASSWORD=dev-password-123 \
+	ACME_PANEL_PASSWORD=DevPassword123 \
 	ACME_PANEL_CRON=0 \
 	./$(BIN)
 
