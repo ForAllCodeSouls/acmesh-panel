@@ -1708,6 +1708,7 @@
         <span class="grow minw0">
           <div class="tiny">${esc(h.name)} · <span class="muted">${esc(h.user)}@${esc(h.host)}:${h.port}</span></div>
           <div class="tiny muted mt4">远程目录 ${esc(h.remote_dir)} · 认证 ${h.auth_mode === 'password' ? '账号密码' : 'SSH 私钥'} ${esc(h.auth_mode === 'password' ? h.password_masked : h.key_masked || '未配置')}</div>
+          <div class="tiny muted mt4">${h.domains && h.domains.length ? '负责域名 ' + esc(h.domains.join('、')) + '（只同步这些域名的文件）' : '未设负责域名（同步规则命中的全部文件）'}</div>
           <div class="tiny muted mt4">自动同步 ${h.auto_push ? '开启（本地同步成功后立即同步规则选中的文件）' : '关闭（仅在证书同步页手动同步）'}</div>
         </span>
         <button class="btn ghost small" data-remote-edit="${esc(h.id)}" type="button">编辑</button>
@@ -1727,6 +1728,8 @@
         <div class="field"><label>SSH 用户名</label><input id="rm-user" value="${esc(h.user || '')}" placeholder="root"></div>
       </div>
       <div class="field"><label>远程证书目录（绝对路径，需提前建好）</label><input id="rm-dir" value="${esc(h.remote_dir || '')}" placeholder="/etc/ssl/certs"></div>
+      <div class="field"><label>负责的域名（可选，逗号分隔）</label><input id="rm-domains" value="${esc((h.domains || []).join(', '))}" placeholder="例如 pyworker.example.com, *.pyworker.example.com"></div>
+      <p class="hint">填写后只有文件名域名属于这些域名的证书/私钥才会同步到这台主机，避免把别的域名的证书也推过来；留空表示同步规则命中的全部文件（旧版本行为）。填写时通配符 * 可以省略。</p>
       <div class="field"><label>认证方式</label><select id="rm-auth">
         <option value="key" ${h.auth_mode !== 'password' ? 'selected' : ''}>SSH 私钥（推荐）</option>
         <option value="password" ${h.auth_mode === 'password' ? 'selected' : ''}>账号密码</option>
@@ -1767,6 +1770,7 @@
           id: h.id || '', name: $('#rm-name').value.trim(), host: $('#rm-host').value.trim(),
           port: Number($('#rm-port').value) || 22, user: $('#rm-user').value.trim(),
           remote_dir: $('#rm-dir').value.trim(),
+          domains: $('#rm-domains').value.split(/[,，;；\n]/).map((s) => s.trim()).filter(Boolean),
           key: usePass ? '' : $('#rm-key').value.trim(),
           password: usePass ? $('#rm-pass').value : '',
           auto_push: $('#rm-autopush').checked,
@@ -1885,7 +1889,7 @@
         <div id="sy-remote-hosts">${remoteHosts.length
           ? remoteHosts.map((h) => `<label class="check"><input type="checkbox" value="${esc(h.id)}" ${(r.remote_hosts || []).includes(h.id) ? 'checked' : ''}> ${esc(h.name)} · ${esc(h.user)}@${esc(h.host)}</label>`).join('')
           : '<p class="hint">还没有远程主机，请先在「远程同步」分区添加。</p>'}</div>
-        <p class="hint">不选主机表示这条规则只做本地覆盖、不参与远程同步；这套规则同时用于本地同步和远程同步，只会同步规则命中的文件。</p>
+        <p class="hint">不选主机表示这条规则只做本地覆盖、不参与远程同步；这套规则同时用于本地同步和远程同步，只会同步规则命中的文件。主机配置了「负责域名」时，该主机只接收文件名域名属于它的文件——例：规则命中 a.com 和 b.com 的证书，主机只负责 b.com 时，a.com 的文件不会推给这台主机。</p>
       </div>
       <p class="hint">匹配到文件后自动按文件名判断写入内容：名字含 key 写新私钥，含 cert/fullchain 写新证书，含 chain/ca 写新证书链。无需配置目标文件名。</p>
       <label class="check card"><input id="sy-enabled" type="checkbox" ${r.enabled !== false ? 'checked' : ''}> 启用此规则</label>

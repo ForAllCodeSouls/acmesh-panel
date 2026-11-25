@@ -42,33 +42,35 @@ type EncRemote struct {
 
 // RemoteHost 是一台远程证书同步目标（SSH 私钥或账号密码认证）。
 type RemoteHost struct {
-	ID        string `json:"id"`
-	Name      string `json:"name"`
-	Host      string `json:"host"`
-	Port      int    `json:"port"`
-	User      string `json:"user"`
-	RemoteDir string `json:"remote_dir"`
-	Key       string `json:"key"`       // SSH 私钥内容（加密存储，接口只回掩码）
-	Password  string `json:"password"`  // SSH 登录密码（加密存储，接口只回掩码）
-	AutoPush  bool   `json:"auto_push"` // 本地同步成功后自动推送；关闭时只能手动强制推送
-	Enabled   bool   `json:"enabled"`
+	ID        string   `json:"id"`
+	Name      string   `json:"name"`
+	Host      string   `json:"host"`
+	Port      int      `json:"port"`
+	User      string   `json:"user"`
+	RemoteDir string   `json:"remote_dir"`
+	Domains   []string `json:"domains"`   // 负责的域名（可选）：非空时只有文件名域名属于这些域名的文件才同步到该主机
+	Key       string   `json:"key"`       // SSH 私钥内容（加密存储，接口只回掩码）
+	Password  string   `json:"password"`  // SSH 登录密码（加密存储，接口只回掩码）
+	AutoPush  bool     `json:"auto_push"` // 本地同步成功后自动推送；关闭时只能手动强制推送
+	Enabled   bool     `json:"enabled"`
 }
 
 // RemoteHostView 是返回给前端的安全视图（不含私钥/密码明文）。
 type RemoteHostView struct {
-	ID             string `json:"id"`
-	Name           string `json:"name"`
-	Host           string `json:"host"`
-	Port           int    `json:"port"`
-	User           string `json:"user"`
-	RemoteDir      string `json:"remote_dir"`
-	KeyMasked      string `json:"key_masked"`
-	HasKey         bool   `json:"has_key"`
-	PasswordMasked string `json:"password_masked"`
-	HasPassword    bool   `json:"has_password"`
-	AuthMode       string `json:"auth_mode"` // key | password
-	AutoPush       bool   `json:"auto_push"`
-	Enabled        bool   `json:"enabled"`
+	ID             string   `json:"id"`
+	Name           string   `json:"name"`
+	Host           string   `json:"host"`
+	Port           int      `json:"port"`
+	User           string   `json:"user"`
+	RemoteDir      string   `json:"remote_dir"`
+	Domains        []string `json:"domains"`
+	KeyMasked      string   `json:"key_masked"`
+	HasKey         bool     `json:"has_key"`
+	PasswordMasked string   `json:"password_masked"`
+	HasPassword    bool     `json:"has_password"`
+	AuthMode       string   `json:"auth_mode"` // key | password
+	AutoPush       bool     `json:"auto_push"`
+	Enabled        bool     `json:"enabled"`
 }
 
 // Notifier 是一个通知渠道。Target 是 base URL 或完整 webhook URL，Secret 是 token。

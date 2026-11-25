@@ -108,7 +108,7 @@ func (s *Store) ListRemoteHosts() []RemoteHostView {
 		}
 		out = append(out, RemoteHostView{
 			ID: h.ID, Name: h.Name, Host: h.Host, Port: h.Port,
-			User: h.User, RemoteDir: h.RemoteDir,
+			User: h.User, RemoteDir: h.RemoteDir, Domains: h.Domains,
 			KeyMasked: mask(h.Key), HasKey: h.Key != "",
 			PasswordMasked: mask(h.Password), HasPassword: h.Password != "",
 			AuthMode: authMode, AutoPush: h.AutoPush, Enabled: h.Enabled,
@@ -148,7 +148,65 @@ func validateRemoteHost(h RemoteHost) error {
 	if len(h.Password) > 1024 || len(h.Key) > 1024*1024 {
 		return errors.New("凭证内容过长")
 	}
+	h.Domains = normalizeHostDomains(h.Domains)
+	for _, d := range h.Domains {
+		if len(d) > 253 || strings.ContainsAny(d, " /\\\t\n\r\x00'\"$;`|&*?<>") {
+			return errors.New("负责域名含非法字符")
+		}
+	}
 	return nil
+}
+
+// normalizeHostDomains 清理主机负责域名：去空白、转小写、去重、丢弃空项。
+func normalizeHostDomains(in []string) []string {
+	out := []string{}
+	seen := map[string]bool{}
+	for _, d := range in {
+		d = strings.ToLower(strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(d), "*.")))
+		if d == "" || seen[d] {
+			continue
+		}
+		seen[d] = true
+		out = append(out, d)
+	}
+	return out
+}
+
+// hostWantsFile 判断一个文件是否应该同步到该主机：未配置负责域名时全推（兼容旧行为）；
+// 配置了则只有文件名域名等于某个负责域名或为其子域的文件才推。
+// 解决「规则命中所有证书的文件，全推给规则选中的每台主机」导致把 A 域名的证书推到 B 主机的问题。
+func hostWantsFile(h RemoteHost, name string) bool {
+	if len(h.Domains) == 0 {
+		return true
+	}
+	domain := certFileDomain(name)
+	if domain == "" {
+		return false
+	}
+	for _, d := range h.Domains {
+		d = strings.ToLower(strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(d), "*.")))
+		if d == "" {
+			continue
+		}
+		if strings.EqualFold(domain, d) || isSubdomainOf(domain, d) {
+			return true
+		}
+	}
+	return false
+}
+
+// filesForHost 按主机的负责域名过滤待推文件列表。
+func filesForHost(h RemoteHost, files []string) []string {
+	if len(h.Domains) == 0 {
+		return files
+	}
+	out := make([]string, 0, len(files))
+	for _, name := range files {
+		if hostWantsFile(h, name) {
+			out = append(out, name)
+		}
+	}
+	return out
 }
 
 var hostKeyMu sync.Mutex
@@ -500,14 +558,29 @@ func pushAllRemotes(store *Store, localDir string, files []string, force bool, o
 		if !view.Enabled {
 			continue
 		}
-		if len(onlyHostID) > 0 && view.ID != onlyHostID[0] {
-			continue
+		// onlyHostID 传多个时表示规则选中的全部主机（任一匹配即推送）。
+		if len(onlyHostID) > 0 {
+			found := false
+			for _, id := range onlyHostID {
+				if view.ID == id {
+					found = true
+					break
+				}
+			}
+			if !found {
+				continue
+			}
 		}
 		// 本地同步触发时只推开启了「自动推送」的主机；手动强制推送忽略此开关
 		if !force && !view.AutoPush {
 			continue
 		}
-		byHost[view.ID] = files
+		h, err := store.GetRemoteHost(view.ID)
+		if err != nil {
+			continue
+		}
+		// 主机配置了负责域名时，只推属于该主机的文件，避免把 A 域名的证书推到 B 主机。
+		byHost[view.ID] = filesForHost(h, files)
 	}
 	return pushRemoteFiles(store, localDir, byHost)
 }
@@ -555,7 +628,11 @@ func pushAllRemotesOnce(store *Store, localDir string, files []string, force boo
 		if !view.Enabled || (hostID != "" && view.ID != hostID) {
 			continue
 		}
-		selected := selectRemoteFiles(view.ID, localDir, files, force, seen, digests)
+		h, err := store.GetRemoteHost(view.ID)
+		if err != nil {
+			continue
+		}
+		selected := selectRemoteFiles(view.ID, localDir, filesForHost(h, files), force, seen, digests)
 		byHost[view.ID] = selected
 		selectedCount += len(selected)
 	}

@@ -175,3 +175,39 @@ func TestMatchNamesRemote(t *testing.T) {
 		t.Fatalf("来源证书自身的文件应命中，got=%v", got)
 	}
 }
+
+// 远程主机「负责域名」过滤：规则命中的所有文件不再全推给规则选中的每台主机，
+// 只推文件名域名属于该主机负责域名的文件（用户报告：某域名的文件被推到无关主机）。
+func TestHostWantsFile(t *testing.T) {
+	h := RemoteHost{ID: "h1", Domains: []string{"*.PYWORKER.example.net", "other.example.net"}}
+	files := []string{
+		"panel.pyworker.example.net_cert.pem", // 子域 → 推
+		"panel.pyworker.example.net_key.pem",  // 子域 → 推
+		"pyworker.example.net_cert.pem",       // 等于负责域名（通配前缀剥掉）→ 推
+		"baihu.loveli.example.net_cert.pem",   // 无关域名 → 不推
+		"ticket12.key",                        // 无域名语义 → 不推
+	}
+	got := filesForHost(h, files)
+	want := []string{"panel.pyworker.example.net_cert.pem", "panel.pyworker.example.net_key.pem", "pyworker.example.net_cert.pem"}
+	if len(got) != len(want) {
+		t.Fatalf("应命中 %v，got=%v", want, got)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("应命中 %v，got=%v", want, got)
+		}
+	}
+
+	// 未配置负责域名：保持旧行为全推（向后兼容）。
+	all := filesForHost(RemoteHost{ID: "h2"}, files)
+	if len(all) != len(files) {
+		t.Fatalf("未配置负责域名时应全推，got=%v", all)
+	}
+
+	// 多主机选择修复：pushAllRemotes 只推第一台的 bug 由 onlyHostID 任一匹配修复，
+	// 此处验证 normalizeHostDomains 清理行为。
+	n := normalizeHostDomains([]string{" *.A.example.com ", "*.a.example.com", "", "B.example.com"})
+	if len(n) != 2 || n[0] != "a.example.com" || n[1] != "b.example.com" {
+		t.Fatalf("负责域名清理异常: %v", n)
+	}
+}
