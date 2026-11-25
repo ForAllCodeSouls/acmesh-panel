@@ -111,7 +111,7 @@ check('部署文档废话已删除', !readme.includes('不管用哪种系统，�
 check('密码策略统一为 12 位', html.includes('至少 12 位，含大写 / 小写 / 数字') && html.includes('minlength="12"'));
 check('SSH 端口/用户名使用已定义栅格类', app.includes('<div class="grid2">') && !app.includes('field-row'));
 check('CSS 只有一套设计令牌', (css.match(/:root\s*\{/g) || []).length === 1);
-check('筛选标签字号声明有效', /font-family: inherit; font-size: 11\.5px; font-weight: 500/.test(css) && !css.includes('font: 500 11.5px/1.4 inherit'));
+check('CSS 无旧版畸形 font 简写残留', !css.includes('font: 500 11.5px/1.4 inherit') && !css.includes('.filter-tab'));
 check('弹窗底部固定可见', css.includes('.modal-foot') && css.includes('flex: none; background: #101820'));
 check('设置页含自动更新配置卡', html.includes('id="update-auto"') && html.includes('id="update-interval"')
   && html.includes('id="update-save"') && html.includes('id="update-check-now"'));

@@ -2,6 +2,17 @@
 
 本文件遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)。
 
+## [0.1.34] - 2026-11-25
+
+### 清理
+
+- **死代码清理**（全项目静态扫描 + 人工逐项核实）：
+  - 删除 Go 死函数 `Store.Save()`（零引用，内部 `saveLocked` 仍被所有写路径使用）与 `sortedKeys()`（零引用），连带移除仅为其保活的 `sort` import 与 `var _ = fmt.Sprintf` hack
+  - 删除 CSS 死类 `settings-grid` / `field-row` / `filter-tabs` / `filter-tab`（页内分区已改用 `view-tab`，同步记录改用 `sync-filters` 栏）及其媒体查询、focus-visible 列表引用；**保留** `result-ok/fail/skip`——虽被静态扫描误报为未引用，实为 `renderSyncEvents` 动态拼接类
+  - 删除 `assets/.gitkeep`（目录已有正式文件）
+  - `web_ui_check.js` 过时的「筛选标签字号声明」断言改写为「无畸形 font 简写与已删类残留」，检查总数不变
+- 明确保留项：`username_source` / `password_source`（兼容别名）、`docker-compose.build.yml`（README 与 compose 注释引用）、`Makefile` 全部目标（均有文档）、`optimization_test.go` 等全部测试文件
+
 ## [0.1.33] - 2026-11-25
 
 ### 修复

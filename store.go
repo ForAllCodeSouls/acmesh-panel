@@ -293,12 +293,6 @@ func (s *Store) Close() error {
 	return s.db.Close()
 }
 
-func (s *Store) Save() error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return s.saveLocked()
-}
-
 func (s *Store) Snapshot() State {
 	s.mu.RLock()
 	defer s.mu.RUnlock()

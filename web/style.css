@@ -191,7 +191,6 @@ textarea { font-family: var(--mono); font-size: 12.5px; resize: vertical; min-he
 .panel-head p { margin-top: 3px; }
 .panel > p { color: var(--muted); font-size: 12.5px; line-height: 1.65; }
 .panel > p + p { margin-top: 7px; }
-.settings-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 14px; }
 .kv { display: grid; grid-template-columns: 110px 1fr; gap: 8px 12px; margin: 0; font-size: 12.5px; }
 .kv dt { color: var(--muted); }
 .kv dd { margin: 0; font-family: var(--mono); font-size: 12px; word-break: break-all; }
@@ -202,7 +201,6 @@ textarea { font-family: var(--mono); font-size: 12.5px; resize: vertical; min-he
 }
 .row .row-main { min-width: 0; flex: 1; }
 .row .row-title { font-size: 13.5px; font-weight: 550; }
-.field-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
 .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
 .empty { padding: 28px 16px; text-align: center; color: var(--muted); border: 1px dashed #26384a; border-radius: 10px; background: #0c141c88; }
 .empty p { margin: 2px 0; }
@@ -270,14 +268,6 @@ textarea { font-family: var(--mono); font-size: 12.5px; resize: vertical; min-he
 
 /* ---------- 同步记录 ---------- */
 .record-panel { padding-bottom: 14px; }
-.filter-tabs { display: inline-flex; align-items: center; gap: 2px; background: #0a121a; border: 1px solid var(--line-soft); border-radius: 9px; padding: 3px; }
-.filter-tab {
-  background: transparent; border: 0; color: var(--muted); padding: 5px 11px;
-  font-family: inherit; font-size: 11.5px; font-weight: 500; line-height: 1.4;
-  border-radius: 7px; cursor: pointer; transition: background var(--ease), color var(--ease);
-}
-.filter-tab:hover { color: var(--text); background: #ffffff0a; }
-.filter-tab.active { background: #1d3141; color: #eaf6ff; box-shadow: inset 0 1px 0 #ffffff12; }
 .sync-event-item {
   position: relative; padding: 12px 14px 12px 16px; border-radius: 11px; gap: 2px;
   background: linear-gradient(180deg, #111d27, #0e171f); border: 1px solid var(--line-soft);
@@ -312,7 +302,7 @@ textarea { font-family: var(--mono); font-size: 12.5px; resize: vertical; min-he
 .scroll-area::-webkit-scrollbar-thumb, .log::-webkit-scrollbar-thumb, .drawer-body::-webkit-scrollbar-thumb,
 .modal-card::-webkit-scrollbar-thumb, .pem-box::-webkit-scrollbar-thumb, .table-wrap::-webkit-scrollbar-thumb,
 #nav::-webkit-scrollbar-thumb { background: #35546b; border-radius: 8px; border: 2px solid transparent; background-clip: padding-box; }
-:where(.btn, .nav-item, .view-tab, .filter-tab, .icon-btn, .tab, .cert-card, input, select, textarea, .scroll-area):focus-visible { outline: 2px solid var(--blue); outline-offset: 2px; }
+:where(.btn, .nav-item, .view-tab, .icon-btn, .tab, .cert-card, input, select, textarea, .scroll-area):focus-visible { outline: 2px solid var(--blue); outline-offset: 2px; }
 
 /* ---------- 抽屉 / 弹窗 ---------- */
 .overlay { position: fixed; inset: 0; background: #000000aa; z-index: 40; backdrop-filter: blur(2px); }
@@ -388,13 +378,13 @@ textarea { font-family: var(--mono); font-size: 12.5px; resize: vertical; min-he
   .nav-label { display: none; }
   #nav { flex-direction: row; margin: 0; overflow: auto; }
   .sidebar-foot { margin: 0 0 0 auto; flex-direction: row; align-items: center; border: 0; padding: 0; }
-  .settings-grid, .combine-grid { grid-template-columns: 1fr; }
+  .combine-grid { grid-template-columns: 1fr; }
   .stats { grid-template-columns: repeat(2, 1fr); }
   .main { padding: 18px 14px 48px; }
   .panel { padding: 16px; }
 }
 @media (max-width: 640px) {
-  .event-grid, .grid2, .field-row { grid-template-columns: 1fr; }
+  .event-grid, .grid2 { grid-template-columns: 1fr; }
   .topbar { flex-direction: column; gap: var(--sp-2); }
   .topbar-actions { width: 100%; }
   .topbar-actions .btn { flex: 1; }
@@ -403,7 +393,6 @@ textarea { font-family: var(--mono); font-size: 12.5px; resize: vertical; min-he
   .cert-grid { grid-template-columns: 1fr; }
   .panel-head { align-items: flex-start; flex-direction: column; }
   .panel-head .head-actions { width: 100%; }
-  .filter-tabs { width: 100%; justify-content: space-between; }
   .row { flex-wrap: wrap; gap: var(--sp-2); padding: 10px 12px; }
   .table th, .table td { padding: 7px 9px; }
   .drawer { width: 100vw; }
