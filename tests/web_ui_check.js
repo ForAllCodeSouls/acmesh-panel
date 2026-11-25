@@ -46,6 +46,22 @@ check('失败原因完整展示', merged.includes(failDetail));
 check('失败样式标记', merged.includes('event-detail is-error'));
 check('路由清晰展示', merged.includes('deploy@203.0.113.10:/home/web/certs'));
 check('不再拼接 /certs/certs 路径', !merged.includes('/certs/certs/'));
+check('日期分隔按天分组', merged.includes('event-day') && merged.includes('11月25日'));
+check('私钥与证书文件用不同标识', merged.includes('file-chip key') && merged.includes('file-chip cert'));
+check('结果用直观图标', merged.includes('result-pill green') && merged.includes('result-pill red'));
+check('时间只显示时分秒', merged.includes('08:12:16') && !merged.includes('2026-11-25T08:12:16'));
+
+// 同批次多条事件应合并为一张卡片：后端字段 merged/count 驱动前端聚合展示。
+sandbox.renderSyncEvents([{
+  time: '2026-11-26T00:00:25+08:00', scope: 'remote', rule: '按证书内容同步 · 服务器1',
+  source: 'pythonscript.duckdns.org_ecc', target: 'root@203.0.113.10:/home/web/certs',
+  result: 'ok', merged: 6, count: 6,
+  files: ['panel_key.pem', 'news_key.pem', 'panel_cert.pem', 'news_cert.pem'],
+}]);
+const batch = boxes['#sync-event-list'].innerHTML;
+check('批次合并徽标', batch.includes('class="chip merged"'));
+check('批次条数可辨识', batch.includes('合并 6 条') && batch.includes('6 个文件'));
+check('批次内文件全部列出', ['panel_key.pem', 'news_key.pem', 'panel_cert.pem', 'news_cert.pem'].every((f) => batch.includes(f)));
 
 sandbox.renderSyncEvents([]);
 check('无筛选空状态文案', boxes['#sync-event-list'].innerHTML.includes('暂无同步记录'));
@@ -103,7 +119,8 @@ check('远程文件只按证书内容标注类型', app.includes('matched_kinds'
 check('主机名称明确标注为备注不参与匹配', html.includes('主机名称都不参与匹配')
   && app.includes('不参与域名匹配'));
 check('同步记录合并为单一列表', !html.includes('id="remote-event-list"')
-  && html.includes('id="sync-event-list"') && html.includes('本地写入与远程同步的结果合并展示'));
+  && html.includes('id="sync-event-list"') && html.includes('本地写入与远程同步合并展示')
+  && html.includes('归为一批'));
 check('同步记录筛选栏齐备', ['sync-q', 'sync-result', 'sync-scope', 'sync-from', 'sync-to', 'sync-reset']
   .every((id) => html.includes(`id="${id}"`)) && html.includes('id="sync-filters"'));
 check('同步记录分页控件存在', ['sync-count', 'sync-prev', 'sync-page', 'sync-next']

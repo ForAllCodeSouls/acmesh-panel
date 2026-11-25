@@ -684,6 +684,10 @@ def main():
         check("合并记录返回 entries 与 total", st == 200 and isinstance(j.get("entries"), list)
               and isinstance(j.get("total"), int), list(j)[:8])
         check("合并记录数不超过总数", len(j.get("entries") or []) <= j.get("total", 0), j.get("total"))
+        check("批次条目含合并元信息", all("merged" in e and "count" in e and "files" in e
+              for e in j.get("entries") or []), (j.get("entries") or [])[:1])
+        check("合并后的批次不多于原始事件数", sum(e.get("merged", 0) for e in j.get("entries") or [])
+              <= len(j.get("all_events") or []), j.get("total"))
         check("筛选下拉元数据存在", "results" in j and "scopes" in j, list(j))
         st, _, j2 = c.j("GET", "/api/sync/events?scope=local")
         check("按范围筛选只返回本地记录", st == 200

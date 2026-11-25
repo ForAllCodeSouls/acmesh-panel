@@ -1697,7 +1697,13 @@
       const from = state.syncTotal ? state.syncPage * SYNC_PAGE_SIZE + 1 : 0;
       const to = state.syncPage * SYNC_PAGE_SIZE + entries.length;
       const cnt = $('#sync-count');
-      if (cnt) cnt.textContent = `共 ${state.syncTotal} 条` + (state.syncTotal ? `，显示 ${from}-${to}` : '');
+      if (cnt) {
+        const ok = entries.filter((e) => e.result === 'ok').length;
+        const fail = entries.filter((e) => e.result === 'fail').length;
+        const skip = entries.filter((e) => e.result === 'skip').length;
+        cnt.textContent = `共 ${state.syncTotal} 批` + (state.syncTotal ? `，显示 ${from}-${to}` : '')
+          + ` · 本页 ✓${ok} !${fail} ·${skip}`;
+      }
       const pageEl = $('#sync-page');
       if (pageEl) pageEl.textContent = `第 ${state.syncPage + 1} 页 / 共 ${Math.max(1, Math.ceil(state.syncTotal / SYNC_PAGE_SIZE))} 页`;
       const prev = $('#sync-prev'), next = $('#sync-next');
@@ -1706,7 +1712,25 @@
     } catch (e) { /* 静默：同步页数据加载失败时保留上次的记录 */ }
   }
 
-  // 本地写入与远程同步的结果合并成一个列表，每条用「本地同步 / 远程同步」标出范围。
+  // 本地写入与远程同步的结果合并展示；后端已把同批次事件合并，这里负责分层呈现。
+  function eventDayLabel(iso) {
+    const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(iso || '');
+    if (!m) return '';
+    const d = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
+    return `${Number(m[2])}月${Number(m[3])}日 · 周${'日一二三四五六'[d.getDay()]}`;
+  }
+
+  function eventClock(iso) {
+    const m = /T(\d{2}:\d{2}(?::\d{2})?)/.exec(iso || '');
+    return m ? m[1] : '';
+  }
+
+  function fileKind(name) {
+    if (/_key|_priv|\.key/i.test(name)) return 'key';
+    if (/_cert|\.cer|\.crt/i.test(name)) return 'cert';
+    return 'file';
+  }
+
   function renderSyncEvents(list) {
     const box = $('#sync-event-list');
     if (!box) return;
@@ -1716,20 +1740,38 @@
     }
     const cls = { ok: 'green', fail: 'red', skip: 'yellow' };
     const icon = { ok: '✓', fail: '!', skip: '·' };
+    const label = { ok: '成功', fail: '失败', skip: '跳过' };
+    let lastDay = '';
     box.innerHTML = list.map((e) => {
+      const day = eventDayLabel(e.time);
+      const divider = day && day !== lastDay ? `<div class="event-day"><span>${esc(day)}</span></div>` : '';
+      lastDay = day;
       const files = (e.files || []).map((name) => {
-        const k = /\.(key|priv)/i.test(name) ? 'red' : (/\.cer|\.crt/i.test(name) ? 'blue' : 'green');
-        return `<span class="chip ${k}">${esc(name)}</span>`;
+        const kind = fileKind(name);
+        const mark = kind === 'key' ? '钥' : kind === 'cert' ? '证' : '档';
+        return `<span class="file-chip ${kind}"><span class="file-ico">${mark}</span>${esc(name)}</span>`;
       }).join('');
-      const detail = (e.result === 'ok' && files)
-        ? `<div class="chip-wrap mt4">${files}</div>` +
-          (e.detail && e.detail.includes('跳过') ? `<div class="event-note mt4">${esc(e.detail)}</div>` : '')
-        : `<div class="event-detail ${e.result === 'fail' ? 'is-error' : ''} mt4">${esc(e.detail || '')}</div>`;
+      const merged = e.merged > 1 ? `<span class="chip merged">合并 ${e.merged} 条</span>` : '';
+      const count = e.count || (e.files || []).length;
+      const countChip = count > 1 ? `<span class="chip">${count} 个文件</span>` : '';
+      let detail = '';
+      if (e.result === 'fail') {
+        detail = `<div class="event-detail is-error">${esc(e.detail || '同步失败')}</div>`;
+      } else if (e.detail && e.detail.includes('跳过')) {
+        detail = `<div class="event-note">${esc(e.detail)}</div>`;
+      } else if (!files && e.detail) {
+        detail = `<div class="event-detail">${esc(e.detail)}</div>`;
+      }
       const scopeText = e.scope === 'remote' ? '远程同步' : '本地同步';
-      return `<div class="sync-event-item result-${esc(e.result || 'skip')}">
-        <div class="row"><span class="chip ${cls[e.result] || ''}">${icon[e.result] || '·'} ${esc(e.result === 'ok' ? '成功' : e.result === 'fail' ? '失败' : '跳过')}</span><span class="chip">${scopeText}</span><span class="tiny muted">${esc(e.time)}</span></div>
-        <div class="event-route mt4">${esc(e.rule)} <span class="arrow">→</span> ${esc(e.target)}</div>
-        <div class="tiny muted mt4">来源 ${esc(e.source)}${e.count ? ` · ${e.count} 个文件` : ''}</div>
+      return `${divider}<div class="sync-event-item result-${esc(e.result || 'skip')}">
+        <div class="event-head">
+          <span class="result-pill ${cls[e.result] || ''}"><span class="result-ico">${icon[e.result] || '·'}</span>${esc(label[e.result] || '跳过')}</span>
+          <span class="chip">${scopeText}</span>${merged}${countChip}
+          <span class="event-time">${esc(eventClock(e.time) || e.time || '')}</span>
+        </div>
+        <div class="event-route"><span class="route-from">${esc(e.rule)}</span><span class="arrow">→</span><span class="route-to">${esc(e.target)}</span></div>
+        <div class="event-meta"><span class="meta-label">来源</span><span class="meta-value">${esc(e.source || '—')}</span></div>
+        ${files ? `<div class="file-list">${files}</div>` : ''}
         ${detail}
       </div>`;
     }).join('');

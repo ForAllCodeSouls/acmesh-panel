@@ -192,6 +192,30 @@ func TestBackupImportRejectsBadFiles(t *testing.T) {
 	}
 }
 
+func TestGroupSyncEvents(t *testing.T) {
+	base := []SyncEvent{
+		{Time: "2026-11-26T00:00:25+08:00", Scope: "remote", Rule: "按证书内容同步 · 服务器1", Source: "pythonscript.duckdns.org_ecc", Target: "root@203.0.113.10:/home/web/certs/panel_key.pem", Result: "ok", Count: 1, Files: []string{"panel_key.pem"}},
+		{Time: "2026-11-26T00:00:25+08:00", Scope: "remote", Rule: "按证书内容同步 · 服务器1", Source: "pythonscript.duckdns.org_ecc", Target: "root@203.0.113.10:/home/web/certs/news_key.pem", Result: "ok", Count: 1, Files: []string{"news_key.pem"}},
+		{Time: "2026-11-26T00:00:26+08:00", Scope: "remote", Rule: "按证书内容同步 · 服务器1", Source: "pythonscript.duckdns.org_ecc", Target: "root@203.0.113.10:/home/web/certs/panel_cert.pem", Result: "ok", Count: 1, Files: []string{"panel_cert.pem"}},
+		{Time: "2026-11-26T00:00:27+08:00", Scope: "local", Rule: "本地覆盖", Source: "loveli.de5.net_ecc", Target: "/certs/x.pem", Result: "ok", Count: 1, Files: []string{"x.pem"}},
+		{Time: "2026-11-26T00:00:28+08:00", Scope: "remote", Rule: "按证书内容同步 · 服务器1", Source: "pythonscript.duckdns.org_ecc", Target: "root@203.0.113.10:/home/web/certs/bad.pem", Result: "fail", Detail: "写入失败"},
+		{Time: "2026-11-26T00:05:10+08:00", Scope: "remote", Rule: "按证书内容同步 · 服务器1", Source: "pythonscript.duckdns.org_ecc", Target: "root@203.0.113.10:/home/web/certs/again.pem", Result: "ok", Count: 1, Files: []string{"again.pem"}},
+	}
+	groups := groupSyncEvents(base)
+	if len(groups) != 4 {
+		t.Fatalf("期望 4 组，实际 %d: %+v", len(groups), groups)
+	}
+	if groups[0].Merged != 3 || groups[0].Count != 3 || len(groups[0].Files) != 3 {
+		t.Errorf("同批次事件未合并: %+v", groups[0])
+	}
+	if groups[0].Target != "root@203.0.113.10:/home/web/certs" {
+		t.Errorf("目标目录未提取: %q", groups[0].Target)
+	}
+	if groups[1].Scope != "local" || groups[2].Result != "fail" || groups[2].Detail != "写入失败" || groups[3].Merged != 1 {
+		t.Errorf("范围/结果/时间分组错误: %+v", groups[1:])
+	}
+}
+
 func TestAllSyncEventsNewestFirst(t *testing.T) {
 	st, err := NewStore(t.TempDir())
 	if err != nil {

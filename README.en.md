@@ -45,7 +45,7 @@ The full Chinese README has the detailed step-by-step explanation: [README.md](R
 | **Deployment** | `--install-cert` output to `/data/output/<cert>/` (fixed path) |
 | **Local sync** | After issue/renew, matched certificate & key files are written into mounted sync dirs; 5 match modes (exact domain / subdomain / wildcard / filename / existing cert CN-SAN), atomic replace, content-fingerprint dedup, force overwrite |
 | **Remote sync** | Push matched certs to other hosts over SSH/SFTP using the same rules; key or password auth, credentials encrypted at rest, strict host-key checking after first trust; per-host force/auto sync |
-| **Sync records** | Local writes and remote syncs merged into one list with keyword / result / scope / date filters and pagination |
+| **Sync records** | Local writes and remote syncs merged into one list; cert/key files from one batch are grouped, with keyword / result / scope / date filters and pagination |
 | **Backup** | Export / import a single JSON config file (credentials stay encrypted; login credentials are never overwritten by a backup) |
 | **Revoke / remove** | `--revoke`, `--remove` (optionally delete the on-disk directory) |
 | **Audit log** | Logins, failures, CSRF blocks, issuance, renewal, key views, deployments, deletions, password change, backup export/import — all stored in SQLite and filterable in the web UI |

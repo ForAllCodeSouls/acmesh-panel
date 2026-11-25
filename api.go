@@ -1426,12 +1426,78 @@ func filterSyncEvents(all []SyncEvent, q, result, scope, from, to string) []Sync
 	return out
 }
 
+// SyncEventGroup 是同一批次同步的合并展示项。一次同步通常会产生 cert/key、
+// 多个域名的多条事件，逐条展示会把时间、规则、来源重复很多遍；合并后只展示
+// 一条批次记录，文件用 chips 列出。原始记录仍通过 events 系列字段返回。
+type SyncEventGroup struct {
+	Time   string   `json:"time"`
+	Scope  string   `json:"scope"`
+	Rule   string   `json:"rule"`
+	Source string   `json:"source"`
+	Target string   `json:"target"`
+	Result string   `json:"result"`
+	Detail string   `json:"detail"`
+	Count  int      `json:"count"`  // 文件数
+	Files  []string `json:"files"`  // 文件名列表
+	Merged int      `json:"merged"` // 合并了多少条原始记录
+
+	key string `json:"-"`
+}
+
+// syncTargetDir 取「主机@用户:目录/文件」或「/目录/文件」的目录部分，
+// 让同一次推送到同一目录的多个文件归为一批。
+func syncTargetDir(target string) string {
+	if i := strings.LastIndex(target, "/"); i > 0 {
+		return target[:i]
+	}
+	return target
+}
+
+// groupSyncEvents 合并相邻且同范围、规则、来源、结果、目标目录、
+// 同一分钟内的事件。记录本身按时间倒序，批次的事件天然相邻。
+func groupSyncEvents(events []SyncEvent) []SyncEventGroup {
+	out := []SyncEventGroup{}
+	for _, ev := range events {
+		scope := ev.Scope
+		if scope != "remote" {
+			scope = "local"
+		}
+		bucket := ev.Time
+		if len(bucket) >= 16 {
+			bucket = bucket[:16] // 精确到分钟，避免同批次事件跨秒后被拆开
+		}
+		key := strings.Join([]string{scope, ev.Rule, ev.Source, syncTargetDir(ev.Target), ev.Result, bucket}, "\x00")
+		if len(out) > 0 && out[len(out)-1].key == key {
+			g := &out[len(out)-1]
+			g.Merged++
+			if ev.Count > 0 {
+				g.Count += ev.Count
+			} else if len(ev.Files) > 0 {
+				g.Count += len(ev.Files)
+			}
+			g.Files = append(g.Files, ev.Files...)
+			// 失败详情最重要；成功批次保留第一条（文件名前缀相同）。
+			if ev.Detail != "" && (g.Detail == "" || ev.Result == "fail") {
+				g.Detail = ev.Detail
+			}
+			continue
+		}
+		out = append(out, SyncEventGroup{
+			Time: ev.Time, Scope: scope, Rule: ev.Rule, Source: ev.Source,
+			Target: syncTargetDir(ev.Target), Result: ev.Result, Detail: ev.Detail,
+			Count: ev.Count, Files: append([]string(nil), ev.Files...), Merged: 1, key: key,
+		})
+	}
+	return out
+}
+
 // handleSyncEvents 返回合并后的同步记录，支持关键词 / 结果 / 范围 / 日期筛选与分页。
-// events、remote_events、all_events 三个旧字段继续保留（未筛选的全量），保证旧调用兼容。
+// entries 为合并后的批次；events、remote_events、all_events 保留原始记录，兼容旧调用。
 func (s *Server) handleSyncEvents(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 	all := s.store.AllSyncEvents()
 	filtered := filterSyncEvents(all, q.Get("q"), q.Get("result"), q.Get("scope"), q.Get("from"), q.Get("to"))
+	grouped := groupSyncEvents(filtered)
 	limit, _ := strconv.Atoi(q.Get("limit"))
 	offset, _ := strconv.Atoi(q.Get("offset"))
 	if limit <= 0 {
@@ -1443,21 +1509,21 @@ func (s *Server) handleSyncEvents(w http.ResponseWriter, r *http.Request) {
 	if offset < 0 {
 		offset = 0
 	}
-	if offset > len(filtered) {
-		offset = len(filtered)
+	if offset > len(grouped) {
+		offset = len(grouped)
 	}
 	end := offset + limit
-	if end > len(filtered) {
-		end = len(filtered)
+	if end > len(grouped) {
+		end = len(grouped)
 	}
-	entries := filtered[offset:end]
+	entries := grouped[offset:end]
 	if entries == nil {
-		entries = []SyncEvent{}
+		entries = []SyncEventGroup{}
 	}
 	localEvents, remoteEvents := splitSyncEvents(all)
 	writeJSON(w, http.StatusOK, map[string]any{
 		"entries":       entries,
-		"total":         len(filtered),
+		"total":         len(grouped),
 		"limit":         limit,
 		"offset":        offset,
 		"results":       []string{"ok", "fail", "skip"},
