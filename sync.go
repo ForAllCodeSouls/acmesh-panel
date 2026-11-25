@@ -822,6 +822,138 @@ func (e *SyncEngine) RuleMatchedFiles(rule SyncRule) map[string][]string {
 	return out
 }
 
+// RemoteCertMatch 是远程文件与面板已签名证书的内容匹配结果。
+// Source 是面板证书目录名，Domain 是目标证书里命中的域名（用于展示与去重）。
+type RemoteCertMatch struct {
+	Source string `json:"source"`
+	Domain string `json:"domain"`
+	Kind   string `json:"kind"`
+}
+
+// remoteCertDomains 解析 PEM 内容里所有证书块的 CN 与 DNS SAN。
+// 私有 key 文件不含证书块，返回空列表；调用方按文件名配对处理。
+func remoteCertDomains(data []byte) []string {
+	out := []string{}
+	seen := map[string]bool{}
+	add := func(s string) {
+		s = strings.ToLower(strings.TrimSpace(s))
+		if s == "" || strings.HasPrefix(s, "*.") {
+			return // 通配写法留到匹配阶段处理，避免 "*.a.com" 被当成真实域名
+		}
+		if !seen[s] {
+			seen[s] = true
+			out = append(out, s)
+		}
+	}
+	rest := data
+	for {
+		block, tail := pem.Decode(rest)
+		if block == nil {
+			break
+		}
+		rest = tail
+		if !strings.Contains(block.Type, "CERTIFICATE") {
+			continue
+		}
+		cert, err := x509.ParseCertificate(block.Bytes)
+		if err != nil {
+			continue
+		}
+		add(cert.Subject.CommonName)
+		for _, dns := range cert.DNSNames {
+			add(dns)
+		}
+	}
+	return out
+}
+
+// matchSignedCertByDomains 用目标证书里的域名与面板已签名证书对比：
+// 目标域名等于证书的 CN/非通配 SAN，或被证书的通配 SAN 覆盖（一级），即为命中。
+// 多张证书都命中时优先精确域名（不含通配），再按证书名排序保证结果稳定。
+func matchSignedCertByDomains(domains []string, all []CertInfo) (CertInfo, string, bool) {
+	best := CertInfo{}
+	bestDomain := ""
+	bestScore := 0
+	found := false
+	for _, ci := range all {
+		if ci.Status == "invalid" || ci.Status == "expired" {
+			continue
+		}
+		for _, d := range domains {
+			dl := strings.ToLower(strings.TrimSpace(d))
+			if dl == "" {
+				continue
+			}
+			score := 0
+			if strings.EqualFold(dl, ci.Domain) {
+				score = 3 // 精确主域名
+			} else {
+				for _, san := range ci.SANs {
+					s := strings.ToLower(strings.TrimSpace(san))
+					if s == dl {
+						if score < 3 {
+							score = 2 // 精确 SAN
+						}
+					} else if strings.HasPrefix(s, "*.") && isOneLevelSubdomain(dl, strings.TrimPrefix(s, "*.")) {
+						if score < 1 {
+							score = 1 // 通配覆盖的一级子域
+						}
+					}
+				}
+			}
+			if score > bestScore || (score == bestScore && score > 0 && (best.Name == "" || ci.Name < best.Name)) {
+				best, bestDomain, bestScore, found = ci, dl, score, true
+			}
+		}
+	}
+	return best, bestDomain, found
+}
+
+// matchRemoteCerts 把远程文件与面板证书按「内容」对比，返回文件名 -> 匹配结果。
+// certContents 为远程证书文件的实际 PEM 内容（key 文件为空）；面板证书列表来自 CertScanner.Scan()。
+// 私钥等读不出证书的文件：用文件名前缀（去 _key/_cert 等后缀）与已匹配的证书文件配对，
+// 这样 dockge.xxx_cert.pem 命中后，配套的 dockge.xxx_key.pem 也会一起标注/同步。
+func matchRemoteCerts(names []string, certContents map[string][]byte, all []CertInfo) map[string]RemoteCertMatch {
+	out := map[string]RemoteCertMatch{}
+	// 第一轮：能解析的证书文件按内容匹配。
+	for _, name := range names {
+		data, ok := certContents[name]
+		if !ok || len(data) == 0 {
+			continue
+		}
+		domains := remoteCertDomains(data)
+		if len(domains) == 0 {
+			continue
+		}
+		if ci, domain, ok := matchSignedCertByDomains(domains, all); ok {
+			out[name] = RemoteCertMatch{Source: ci.Name, Domain: domain, Kind: syncFileKind(name)}
+		}
+	}
+	// 第二轮：私钥/读不出内容的文件，按文件名域名兜底（与本地严格匹配同逻辑），
+	// 或按同前缀已命中证书继承结果。
+	for _, name := range names {
+		if _, ok := out[name]; ok {
+			continue
+		}
+		domain := certFileDomain(name)
+		if domain == "" {
+			continue
+		}
+		if ci, hitDomain, ok := matchSignedCertByDomains([]string{domain}, all); ok {
+			out[name] = RemoteCertMatch{Source: ci.Name, Domain: hitDomain, Kind: syncFileKind(name)}
+			continue
+		}
+		// 同前缀证书文件已命中时继承（例如文件名域名与证书域名不一致的部署）。
+		for other, m := range out {
+			if certFileDomain(other) == domain {
+				out[name] = RemoteCertMatch{Source: m.Source, Domain: m.Domain, Kind: syncFileKind(name)}
+				break
+			}
+		}
+	}
+	return out
+}
+
 // syncPermHint 给出修复指引。dir 是容器内路径，宿主机路径可能不同，
 // 所以用 docker inspect 自动反查，避免让用户猜路径。
 func syncPermHint(dir string) string {

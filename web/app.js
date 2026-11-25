@@ -1826,21 +1826,21 @@
   $('#remote-push').addEventListener('click', async () => {
     const force = $('#remote-force').checked;
     const tip = force
-      ? '强制同步会把同步规则命中的证书文件全部重新同步到已启用的远程主机，继续？'
-      : '普通同步只同步规则命中且内容变化过的证书文件，继续？';
+      ? '强制同步会读取目标机器上的证书文件，与面板已签名证书对比，命中的文件全部用最新证书/私钥覆盖，继续？'
+      : '将读取目标机器上的证书文件，与面板已签名证书对比，只覆盖内容变化过的文件，继续？';
     if (!confirm(tip)) return;
     const btn = $('#remote-push');
     btn.disabled = true;
     btn.textContent = '同步中…';
     try {
-      const r = await api('/api/remote/push', { method: 'POST', body: { force } });
+      const r = await api('/api/remote/push', { method: 'POST', body: { force, by_content: true } });
       const events = (r.remote_events || r.events || []).filter((x) => x.scope !== 'local');
       const ok = events.filter((x) => x.result === 'ok').length;
       const fail = events.filter((x) => x.result === 'fail').length;
       const skipped = Number(r.skipped || 0);
       toast(!events.length
         ? (r.message || (skipped ? `${skipped} 个文件未变化，已跳过；需要全部重推请勾选「强制同步」`
-                                 : '没有可同步的文件：请检查同步规则是否命中证书、是否选择了远程主机'))
+                                 : '没有可同步的文件：请检查目标机器上是否有面板签发的证书、主机是否启用'))
         : `远程同步完成：${ok} 台成功${fail ? `，${fail} 台失败` : ''}${skipped ? `，跳过 ${skipped} 个未变化文件` : ''}`,
         fail ? 'err' : '');
       await loadSync();

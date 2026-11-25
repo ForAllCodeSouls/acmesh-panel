@@ -1560,11 +1560,19 @@ func (s *Server) handleRemoteDelete(w http.ResponseWriter, r *http.Request) {
 // 默认普通同步跳过内容未变化的文件；勾选 force 后忽略摘要全部重推。
 func (s *Server) handleRemotePush(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		HostID string `json:"host_id"`
-		Force  bool   `json:"force"`
+		HostID    string `json:"host_id"`
+		Force     bool   `json:"force"`
+		ByContent bool   `json:"by_content"`
 	}
 	// 允许空 body；解析不出内容时按普通同步处理。
 	_ = json.NewDecoder(http.MaxBytesReader(w, r.Body, 1024)).Decode(&req)
+	// 按内容同步：读取目标机器上的证书文件，与面板已签名证书对比，
+	// 命中的文件直接写入最新证书/私钥（写到目标机器上的对应文件名），
+	// 不再把本地 /certs 里规则命中的文件整批推过去。
+	if req.ByContent {
+		s.handleRemotePushByContent(w, r, req.HostID, req.Force)
+		return
+	}
 	if len(s.cfg.SyncDirs) == 0 {
 		writeErr(w, http.StatusBadRequest, "未配置 ACME_PANEL_SYNC_DIR，没有可同步的本地证书目录")
 		return
@@ -1623,6 +1631,79 @@ func (s *Server) handleRemotePush(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{
 		"ok": true, "events": events, "remote_events": events,
 		"force": req.Force, "skipped": skipped, "matched_rules": matchedRules, "message": message,
+	})
+}
+
+// handleRemotePushByContent 按「目标机器现有证书内容」同步：
+// 逐台主机列出远程证书目录，读取证书文件里的 CN/SAN 与面板已签名证书对比，
+// 命中的文件用面板最新的证书/私钥覆盖（写到目标文件自己的名字上）。
+// 主机配置了「负责的域名」时，同样按域名过滤，避免把 A 主机的证书写到 B 主机。
+func (s *Server) handleRemotePushByContent(w http.ResponseWriter, r *http.Request, hostID string, force bool) {
+	events := []SyncEvent{}
+	skipped := 0
+	matchedFiles := 0
+	for _, view := range s.store.ListRemoteHosts() {
+		if !view.Enabled || (hostID != "" && view.ID != hostID) {
+			continue
+		}
+		h, err := s.store.GetRemoteHost(view.ID)
+		if err != nil {
+			continue
+		}
+		files, _, err := listRemoteFiles(s.store, h, h.RemoteDir)
+		if err != nil {
+			events = append(events, SyncEvent{
+				Time: time.Now().Format(time.RFC3339), Scope: "remote",
+				Rule: "按证书内容同步 · " + h.Name, Result: "fail", Detail: err.Error(),
+			})
+			continue
+		}
+		names := make([]string, 0, len(files))
+		for _, f := range files {
+			if !f.IsDir {
+				names = append(names, f.Name)
+			}
+		}
+		contents, err := readRemoteCertFiles(s.store, h, names)
+		if err != nil {
+			events = append(events, SyncEvent{
+				Time: time.Now().Format(time.RFC3339), Scope: "remote",
+				Rule: "按证书内容同步 · " + h.Name, Result: "fail", Detail: err.Error(),
+			})
+			continue
+		}
+		all, _ := s.sync.certs.Scan()
+		matches := matchRemoteCerts(names, contents, all)
+		// 按主机负责域名过滤（未配置时保持全量）。
+		for name := range matches {
+			if !hostWantsFile(h, name) {
+				delete(matches, name)
+			}
+		}
+		if len(matches) == 0 {
+			continue
+		}
+		matchedFiles += len(matches)
+		evs, skip := pushMatchedToRemote(s.store, s.sync.certs, h, matches, force)
+		events = append(events, evs...)
+		skipped += skip
+	}
+	if len(events) > 0 {
+		_ = s.store.AddSyncEvents(events)
+	}
+	detail := "远程同步（按目标证书内容对比）"
+	if force {
+		detail = "强制远程同步（按目标证书内容对比）"
+	}
+	s.store.Audit(sess(r).User, clientIP(r, s.cfg.TrustProxy), "remote_push", detail)
+	message := ""
+	if matchedFiles == 0 && len(events) == 0 {
+		message = "目标机器上没有找到与面板已签名证书内容匹配的证书文件：请确认主机配置、远程目录，以及目标证书确实由面板签发"
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"ok": true, "events": events, "remote_events": events,
+		"force": force, "by_content": true, "skipped": skipped,
+		"matched_files": matchedFiles, "message": message,
 	})
 }
 
@@ -1687,9 +1768,20 @@ func (s *Server) handleRemoteFiles(w http.ResponseWriter, r *http.Request) {
 			names = append(names, f.Name)
 		}
 	}
+	kinds := s.remoteMatchedKinds(names)
+	// 按「目标机器上的证书内容」与面板已签名证书对比：能读到内容的证书文件按 CN/SAN 匹配，
+	// 私钥按文件名配对继承。这一步需要再连一次 SFTP；失败时保留文件名匹配结果，页面仍可用。
+	contentMatches := map[string]RemoteCertMatch{}
+	if contents, err := readRemoteCertFiles(s.store, h, names); err == nil {
+		all, _ := s.sync.certs.Scan()
+		contentMatches = matchRemoteCerts(names, contents, all)
+		for name, m := range contentMatches {
+			kinds[name] = m.Kind
+		}
+	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"ok": true, "host": h.Name, "dir": dir, "files": files,
-		"matched_kinds": s.remoteMatchedKinds(names),
+		"matched_kinds": kinds, "content_matches": contentMatches,
 	})
 }
 

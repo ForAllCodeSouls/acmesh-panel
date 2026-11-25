@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"os"
 	"path"
@@ -405,6 +406,148 @@ func sortRemoteFiles(items []RemoteFileItem) {
 		}
 		return strings.ToLower(items[i].Name) < strings.ToLower(items[j].Name)
 	})
+}
+
+// readRemoteCertFiles 通过 SFTP 批量读取远程目录里的证书文件内容（仅证书类文件，跳过私钥）。
+// 连接失败时返回空 map 与错误，调用方决定如何降级；对每个文件限制 1MB，避免异常大文件拖垮面板。
+func readRemoteCertFiles(store *Store, h RemoteHost, names []string) (map[string][]byte, error) {
+	out := map[string][]byte{}
+	candidates := []string{}
+	for _, name := range names {
+		lower := strings.ToLower(name)
+		if !(strings.HasSuffix(lower, ".pem") || strings.HasSuffix(lower, ".cer") || strings.HasSuffix(lower, ".crt")) {
+			continue
+		}
+		if syncFileKind(name) == "key" {
+			continue // 私钥无内容可比，按文件名配对处理
+		}
+		candidates = append(candidates, name)
+	}
+	if len(candidates) == 0 {
+		return out, nil
+	}
+	client, err := dialRemote(store, h)
+	if err != nil {
+		return out, err
+	}
+	defer client.Close()
+	sftpClient, err := sftp.NewClient(client)
+	if err != nil {
+		return out, err
+	}
+	defer sftpClient.Close()
+	for _, name := range candidates {
+		if strings.ContainsAny(name, "\n\r\x00") {
+			continue
+		}
+		f, err := sftpClient.Open(path.Join(h.RemoteDir, name))
+		if err != nil {
+			continue // 单个文件读不到不影响其它文件
+		}
+		b, err := io.ReadAll(io.LimitReader(f, 1<<20))
+		_ = f.Close()
+		if err == nil && len(b) > 0 {
+			out[name] = b
+		}
+	}
+	return out, nil
+}
+
+// pushMatchedToRemote 把面板已签名证书的最新内容写到目标主机上的指定文件（按文件名一一对应）。
+// 与 pushToRemote 的区别：这里的目标文件名来自「目标机器现有证书」的匹配结果，
+// 内容来自面板已签名证书（ci.Name），所以写进去的是 dockge.xxx_cert.pem 对应的最新证书，
+// 而不是把本地 /certs 里规则命中的同名文件整批推过去。
+func pushMatchedToRemote(store *Store, certs *CertScanner, h RemoteHost, matches map[string]RemoteCertMatch, force bool) ([]SyncEvent, int) {
+	out := []SyncEvent{}
+	if !h.Enabled || len(matches) == 0 {
+		return out, 0
+	}
+	all, err := certs.Scan()
+	if err != nil {
+		return out, 0
+	}
+	byName := map[string]CertInfo{}
+	for _, ci := range all {
+		byName[ci.Name] = ci
+	}
+	client, err := dialRemote(store, h)
+	if err != nil {
+		return []SyncEvent{{
+			Time: time.Now().Format(time.RFC3339), Scope: "remote",
+			Rule: "按证书内容同步 · " + h.Name, Result: "fail", Detail: err.Error(),
+		}}, 0
+	}
+	defer client.Close()
+	sftpClient, err := sftp.NewClient(client)
+	if err != nil {
+		return []SyncEvent{{
+			Time: time.Now().Format(time.RFC3339), Scope: "remote",
+			Rule: "按证书内容同步 · " + h.Name, Result: "fail", Detail: "启动 SFTP 失败: " + err.Error(),
+		}}, 0
+	}
+	defer sftpClient.Close()
+
+	seen := store.RemoteSeens()
+	updates := map[string]string{}
+	skipped := 0
+	for name, m := range matches {
+		ci, ok := byName[m.Source]
+		if !ok || ci.Status == "invalid" || ci.Status == "expired" {
+			continue
+		}
+		var content []byte
+		var mode os.FileMode = 0o644
+		if m.Kind == "key" {
+			s, err := certs.ReadKey(ci.Name)
+			if err != nil {
+				continue
+			}
+			content, mode = []byte(s), 0o600
+		} else {
+			s, err := certs.ReadPEM(ci.Name, "fullchain")
+			if err != nil {
+				continue
+			}
+			content = []byte(s)
+		}
+		sum := sha256.Sum256(content)
+		digest := hex.EncodeToString(sum[:])
+		key := remoteSeenKey(h.ID, h.RemoteDir, name)
+		if !force && seen[key] == digest {
+			skipped++
+			continue
+		}
+		remotePath := path.Join(h.RemoteDir, name)
+		tmpPath := remotePath + ".acmesh-tmp"
+		rf, err := sftpClient.Create(tmpPath)
+		if err != nil {
+			continue
+		}
+		_, werr := rf.Write(content)
+		cerr := rf.Chmod(mode)
+		clerr := rf.Close()
+		if werr != nil || cerr != nil || clerr != nil {
+			_ = sftpClient.Remove(tmpPath)
+			continue
+		}
+		if err := sftpClient.PosixRename(tmpPath, remotePath); err != nil {
+			_ = sftpClient.Remove(remotePath)
+			if err2 := sftpClient.Rename(tmpPath, remotePath); err2 != nil {
+				_ = sftpClient.Remove(tmpPath)
+				continue
+			}
+		}
+		updates[key] = digest
+		out = append(out, SyncEvent{
+			Time: time.Now().Format(time.RFC3339), Scope: "remote",
+			Rule: "按证书内容同步 · " + h.Name, Source: m.Source,
+			Target: fmt.Sprintf("%s@%s:%s/%s", h.User, h.Host, h.RemoteDir, name),
+			Result: "ok", Count: 1, Files: []string{name},
+			Detail: fmt.Sprintf("%s ← %s（%s）", name, m.Source, m.Domain),
+		})
+	}
+	_ = store.MarkRemoteSeen(updates)
+	return out, skipped
 }
 
 // pushToRemote 通过 SFTP 推送文件。相比 scp -t 协议，SFTP 是标准子系统，

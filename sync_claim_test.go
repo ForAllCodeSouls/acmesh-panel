@@ -1,7 +1,14 @@
 package main
 
 import (
+	"crypto/rand"
+	"crypto/rsa"
+	"crypto/x509"
+	"crypto/x509/pkix"
+	"encoding/pem"
+	"math/big"
 	"testing"
+	"time"
 )
 
 // 复现用户真实环境的误同步场景：泛域名证书按子域匹配抢写
@@ -306,5 +313,84 @@ func TestHostWantsFile(t *testing.T) {
 	n := normalizeHostDomains([]string{" *.A.example.com ", "*.a.example.com", "", "B.example.com"})
 	if len(n) != 2 || n[0] != "a.example.com" || n[1] != "b.example.com" {
 		t.Fatalf("负责域名清理异常: %v", n)
+	}
+}
+
+// 生成测试用证书 PEM：带指定 CN 与 SAN（只用 RFC 占位域名）。
+func testCertPEM(t *testing.T, cn string, sans ...string) []byte {
+	t.Helper()
+	key, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tmpl := x509.Certificate{
+		SerialNumber: big.NewInt(1),
+		Subject:      pkix.Name{CommonName: cn},
+		DNSNames:     sans,
+		NotBefore:    time.Now().Add(-time.Hour),
+		NotAfter:     time.Now().Add(24 * time.Hour),
+	}
+	der, err := x509.CreateCertificate(rand.Reader, &tmpl, &tmpl, &key.PublicKey, key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der})
+}
+
+// 用户场景：目标机器上的证书文件名与内容域名不一致（如 xxx_cert.pem），
+// 文件内容里的证书 CN 是面板签发的其它域名（文件名与域名不一致）。
+// 按内容对比必须命中，配套私钥按同前缀继承；文件名的「无关域名」不应造成漏标。
+func TestMatchRemoteCertsByContent(t *testing.T) {
+	all := []CertInfo{
+		certInfoFor("wild.example.net", "wild.example.net", []string{"wild.example.net", "*.wild.example.net"}),
+		certInfoFor("host.example.net", "host.example.net", []string{"host.example.net"}),
+	}
+	// 目标证书：CN=panel.wild.example.net（被 *.wild.example.net 覆盖），文件名与之无关。
+	certData := testCertPEM(t, "panel.wild.example.net", "panel.wild.example.net")
+	names := []string{
+		"dockge.pythonscript.duckdns.example_cert.pem",
+		"dockge.pythonscript.duckdns.example_key.pem",
+		"unrelated.example.net_cert.pem",
+	}
+	contents := map[string][]byte{
+		"dockge.pythonscript.duckdns.example_cert.pem": certData,
+		"unrelated.example.net_cert.pem":               testCertPEM(t, "other.example.org", "other.example.org"),
+	}
+	got := matchRemoteCerts(names, contents, all)
+	m, ok := got["dockge.pythonscript.duckdns.example_cert.pem"]
+	if !ok || m.Source != "wild.example.net" || m.Domain != "panel.wild.example.net" {
+		t.Fatalf("内容匹配应命中 wild 证书（CN=panel.wild.example.net），got=%v", got)
+	}
+	km, ok := got["dockge.pythonscript.duckdns.example_key.pem"]
+	if !ok || km.Source != "wild.example.net" || km.Kind != "key" {
+		t.Fatalf("私钥应按同前缀继承证书匹配结果，got=%v", got)
+	}
+	if _, ok := got["unrelated.example.net_cert.pem"]; ok {
+		t.Fatalf("内容不匹配的证书不应被标注，got=%v", got)
+	}
+}
+
+// 精确归属优先在内容匹配里同样生效：子域已有独立证书时，泛域证书不按内容抢写。
+func TestMatchRemoteCertsExactClaimByContent(t *testing.T) {
+	all := []CertInfo{
+		certInfoFor("wild.example.net", "wild.example.net", []string{"wild.example.net", "*.wild.example.net"}),
+		certInfoFor("host.wild.example.net", "host.wild.example.net", []string{"host.wild.example.net"}),
+	}
+	data := testCertPEM(t, "host.wild.example.net", "host.wild.example.net")
+	got := matchRemoteCerts([]string{"target_cert.pem"}, map[string][]byte{"target_cert.pem": data}, all)
+	if m, ok := got["target_cert.pem"]; !ok || m.Source != "host.wild.example.net" {
+		t.Fatalf("内容匹配应优先精确证书而非泛域，got=%v", m)
+	}
+}
+
+func TestRemoteCertDomains(t *testing.T) {
+	data := testCertPEM(t, "panel.wild.example.net", "panel.wild.example.net", "*.wild.example.net")
+	got := remoteCertDomains(data)
+	want := []string{"panel.wild.example.net"}
+	if len(got) != len(want) || got[0] != want[0] {
+		t.Fatalf("域名解析异常: got=%v want=%v", got, want)
+	}
+	if d := remoteCertDomains([]byte("not a pem")); len(d) != 0 {
+		t.Fatalf("非 PEM 内容不应解析出域名: %v", d)
 	}
 }

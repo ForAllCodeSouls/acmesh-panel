@@ -85,9 +85,11 @@ readme_src = (ROOT / "README.md").read_text(encoding="utf-8")
 
 check("远程目录固定取主机配置、忽略请求值",
       "listRemoteFiles(s.store, h, h.RemoteDir)" in api_src and "_ = req.Dir" in api_src)
-check("远程文件返回规则命中类型",
-      '"matched_kinds": s.remoteMatchedKinds(names)' in api_src
-      and "func (s *Server) remoteMatchedKinds(remoteNames []string)" in api_src)
+check("远程文件返回规则命中类型与内容匹配结果",
+      '"matched_kinds": kinds' in api_src
+      and '"content_matches": contentMatches' in api_src
+      and "func (s *Server) remoteMatchedKinds(remoteNames []string)" in api_src
+      and "readRemoteCertFiles(s.store, h, names)" in api_src)
 check("远程文件类型来自现有证书的规则预览与文件名匹配",
       "s.sync.Preview(rule)" in api_src and "s.sync.MatchNames(rule, remoteNames)" in api_src
       and "func (e *SyncEngine) MatchNames" in go_sync_src)

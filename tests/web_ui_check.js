@@ -72,9 +72,10 @@ function tabsMatch(tabsRe, panelsRe, label) {
 tabsMatch(/data-subtab="([^"]+)"/g, /data-subpanel="([^"]+)"/g, '页内分区');
 check('证书同步四个分区且顺序正确', ['local', 'rules', 'remote', 'records']
   .map((k) => html.includes(`data-subtab="${k}"`)).join('') === 'truetruetruetrue');
-check('同步规则独立页签且同时用于本地与远程', html.indexOf('data-subtab="local"') < html.indexOf('data-subtab="rules"')
+check('同步规则独立页签且本地/远程分工明确', html.indexOf('data-subtab="local"') < html.indexOf('data-subtab="rules"')
   && html.indexOf('data-subtab="rules"') < html.indexOf('data-subtab="remote"')
-  && html.includes('data-subpanel="rules"') && html.includes('这套规则同时用于「本地同步」和「远程同步」'));
+  && html.includes('data-subpanel="rules"') && html.includes('这套规则用于本地挂载目录的自动覆盖')
+  && html.includes('手动远程同步则在「远程同步」页签按目标机器上的证书内容对比进行'));
 check('精确归属优先说明存在', html.includes('精确归属优先') && html.includes('泛域名/子域匹配不会抢写已有独立证书的子域文件'));
 check('规则行显示生效范围标签', app.includes("scopeChips") && app.includes('>本地</span>')
   && app.includes('chip blue" title="命中文件同步到该主机的远程证书目录'));
@@ -88,9 +89,9 @@ check('切换视图复位滚动', app.includes("window.scrollTo({ top: 0, behavi
 check('签发按钮只在证书页显示', app.includes("$('#issue-btn').classList.toggle('hidden', v !== 'certs')"));
 check('远程主机空状态文案已修正', app.includes('可点「立即同步」手动同步'));
 check('远程同步新增默认关闭的强制勾选', html.includes('id="remote-force"') && html.includes('id="remote-push" type="button">立即同步')
-  && app.includes("const force = $('#remote-force').checked") && app.includes('body: { force }'));
-check('远程同步提示文案改为同步', html.includes('只有规则命中的文件才会同步')
-  && app.includes('只同步规则命中的文件') && app.includes('remote_seen_count'));
+  && app.includes("const force = $('#remote-force').checked") && app.includes('by_content: true'));
+check('远程同步提示文案改为按证书内容对比', html.includes('面板读取目标机器上的证书文件')
+  && app.includes('by_content: true') && app.includes('remote_seen_count'));
 check('页签改名为远程同步', html.includes('>远程同步</button>') && !html.includes('>远程推送</button>'));
 check('远程目录输入框已删除', !html.includes('id="remote-file-dir"') && !app.includes('remote-file-dir'));
 check('远程目录直接读主机配置', html.includes('目录直接读取主机配置')
