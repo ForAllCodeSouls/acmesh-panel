@@ -27,7 +27,7 @@ jobs:
 
       - uses: docker/setup-buildx-action@v3
 
-      # 从 version.go 读取版本号，保证 push 分支时镜像 tag 也是 0.1.20 而不是 main
+      # 从 version.go 读取版本号，保证 push 分支时镜像 tag 也是实际版本而不是 main
       - name: 读取版本
         id: ver
         shell: bash

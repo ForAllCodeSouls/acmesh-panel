@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"crypto/rand"
 	"embed"
 	"errors"
 	"io/fs"
@@ -10,7 +11,6 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -250,11 +250,24 @@ func orNone(s string) string {
 
 func randPassword(n int) string {
 	const alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789"
-	b := make([]byte, n)
-	// 复用 crypto/rand 的 base64 输出，再映射到无歧义字符集，避免引入额外随机源。
-	raw := randToken(n*2 + 8)
-	for i := 0; i < n; i++ {
-		b[i] = alphabet[int(raw[i])%len(alphabet)]
+	// 直接从 crypto/rand 字节做拒绝采样：旧做法把 base64url 字符 ASCII 值取模
+	// alphabet 长度，分布严重偏置（有字符永不出现）。拒绝采样保证每个字符等概率。
+	limit := 256 - (256 % len(alphabet))
+	b := make([]byte, 0, n)
+	for len(b) < n {
+		var raw [64]byte
+		if _, err := rand.Read(raw[:]); err != nil {
+			panic("crypto/rand 不可用: " + err.Error())
+		}
+		for _, c := range raw {
+			if int(c) >= limit {
+				continue // 丢弃超出整段的字节，避免取模偏置
+			}
+			b = append(b, alphabet[int(c)%len(alphabet)])
+			if len(b) == n {
+				break
+			}
+		}
 	}
 	return string(b)
 }
@@ -292,6 +305,9 @@ func (s *Server) securityHeaders(next http.Handler) http.Handler {
 // cronLoop 用面板内置调度替代 acme.sh 的 crontab（容器里通常没有 cron 守护进程）。
 // 每天在配置的小时执行一次；执行日期记录在 state.json，重启当天不会重复检测。
 func (s *Server) cronLoop(ctx context.Context) {
+	// 启动时立即检查一次：若面板恰好在配置小时的最后一分钟重启，等下一次 tick
+	// 就跨过窗口了；立即执行可以补偿当天检测。
+	s.maybeRunDaily()
 	timer := time.NewTicker(time.Minute)
 	defer timer.Stop()
 	for {
@@ -305,10 +321,12 @@ func (s *Server) cronLoop(ctx context.Context) {
 }
 
 // maybeRunDaily 判断当前是否到了每日检测时间，且今天尚未执行过。
+// 用「当前小时 >= 配置小时」而非精确相等：即使 tick 延迟或启动时已过窗口，
+// 当天仍能补跑一次（lastDay 保证同一天不会重复）。
 func (s *Server) maybeRunDaily() {
 	hour, lastDay := s.store.CronSchedule()
 	now := time.Now()
-	if now.Hour() != hour {
+	if now.Hour() < hour {
 		return
 	}
 	today := now.Format("2006-01-02")
@@ -444,5 +462,3 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 		"acme_ok": err == nil,
 	})
 }
-
-var _ = strconv.Itoa

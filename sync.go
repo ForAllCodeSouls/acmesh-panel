@@ -47,12 +47,14 @@ var syncModeCodes = func() map[string]bool {
 
 // SyncRule 是一条同步规则。Pattern 仅 filename 模式使用；其他模式留空即可。
 type SyncRule struct {
-	ID          string   `json:"id"`
-	Name        string   `json:"name"`
-	Enabled     bool     `json:"enabled"`
-	Mode        string   `json:"mode"`
-	Pattern     string   `json:"pattern"`
-	Source      string   `json:"source"` // 面板证书目录名；* 或空表示全部
+	ID      string `json:"id"`
+	Name    string `json:"name"`
+	Enabled bool   `json:"enabled"`
+	Mode    string `json:"mode"`
+	Pattern string `json:"pattern"`
+	Source  string `json:"source"` // 面板证书目录名；* 或空表示全部
+	// CertTmpl / KeyTmpl 为历史字段：早期版本设计过"按模板重命名目标文件"但从未实现，
+	// 实际写入沿用目标目录现有文件名。保留字段只为兼容旧配置反序列化（DisallowUnknownFields）。
 	CertTmpl    string   `json:"cert_tmpl"`
 	KeyTmpl     string   `json:"key_tmpl"`
 	RemoteHosts []string `json:"remote_hosts"` // 此规则命中的文件要推送到的远程主机 ID；空表示不推送
@@ -82,13 +84,13 @@ var syncPresets = []struct {
 	Name     string `json:"name"`
 	Mode     string `json:"mode"`
 	Pattern  string `json:"pattern"`
-	CertTmpl string `json:"cert_tmpl"`
+	CertTmpl string `json:"cert_tmpl"` // 历史兼容字段，前端不展示、后端不读取
 	KeyTmpl  string `json:"key_tmpl"`
 }{
-	{"按目录里已有证书的内容匹配（最省心）", syncSAN, "", "{domain}_cert.pem", "{domain}_key.pem"},
-	{"按子域名匹配（泛域名证书常用）", syncSubdomain, "", "{domain}_cert.pem", "{domain}_key.pem"},
-	{"按精确域名匹配", syncExact, "", "{domain}_cert.pem", "{domain}_key.pem"},
-	{"按文件名通配匹配", syncFilename, "*_cert.pem", "{domain}_cert.pem", "{domain}_key.pem"},
+	{"按目录里已有证书的内容匹配（最省心）", syncSAN, "", "", ""},
+	{"按子域名匹配（泛域名证书常用）", syncSubdomain, "", "", ""},
+	{"按精确域名匹配", syncExact, "", "", ""},
+	{"按文件名通配匹配", syncFilename, "*_cert.pem", "", ""},
 }
 
 // SyncFile 是挂载目录中的一个证书文件，供 Web 展示。

@@ -616,13 +616,9 @@ func pushMatchedToRemote(store *Store, certs *CertScanner, h RemoteHost, matches
 			fail(name, m.Source, "远程文件写入失败")
 			continue
 		}
-		if err := sftpClient.PosixRename(tmpPath, remotePath); err != nil {
-			_ = sftpClient.Remove(remotePath)
-			if err2 := sftpClient.Rename(tmpPath, remotePath); err2 != nil {
-				_ = sftpClient.Remove(tmpPath)
-				fail(name, m.Source, "远程文件替换失败: "+err2.Error())
-				continue
-			}
+		if err := safeRemoteReplace(sftpClient, tmpPath, remotePath); err != nil {
+			fail(name, m.Source, "远程文件替换失败: "+err.Error())
+			continue
 		}
 		updates[key] = digest
 		out = append(out, SyncEvent{
@@ -708,15 +704,47 @@ func pushToRemote(store *Store, h RemoteHost, localFiles []string, localDir ...s
 			_ = clientSFTP.Remove(tmpPath)
 			return fmt.Errorf("关闭远程文件失败: %v", err)
 		}
-		// 原子替换：优先 posix-rename 扩展（OpenSSH 支持，可覆盖已存在文件）；
-		// 不支持该扩展的服务器退化为先删旧文件再改名，绝不留下半写文件。
-		if err := clientSFTP.PosixRename(tmpPath, remotePath); err != nil {
-			_ = clientSFTP.Remove(remotePath)
-			if err2 := clientSFTP.Rename(tmpPath, remotePath); err2 != nil {
-				_ = clientSFTP.Remove(tmpPath)
-				return fmt.Errorf("替换远程文件 %s 失败: %v", name, err2)
-			}
+		// 安全原子替换：优先 posix-rename 扩展；不支持时备份旧文件再替换，
+		// 失败可回滚，绝不因为一次失败的改名删掉目标机上正在使用的证书。
+		if err := safeRemoteReplace(clientSFTP, tmpPath, remotePath); err != nil {
+			return fmt.Errorf("替换远程文件 %s 失败: %v", name, err)
 		}
+	}
+	return nil
+}
+
+// safeRemoteReplace 把临时文件原子替换到目标路径，绝不先删除目标文件。
+// 支持 posix-rename@openssh.com 时直接原子覆盖（OpenSSH 默认支持）；
+// 不支持时先把旧文件改名为备份，再把临时文件改到目标位置，成功后删除备份，
+// 失败则从备份回滚，保证目标机上的旧证书/私钥不会丢失。
+func safeRemoteReplace(client *sftp.Client, tmpPath, remotePath string) error {
+	if _, ok := client.HasExtension("posix-rename@openssh.com"); ok {
+		if err := client.PosixRename(tmpPath, remotePath); err != nil {
+			return fmt.Errorf("原子替换失败: %v", err)
+		}
+		return nil
+	}
+	// 无扩展：备份 → 替换 → 删除备份；任何一步失败都尽量恢复旧文件。
+	backup := remotePath + ".acmesh-bak"
+	_ = client.Remove(backup) // 清掉上一次可能残留的备份
+	hadOld := true
+	if _, err := client.Stat(remotePath); err != nil {
+		hadOld = false // 目标本来就不存在，无需备份
+	}
+	if hadOld {
+		if err := client.Rename(remotePath, backup); err != nil {
+			return fmt.Errorf("备份旧文件失败: %v", err)
+		}
+	}
+	if err := client.Rename(tmpPath, remotePath); err != nil {
+		if hadOld {
+			_ = client.Rename(backup, remotePath) // 回滚
+		}
+		_ = client.Remove(tmpPath)
+		return fmt.Errorf("替换文件失败: %v", err)
+	}
+	if hadOld {
+		_ = client.Remove(backup) // 新文件已就位，备份可删；删不掉只留冗余文件，不影响服务
 	}
 	return nil
 }

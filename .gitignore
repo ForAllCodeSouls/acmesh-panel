@@ -4,3 +4,7 @@ bin/
 *.log
 .env
 .DS_Store
+
+# 本地构建产物
+acmesh-panel.exe
+acmesh-panel-linux-*

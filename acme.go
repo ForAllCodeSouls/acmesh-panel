@@ -345,6 +345,10 @@ type JobManager struct {
 	store  *Store
 	certs  *CertScanner
 	onDone func(*Job) // 任务结束后异步触发通知（由 Server 注入）
+
+	// purgeHooks 按任务 ID 注册的一次性"完成后清理"钩子（如删除证书目录）。
+	// 任务结束时在 finish 内直接触发，不再用固定 60s 轮询等待，避免任务超时 15min 时漏清理。
+	purgeHooks map[string]func()
 }
 
 // persistedJob 是落盘的任务记录（含日志），重启后可恢复。
@@ -476,12 +480,13 @@ func NewJobManager(acme *ACME, store *Store, parallel int) *JobManager {
 		parallel = 1
 	}
 	m := &JobManager{
-		jobs:  map[string]*Job{},
-		subs:  map[string]map[chan string]struct{}{},
-		sem:   make(chan struct{}, parallel),
-		canc:  map[string]context.CancelFunc{},
-		acme:  acme,
-		store: store,
+		jobs:       map[string]*Job{},
+		subs:       map[string]map[chan string]struct{}{},
+		sem:        make(chan struct{}, parallel),
+		canc:       map[string]context.CancelFunc{},
+		purgeHooks: map[string]func(){},
+		acme:       acme,
+		store:      store,
 	}
 	m.loadPersisted()
 	return m
@@ -669,6 +674,9 @@ func (m *JobManager) run(j *Job, env map[string]string, args []string) {
 		m.finish(j, "failed", err.Error())
 		return
 	}
+	// Start 失败时 cmd.Wait 不会被调用，pipe 读端不会自动关闭；持续故障下会耗尽 fd。
+	// Wait 内部也会关闭它，重复 Close 是安全的。
+	defer stdout.Close()
 	cmd.Stderr = cmd.Stdout
 	if err := cmd.Start(); err != nil {
 		m.finish(j, "failed", err.Error())
@@ -770,39 +778,57 @@ func humanDuration(d time.Duration) string {
 }
 
 func (m *JobManager) finish(j *Job, status, errMsg string) {
+	msg := "__done__:" + status
 	m.mu.Lock()
 	j.Status = status
 	j.Error = errMsg
 	j.Ended = time.Now()
+	// 把结束标记也写入日志历史：历史任务回放时能显示终态，前端也不必挂起 SSE 等 done。
+	j.logs = append(j.logs, msg)
+	if len(j.logs) > 2000 {
+		j.logs = append([]string(nil), j.logs[len(j.logs)-2000:]...)
+	}
 	chans := make([]chan string, 0, len(m.subs[j.ID]))
 	for ch := range m.subs[j.ID] {
 		chans = append(chans, ch)
 	}
 	m.mu.Unlock()
-	msg := "__done__:" + status
 	for _, ch := range chans {
 		select {
 		case ch <- msg:
 		default:
 		}
 	}
+	// 一次性清理钩子：任务真正结束后才执行，不受轮询窗口限制。
+	// 在锁内取出并删除，保证只触发一次。
+	m.mu.Lock()
+	hook := m.purgeHooks[j.ID]
+	delete(m.purgeHooks, j.ID)
+	// 整个副本必须在同一把锁内构造：push() 会在其它 goroutine 并发改 j.logs，
+	// 锁外的 `cp := *j` 会读到一个撕裂的 slice header（race detector 会报）。
+	var cp *Job
 	if m.onDone != nil {
-		// 传副本，避免通知 goroutine 与后续日志写入竞争。
-		cp := *j
-		m.mu.Lock()
-		cp.logs = append([]string(nil), j.logs...)
-		m.mu.Unlock()
-		go m.onDone(&cp)
+		tmp := *j
+		tmp.logs = append([]string(nil), j.logs...)
+		cp = &tmp
+	}
+	m.mu.Unlock()
+	if hook != nil {
+		hook()
+	}
+	if cp != nil {
+		go m.onDone(cp)
 	}
 	m.savePersisted()
 }
 
 // redactArgs / redactLine 保证凭证不会出现在任务预览和实时日志里。
+// KEY=value 形式的参数只保留键名，值一律打码（当前凭证走 env，这是防御未来改动的安全网）。
 func redactArgs(args []string) string {
 	out := make([]string, 0, len(args))
 	for _, a := range args {
-		if strings.HasPrefix(a, "-") || !strings.Contains(a, "=") {
-			out = append(out, shellQuote(a))
+		if k, _, ok := strings.Cut(a, "="); ok && !strings.HasPrefix(k, "-") {
+			out = append(out, shellQuote(k+"=••••"))
 			continue
 		}
 		out = append(out, shellQuote(a))

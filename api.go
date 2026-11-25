@@ -738,31 +738,24 @@ func (s *Server) handleRemove(w http.ResponseWriter, r *http.Request) {
 	if body.Purge {
 		// 先同步移除续期条目，再清理磁盘目录（都走白名单路径校验）。
 		job = s.jobs.Start("remove", "删除 "+name, ci.Domain, "acme.sh --remove -d "+ci.Domain+" && 删除目录", nil, args)
-		go func(j *Job) {
-			var cur *Job
-			for i := 0; i < 300; i++ {
-				cur = s.jobs.Get(j.ID)
-				if cur != nil && (cur.Status == "success" || cur.Status == "failed" || cur.Status == "canceled") {
-					break
-				}
-				time.Sleep(200 * time.Millisecond)
-			}
-			// 只有 acme.sh --remove 真正成功才删目录。失败 / 取消 / 超时保留目录，
-			// 否则会出现「acme.sh 仍认为证书存在，但磁盘文件已没了」的不一致状态。
+		// 一次性完成钩子：任务真正结束后才决定是否删目录，不再用固定 60s 轮询
+		// （任务超时是 15min，轮询会在慢 CA 场景漏掉清理）。钩子在 finish 内触发。
+		s.jobs.mu.Lock()
+		s.jobs.purgeHooks[job.ID] = func() {
+			cur := s.jobs.Get(job.ID)
+			// 只有 acme.sh --remove 真正成功才删目录；失败/取消保留目录，
+			// 避免「acme.sh 仍认为证书存在但磁盘文件已没了」的不一致。
 			if cur == nil || cur.Status != "success" {
-				status := "任务未结束"
-				if cur != nil {
-					status = cur.Status
-				}
-				s.jobs.push(j, "✗ 未删除目录 "+name+"：移除证书失败或超时（"+status+"），请确认后手动清理")
+				s.jobs.push(job, "✗ 未删除目录 "+name+"：移除证书未成功，请确认后手动清理")
 				return
 			}
 			if err := s.certs.Purge(name); err == nil {
-				s.jobs.push(j, "✓ 已删除目录 "+name)
+				s.jobs.push(job, "✓ 已删除目录 "+name)
 			} else {
-				s.jobs.push(j, "✗ 删除目录失败: "+err.Error())
+				s.jobs.push(job, "✗ 删除目录失败: "+err.Error())
 			}
-		}(job)
+		}
+		s.jobs.mu.Unlock()
 		s.store.Audit(sess(r).User, clientIP(r, s.cfg.TrustProxy), "remove_purge", name)
 	} else {
 		job = s.jobs.Start("remove", "移除 "+name, ci.Domain, "acme.sh --remove -d "+ci.Domain, nil, args)
@@ -1370,6 +1363,7 @@ func (s *Server) handleSyncSave(w http.ResponseWriter, r *http.Request) {
 	if rule.KeyTmpl == "" {
 		rule.KeyTmpl = "{domain}_key.pem"
 	}
+	// 注意：上面两个模板是历史兼容字段，实际同步不使用；保留仅为不破坏旧客户端提交。
 	if !validCertName(rule.Source) && rule.Source != "" && rule.Source != "*" {
 		writeErr(w, http.StatusBadRequest, "源证书名不合法")
 		return

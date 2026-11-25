@@ -185,6 +185,9 @@ func (s *Store) Cleanup(days int) (map[string]int, error) {
 	// jobs.created 存的是 RFC3339Nano（acme.go），cutoff 若只到秒会把同秒晚几毫秒的
 	// 任务误判为过期（字典序 '.' < 'Z'）；两边都用 Nano 才能按时间正确比较。
 	cutoff := cutoffTime.Format(time.RFC3339Nano)
+	// audit.ts 存的是秒精度 RFC3339：'Z'(0x5A) > '.'(0x2E)，用 Nano cutoff
+	// 会让 cutoff 所在整秒的记录逃过清理。审计单独用秒精度保持一致。
+	auditCutoff := cutoffTime.Format(time.RFC3339)
 
 	tx, err := s.db.Begin()
 	if err != nil {
@@ -195,7 +198,7 @@ func (s *Store) Cleanup(days int) (map[string]int, error) {
 		n, _ := res.RowsAffected()
 		out["jobs"] = int(n)
 	}
-	if res, err := tx.Exec(`DELETE FROM audit WHERE ts < ?`, cutoff); err == nil {
+	if res, err := tx.Exec(`DELETE FROM audit WHERE ts < ?`, auditCutoff); err == nil {
 		n, _ := res.RowsAffected()
 		out["audit"] = int(n)
 	}

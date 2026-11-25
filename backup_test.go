@@ -62,7 +62,7 @@ func newBackupTestServer(t *testing.T) (*Server, *Store) {
 	if err := st.SetUsername("admin"); err != nil {
 		t.Fatal(err)
 	}
-	if err := st.SetPassword("Passw0rd123"); err != nil {
+	if err := st.SetPassword("Passw0rd1234"); err != nil {
 		t.Fatal(err)
 	}
 	return &Server{store: st}, st

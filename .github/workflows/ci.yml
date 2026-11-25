@@ -45,11 +45,20 @@ jobs:
       - name: 前端选择器一致性检查
         run: node tests/ui-check.js
 
+      - name: 前端逻辑与安全断言（web_ui_check）
+        run: node tests/web_ui_check.js
+
+      - name: 路径穿越检查
+        run: python3 tests/sync_path_check.py
+
       - name: 确保测试脚本有执行权限（git 有时不保留 x 位）
         run: chmod +x tests/fake-acme.sh
 
       - name: 端到端测试（真实进程 + 假 acme.sh，全量断言）
         run: E2E_BIN=/tmp/build/acmesh-panel python3 tests/e2e.py
+
+      - name: 凭据初始化 / 重置开关场景（setup-check）
+        run: E2E_BIN=/tmp/build/acmesh-panel python3 tests/setup-check.py
 
       - name: 确认产物为静态链接
         run: file /tmp/build/acmesh-panel | grep -i 'statically linked'

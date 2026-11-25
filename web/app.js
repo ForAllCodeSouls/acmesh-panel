@@ -36,6 +36,16 @@
     '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
   }[c]));
 
+  // 一次性按钮：提交期间禁用并改文案，防止双击重复创建任务（吊销/移除不可逆）。
+  // 调用方在成功分支会 closeModal，届时按钮随弹窗销毁；失败分支恢复可点。
+  function busyButton(btn, text) {
+    if (!btn || btn.disabled) return false;
+    const old = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = text || '处理中…';
+    return () => { btn.disabled = false; btn.textContent = old; };
+  }
+
   // ---------------- API ----------------
   async function api(path, opts = {}) {
     const { method = 'GET', body, raw = false } = opts;
@@ -77,6 +87,9 @@
       if (res.status === 429) {
         const ra = res.headers.get('Retry-After');
         if (ra) msg = `${msg}（${ra}s）`;
+        const err = new Error(msg || '请求失败');
+        err.retryAfter = parseInt(ra, 10) || 0;
+        throw err;
       }
       throw new Error(msg || '请求失败');
     }
@@ -217,6 +230,7 @@
     const err = $('#login-error');
     err.textContent = '';
     btn.disabled = true;
+    let countdown = false; // 429 倒计时接管按钮状态后，finally 不再立即恢复
     try {
       const r = await api('/api/login', {
         method: 'POST',
@@ -230,8 +244,23 @@
       loadSysInfo();
     } catch (ex) {
       err.textContent = ex.message;
+      // 429 限流：按 Retry-After 倒计时禁用登录按钮，避免持续撞锁定窗口。
+      const wait = ex.retryAfter || 0;
+      if (wait > 0) {
+        countdown = true;
+        let left = Math.min(wait, 3600);
+        const tick = () => {
+          btn.disabled = true;
+          btn.textContent = `请等待 ${left}s`;
+          if (left <= 0) { btn.disabled = false; btn.textContent = '登录'; return; }
+          left--;
+          setTimeout(tick, 1000);
+        };
+        tick();
+        return; // 倒计时接管了按钮状态，跳过 finally 的立即恢复
+      }
     } finally {
-      btn.disabled = false;
+      if (!countdown) btn.disabled = false;
     }
   });
 
@@ -456,12 +485,17 @@
 
     const pemView = $('#pem-view');
     let activeKind = null;
+    let pemSeq = 0; // 请求序号：快速切换 tab 时丢弃旧请求的迟到响应
     async function loadPem(kind) {
+      const seq = ++pemSeq;
       activeKind = kind;
       pemView.value = '加载中…';
       try {
-        pemView.value = await api(`/api/certs/${encodeURIComponent(cert.name)}/pem/${kind}`);
+        const text = await api(`/api/certs/${encodeURIComponent(cert.name)}/pem/${kind}`);
+        if (seq !== pemSeq || !pemView.isConnected) return;
+        pemView.value = text;
       } catch (e) {
+        if (seq !== pemSeq || !pemView.isConnected) return;
         pemView.value = '加载失败: ' + e.message;
       }
       $$('#pem-tabs .tab').forEach((t) => t.classList.toggle('active', t.dataset.kind === kind));
@@ -602,12 +636,12 @@
         </div>
       </div>`;
     $('#comb-key').value = keyPem;
+    // 捕获当前抽屉的文本框：异步返回时若抽屉已关闭/换了证书，不能写进新打开的文本框。
+    const combCertEl = $('#comb-cert');
     api(`/api/certs/${encodeURIComponent(cert.name)}/pem/${kind}`).then((v) => {
-      const ta = $('#comb-cert');
-      if (ta) ta.value = v;
+      if (combCertEl && combCertEl.isConnected) combCertEl.value = v;
     }).catch((e) => {
-      const ta = $('#comb-cert');
-      if (ta) ta.value = '加载失败: ' + e.message;
+      if (combCertEl && combCertEl.isConnected) combCertEl.value = '加载失败: ' + e.message;
     });
     $('#comb-cert-copy').addEventListener('click', () => copyText($('#comb-cert').value, '证书已复制'));
     $('#comb-key-copy').addEventListener('click', () => copyText(keyPem, '私钥已复制'));
@@ -764,9 +798,8 @@
         const saveAs = $('#iss-saveas').value.trim();
         if (saveAs) body.save_as = saveAs;
       }
-      const btn = $('#iss-go');
-      btn.disabled = true;
-      btn.textContent = '提交中…';
+      const restore = busyButton($('#iss-go'), '提交中…');
+      if (!restore) return;
       try {
         const r = await api('/api/issue', { method: 'POST', body });
         closeModal();
@@ -775,9 +808,8 @@
         switchView('jobs');
         openJobLog(r.job.id, r.job.title);
       } catch (e) {
+        restore();
         toast(e.message, 'err');
-        btn.disabled = false;
-        btn.textContent = '开始签发';
       }
     });
   }
@@ -790,6 +822,8 @@
     `, `<button class="btn ghost" id="rn-cancel">取消</button><button class="btn primary" id="rn-go">开始续期</button>`);
     $('#rn-cancel').addEventListener('click', closeModal);
     $('#rn-go').addEventListener('click', async () => {
+      const restore = busyButton($('#rn-go'), '提交中…');
+      if (!restore) return;
       try {
         const r = await api(`/api/certs/${encodeURIComponent(cert.name)}/renew`, {
           method: 'POST',
@@ -800,7 +834,7 @@
         await loadJobs();
         switchView('jobs');
         openJobLog(r.job.id, r.job.title);
-      } catch (e) { toast(e.message, 'err'); }
+      } catch (e) { restore(); toast(e.message, 'err'); }
     });
   }
 
@@ -820,11 +854,13 @@
     `, `<button class="btn ghost" id="rv-cancel">取消</button><button class="btn danger" id="rv-go">确认吊销</button>`);
     $('#rv-cancel').addEventListener('click', closeModal);
     $('#rv-go').addEventListener('click', async () => {
+      const restore = busyButton($('#rv-go'), '吊销中…');
+      if (!restore) return;
       try {
         const r = await api(`/api/certs/${encodeURIComponent(cert.name)}/revoke`, { method: 'POST', body: {} });
         closeModal(); closeDrawer();
         await loadJobs(); switchView('jobs'); openJobLog(r.job.id, r.job.title);
-      } catch (e) { toast(e.message, 'err'); }
+      } catch (e) { restore(); toast(e.message, 'err'); }
     });
   }
 
@@ -835,22 +871,26 @@
     `, `<button class="btn ghost" id="rm-cancel">取消</button><button class="btn danger" id="rm-go">确认移除</button>`);
     $('#rm-cancel').addEventListener('click', closeModal);
     $('#rm-go').addEventListener('click', async () => {
+      const restore = busyButton($('#rm-go'), '移除中…');
+      if (!restore) return;
       try {
         const r = await api(`/api/certs/${encodeURIComponent(cert.name)}/remove`, {
           method: 'POST', body: { purge: $('#rm-purge').checked },
         });
         closeModal(); closeDrawer();
         await loadJobs(); switchView('jobs'); openJobLog(r.job.id, r.job.title);
-      } catch (e) { toast(e.message, 'err'); }
+      } catch (e) { restore(); toast(e.message, 'err'); }
     });
   }
 
   $('#renew-all-btn').addEventListener('click', async () => {
+    const restore = busyButton($('#renew-all-btn'), '提交中…');
+    if (!restore) return;
     try {
       const r = await api('/api/renew-all', { method: 'POST', body: {} });
       toast('续期检查已开始');
       await loadJobs(); switchView('jobs'); openJobLog(r.job.id, r.job.title);
-    } catch (e) { toast(e.message, 'err'); }
+    } catch (e) { restore(); toast(e.message, 'err'); }
   });
 
   // ---------------- 任务 ----------------
@@ -928,6 +968,9 @@
     if (state.logES) { state.logES.close(); state.logES = null; }
     const es = new EventSource(`/api/jobs/${encodeURIComponent(id)}/events`);
     state.logES = es;
+    // 服务端对每条新连接都会回放全部历史日志；EventSource 自动重连后会重复追加，
+    // 因此在每次连接建立时清空，保证日志只显示一遍。
+    es.onopen = () => { logEl.textContent = ''; };
     es.onmessage = (ev) => {
       const line = ev.data;
       let cls = '';
@@ -937,13 +980,15 @@
       else if (line.startsWith('$')) cls = 'l-cmd';
       append(line, cls);
     };
+    // 打开时任务已结束：回放的 done 事件只渲染终态，不再弹「执行成功」这类实时提示。
+    const wasFinished = !!(cur && ['success', 'failed', 'canceled', 'skipped'].includes(cur.status));
     es.addEventListener('done', async (ev) => {
       append('—— 任务结束：' + ev.data + ' ——', ev.data === 'success' ? 'l-ok' : (ev.data === 'skipped' ? 'l-info' : 'l-err'));
       es.close();
       state.logES = null;
-      await Promise.all([loadJobs(), loadCerts()]);
+      if (!wasFinished) await Promise.all([loadJobs(), loadCerts()]);
       const stillOpen = !$('#modal').classList.contains('hidden');
-      if (!stillOpen) return;
+      if (!stillOpen || wasFinished) return;
       if (ev.data === 'success') toast('任务执行成功');
       else if (ev.data === 'skipped') toast('证书未到续期时间');
       else toast('任务结束：' + ev.data, ev.data === 'canceled' ? 'warn' : 'err');
@@ -1452,7 +1497,9 @@
     const n1 = $('#pwd-new').value;
     const n2 = $('#pwd-new2').value;
     if (n1 !== n2) { toast('两次输入的新密码不一致', 'err'); return; }
-    if (n1.length < 8) { toast('新密码至少 8 位', 'err'); return; }
+    if (n1.length < 12 || !/[A-Z]/.test(n1) || !/[a-z]/.test(n1) || !/[0-9]/.test(n1)) {
+      toast('新密码至少 12 位，且须同时包含大写、小写和数字', 'err'); return;
+    }
     try {
       const r = await api('/api/password', { method: 'POST', body: { old: oldp, new: n1 } });
       $('#pwd-old').value = ''; $('#pwd-new').value = ''; $('#pwd-new2').value = '';
@@ -1502,6 +1549,7 @@
   $('#update-check-now').addEventListener('click', () => checkUpdate(true));
 
   $('#cleanup-now').addEventListener('click', async () => {
+    if (!confirm('立即清理会按当前保留天数永久删除旧任务、审计与同步记录，不可撤销。确定继续？')) return;
     const btn = $('#cleanup-now');
     btn.disabled = true;
     try {
@@ -2033,6 +2081,7 @@
     finally { btn.disabled = false; btn.textContent = '立即同步'; }
   });
   $('#sync-clear-events').addEventListener('click', async () => {
+    if (!confirm('确定清空全部同步记录？此操作不可撤销。')) return;
     try {
       await api('/api/sync/events', { method: 'DELETE' });
       toast('同步记录已清空');

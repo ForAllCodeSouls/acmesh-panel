@@ -130,12 +130,12 @@ cp .env.example .env
 openssl rand -base64 24        # 复制输出，填到 .env 的 ACME_PANEL_PASSWORD= 后面
 ```
 
-`.env` 完整内容（密码换成你自己的，其余可不动）：
+`.env` 完整内容（密码用 `openssl rand -base64 24` 自己生成，至少 12 位且含大小写与数字，其余可不动）：
 
 ```ini
 ACMESH_IMAGE_TAG=latest
 ACME_PANEL_USER=admin
-ACME_PANEL_PASSWORD=HF4ARz1IIZarLtvv
+ACME_PANEL_PASSWORD=<粘贴 openssl rand -base64 24 的输出>
 ACME_PANEL_TRUST_PROXY=0
 ACME_PANEL_CRON=1
 ACME_PANEL_CA=letsencrypt
@@ -224,7 +224,7 @@ services:
       - "0.0.0.0:8800:8080"
     environment:
       ACME_PANEL_USER: "admin"
-      ACME_PANEL_PASSWORD: "HF4ARz1IIZarLtvv"
+      ACME_PANEL_PASSWORD: "<粘贴 openssl rand -base64 24 的输出>"
       ACME_PANEL_TRUST_PROXY: "0"
       ACME_PANEL_CRON: "1"
       ACME_PANEL_CA: "letsencrypt"
@@ -367,7 +367,7 @@ docker compose up -d
 docker compose ps
 ```
 
-固定版本：把 `.env` 的 `ACMESH_IMAGE_TAG` 改成具体 tag（如 `0.1.20`）。升级不会动数据卷。
+固定版本：把 `.env` 的 `ACMESH_IMAGE_TAG` 改成具体 tag（如 `0.1.62`）。升级不会动数据卷。
 
 「设置 → 面板版本」会自动查询 GitHub 最新 Release：有新版本时版本号后会出现「可更新 vX」按钮，点击跳转到项目主页；网络不通或检测失败时只显示提示，不影响面板使用。
 
@@ -813,7 +813,7 @@ gofmt -w *.go && go vet ./...
 
 | 现象 | 处理 |
 |---|---|
-| GitHub Actions 构建报 `missing go.sum entry for module providing package ...` | `go.sum` 不完整：本地执行 `go mod tidy` 并把生成的 `go.sum` 一起提交；用 0.1.20+ 的完整包重新推送即可解决（旧包缺新依赖条目） |
+| GitHub Actions 构建报 `missing go.sum entry for module providing package ...` | `go.sum` 不完整：本地执行 `go mod tidy` 并把生成的 `go.sum` 一起提交；用 0.1.62+ 的完整包重新推送即可解决（旧包缺新依赖条目） |
 | `git clone xxx.bundle` 提示 `remote HEAD refers to nonexistent ref` | 旧 bundle 缺 HEAD 引用，换用新版 bundle；或clone 后执行 `git checkout -b main origin/main` |
 | `git push` 提示 `src refspec main does not match any` | 同上，本地没有 `main` 分支；先 `git checkout -b main origin/main` 再 push |
 | 源码构建失败 | 确认 Go 1.26+，`go mod tidy` 后再构建；`go.sum` 必须提交 |

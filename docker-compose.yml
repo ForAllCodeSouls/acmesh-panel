@@ -15,15 +15,18 @@ services:
       # 账号密码：密码必须通过 .env 提供，缺失时 compose 会直接报错
       ACME_PANEL_USER: "${ACME_PANEL_USER:-admin}"
       ACME_PANEL_PASSWORD: "${ACME_PANEL_PASSWORD:?请在 .env 中设置 ACME_PANEL_PASSWORD（至少 12 位）}"
+      # 忘记密码时临时设 1：重启一次用上面的账号密码显式重置；重置后改回 0
+      ACME_PANEL_RESET_CREDENTIALS: "${ACME_PANEL_RESET_CREDENTIALS:-0}"
       # 面板固定 HTTP；HTTPS 由 nginx/Caddy 反代终结，无需任何 Cookie/HSTS 开关。
       # 可选：反代在同一 docker 网络内时设为 1，仅用于从 XFF 取真实客户端 IP 做限流。
       ACME_PANEL_TRUST_PROXY: "${ACME_PANEL_TRUST_PROXY:-0}"
+      ACME_PANEL_TRUST_PROXY_HOPS: "${ACME_PANEL_TRUST_PROXY_HOPS:-1}"
       # 自动续期：面板内置调度（每 12 小时 acme.sh --cron），不依赖 cron 守护进程
       ACME_PANEL_CRON: "${ACME_PANEL_CRON:-1}"
       # 证书同步目录：多个用逗号或分号分隔，留空禁用
       ACME_PANEL_SYNC_DIR: "${ACME_PANEL_SYNC_DIR:-}"
       # 可选：同时运行的 acme.sh 任务数，默认 2
-      # ACME_PANEL_PARALLEL: "2"
+      ACME_PANEL_PARALLEL: "${ACME_PANEL_PARALLEL:-2}"
       # 可选：容器内监听地址，改这里也要改上面的 ports
       # ACME_PANEL_LISTEN: 0.0.0.0:8080
       # 可选：acme.sh home 与数据目录，一般不用改

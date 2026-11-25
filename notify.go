@@ -92,10 +92,34 @@ type NotifyEngine struct {
 	client *http.Client
 }
 
+// dialIPKey 让 post 把「已校验过的 IP」传给 DialContext，避免校验与连接各解析一次 DNS
+// 造成 DNS rebinding（校验时公网、连接时内网）。
+type dialIPKey struct{}
+
 func NewNotifyEngine(store *Store) *NotifyEngine {
 	return &NotifyEngine{
-		store:  store,
-		client: &http.Client{Timeout: 10 * time.Second},
+		store: store,
+		client: &http.Client{
+			Timeout: 10 * time.Second,
+			// Webhook 不做重定向：safeURL 只校验了初始 URL，跟随 307/308 会把
+			// 请求（含 body）带到未校验的地址，形成 SSRF。通知场景不需要跳转。
+			CheckRedirect: func(req *http.Request, via []*http.Request) error {
+				return http.ErrUseLastResponse
+			},
+			Transport: &http.Transport{
+				DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
+					if ip, ok := ctx.Value(dialIPKey{}).(net.IP); ok {
+						_, port, err := net.SplitHostPort(addr)
+						if err != nil {
+							return nil, err
+						}
+						return (&net.Dialer{Timeout: 10 * time.Second}).DialContext(
+							ctx, network, net.JoinHostPort(ip.String(), port))
+					}
+					return (&net.Dialer{Timeout: 10 * time.Second}).DialContext(ctx, network, addr)
+				},
+			},
+		},
 	}
 }
 
@@ -306,6 +330,29 @@ func safeURL(raw string) (*url.URL, error) {
 	return u, nil
 }
 
+// safeResolvedIP 返回 safeURL 校验时实际使用的 IP，供 post 固定连接目标，
+// 消除校验与连接两次 DNS 解析之间的 rebinding 窗口。
+// 返回 nil 表示由 Transport 正常解析（仅本地测试开关开启时）。
+func safeResolvedIP(u *url.URL) (net.IP, error) {
+	if allowLocalWebhook() {
+		return nil, nil
+	}
+	host := u.Hostname()
+	if ip := net.ParseIP(host); ip != nil {
+		return ip, nil
+	}
+	ips, err := net.LookupIP(host)
+	if err != nil || len(ips) == 0 {
+		return nil, fmt.Errorf("Webhook 域名无法解析: %s", host)
+	}
+	for _, ip := range ips {
+		if blockedTargetIP(ip) {
+			return nil, fmt.Errorf("Webhook 域名解析到内网地址，已拒绝")
+		}
+	}
+	return ips[0], nil
+}
+
 // signedWebhook 为钉钉/飞书追加 timestamp + sign（Secret 为空时原样返回）。
 func signedWebhook(webhook, secret string) (string, error) {
 	u, err := safeURL(webhook)
@@ -348,6 +395,14 @@ func (e *NotifyEngine) post(ctx context.Context, endpoint string, body []byte, h
 	u, err := safeURL(endpoint)
 	if err != nil {
 		return err
+	}
+	fixedIP, err := safeResolvedIP(u)
+	if err != nil {
+		return err
+	}
+	if fixedIP != nil {
+		// 保留 URL 里的 Host 头（证书/虚拟主机的 SNI 依赖它），只把连接目标钉在已校验的 IP。
+		ctx = context.WithValue(ctx, dialIPKey{}, fixedIP)
 	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, u.String(), bytes.NewReader(body))
 	if err != nil {

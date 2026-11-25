@@ -120,7 +120,16 @@ check('备份导出走下载、导入走预览确认', app.includes("api('/api/b
 check('备份不含登录凭据哈希', goBackup.includes('st.Hash = ""') && goBackup.includes('st.Salt = ""')
   && goBackup.includes('st.Iter = 0') && html.includes('登录账号与密码哈希'));
 check('部署文档废话已删除', !readme.includes('不管用哪种系统，都需要两个文件'));
-check('密码策略统一为 12 位', html.includes('至少 12 位，含大写 / 小写 / 数字') && html.includes('minlength="12"'));
+check('密码策略统一为 12 位', html.includes('至少 12 位，含大写 / 小写 / 数字') && html.includes('minlength="12"')
+  && app.includes('n1.length < 12') && app.includes('/[A-Z]/.test(n1)') && app.includes('/[a-z]/.test(n1)') && app.includes('/[0-9]/.test(n1)'));
+check('危险按钮防重复提交', app.includes('function busyButton') && app.includes("busyButton($('#rn-go')")
+  && app.includes("busyButton($('#rv-go')") && app.includes("busyButton($('#rm-go')")
+  && app.includes("busyButton($('#renew-all-btn')"));
+check('SSE 重连清空日志避免重复', app.includes('es.onopen = () => { logEl.textContent = \'\'; };'));
+check('PEM 异步竞态加序号与 DOM 校验', app.includes('let pemSeq = 0') && app.includes('seq !== pemSeq')
+  && app.includes('combCertEl.isConnected'));
+check('不可逆操作二次确认', app.includes("confirm('确定清空全部同步记录") && app.includes("confirm('立即清理会按当前保留天数"));
+check('429 登录倒计时禁用按钮', app.includes('err.retryAfter') && app.includes('countdown = true'));
 check('SSH 端口/用户名使用已定义栅格类', app.includes('<div class="grid2">') && !app.includes('field-row'));
 check('CSS 只有一套设计令牌', (css.match(/:root\s*\{/g) || []).length === 1);
 check('CSS 无旧版畸形 font 简写残留', !css.includes('font: 500 11.5px/1.4 inherit') && !css.includes('.filter-tab'));
@@ -221,5 +230,21 @@ check('Cookie 智能加固（HTTPS 才 Secure+Lax）', goApi.includes('if reques
   && goApi.includes('c.Secure = true') && goApi.includes('c.SameSite = http.SameSiteLaxMode'));
 check('同源校验智能恢复（按主机名兼容反代）', goAuth.includes('func sameOrigin(r *http.Request) bool {')
   && goAuth.includes('isInternalHost') && goAuth.includes('X-Forwarded-Host'));
+const goNotify = fs.readFileSync(path.join(root, 'notify.go'), 'utf8');
+const goRemote = fs.readFileSync(path.join(root, 'remote.go'), 'utf8');
+check('Webhook 禁止跟随重定向 + 钉住已校验 IP', goNotify.includes('http.ErrUseLastResponse')
+  && goNotify.includes('dialIPKey') && goNotify.includes('safeResolvedIP'));
+check('远程替换不再先删目标文件', goRemote.includes('func safeRemoteReplace')
+  && goRemote.includes('HasExtension("posix-rename@openssh.com")')
+  && !goRemote.includes('_ = sftpClient.Remove(remotePath)'));
+check('redactArgs 实现 KEY=value 打码', goAcme.includes('k+"=••••"')
+  && goAcme.includes('// KEY=value 形式的参数只保留键名'));
+check('删目录改为完成钩子（无 60s 轮询）', goAcme.includes('purgeHooks') && !goApi.includes('i < 300'));
+check('随机密码拒绝采样', goMain.includes('limit := 256 - (256 % len(alphabet))'));
+check('密码策略 store 层统一 12 位', fs.readFileSync(path.join(root, 'store.go'), 'utf8').includes('!strongPassword(password)'));
+const goCompose = fs.readFileSync(path.join(root, 'docker-compose.yml'), 'utf8');
+check('Docker 透传重置/并发/代理层数变量', goCompose.includes('ACME_PANEL_RESET_CREDENTIALS: "${ACME_PANEL_RESET_CREDENTIALS:-0}"')
+  && goCompose.includes('ACME_PANEL_PARALLEL: "${ACME_PANEL_PARALLEL:-2}"')
+  && goCompose.includes('ACME_PANEL_TRUST_PROXY_HOPS: "${ACME_PANEL_TRUST_PROXY_HOPS:-1}"'));
 
 console.log(`web UI checks: ${passed} passed`);

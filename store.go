@@ -411,9 +411,11 @@ func (s *Store) SetCredSource(src string) error {
 }
 
 // SetPassword 设置（或重置）密码。使用 PBKDF2-HMAC-SHA256 + 随机盐。
+// 统一走 strongPassword：env 初始化与 Web 改密码使用同一套 12 位策略，
+// 避免底层校验比前端/handler 宽松。
 func (s *Store) SetPassword(password string) error {
-	if len(password) < 8 {
-		return errors.New("密码至少 8 位")
+	if !strongPassword(password) {
+		return errors.New("密码需至少 12 位，且同时包含大写字母、小写字母和数字")
 	}
 	salt := make([]byte, 16)
 	if _, err := rand.Read(salt); err != nil {
@@ -435,29 +437,6 @@ func (s *Store) SetPassword(password string) error {
 	return s.saveLocked()
 }
 
-// SetupInitialCredentials 仅在尚无密码时原子写入账号与密码，防止并发重复注册覆盖。
-func (s *Store) SetupInitialCredentials(user, password string) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if s.state.Hash != "" {
-		return errors.New("账号已初始化")
-	}
-	salt := make([]byte, 16)
-	if _, err := rand.Read(salt); err != nil {
-		return err
-	}
-	dk, err := pbkdf2.Key(sha256.New, password, salt, pbkdf2Iter, 32)
-	if err != nil {
-		return err
-	}
-	s.state.Username = user
-	s.state.Salt = base64.StdEncoding.EncodeToString(salt)
-	s.state.Hash = base64.StdEncoding.EncodeToString(dk)
-	s.state.Iter = pbkdf2Iter
-	s.state.UpdatedAt = time.Now().UTC()
-	return s.saveLocked()
-}
-
 func (s *Store) HasPassword() bool {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -474,7 +453,7 @@ func (s *Store) SetUsername(name string) error {
 // CheckPassword 用恒定时间比较校验密码。
 func (s *Store) CheckPassword(password string) bool {
 	s.mu.RLock()
-	saltB64, hashB64, iter, user := s.state.Salt, s.state.Hash, s.state.Iter, s.state.Username
+	saltB64, hashB64, iter := s.state.Salt, s.state.Hash, s.state.Iter
 	s.mu.RUnlock()
 	if hashB64 == "" || saltB64 == "" {
 		return false
@@ -494,7 +473,6 @@ func (s *Store) CheckPassword(password string) bool {
 	if err != nil {
 		return false
 	}
-	_ = user
 	return subtle.ConstantTimeCompare(got, want) == 1
 }
 

@@ -9,7 +9,7 @@
 FROM --platform=$BUILDPLATFORM golang:1.26-alpine AS build
 ARG TARGETOS=linux
 ARG TARGETARCH=amd64
-ARG VERSION=0.1.20
+ARG VERSION=dev
 WORKDIR /src
 
 # 纯 Go 依赖（modernc.org/sqlite、golang.org/x/crypto），需 go.mod + go.sum
@@ -26,7 +26,7 @@ RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} \
 FROM alpine:3.21
 
 ARG ACME_SH_VERSION=3.1.1
-ARG VERSION=0.1.20
+ARG VERSION=dev
 
 LABEL org.opencontainers.image.title="acmesh-panel" \
       org.opencontainers.image.description="Lightweight acme.sh web panel with password auth" \
