@@ -323,6 +323,10 @@ func listRemoteFiles(store *Store, h RemoteHost, dir string) ([]RemoteFileItem, 
 		if len(out) >= 200 {
 			break
 		}
+		// 隐藏推送过程中可能残留的临时文件（正常流程结束后会被改名掉）
+		if strings.HasSuffix(entry.Name(), ".acmesh-tmp") {
+			continue
+		}
 		out = append(out, RemoteFileItem{
 			Name:    entry.Name(),
 			Size:    entry.Size(),
@@ -383,20 +387,35 @@ func pushToRemote(store *Store, h RemoteHost, localFiles []string, localDir ...s
 			mode = 0o600
 		}
 		remotePath := path.Join(h.RemoteDir, name)
-		rf, err := clientSFTP.Create(remotePath)
+		// 先写临时文件再原子改名：避免远端消费者（如 nginx）读到上传到一半的半写文件。
+		// 与本地同步的 writeAtomic 保持同一原子替换标准。
+		tmpPath := remotePath + ".acmesh-tmp"
+		rf, err := clientSFTP.Create(tmpPath)
 		if err != nil {
 			return fmt.Errorf("写入远程文件 %s 失败: %v", name, err)
 		}
 		if _, err := rf.Write(data); err != nil {
 			_ = rf.Close()
+			_ = clientSFTP.Remove(tmpPath)
 			return fmt.Errorf("写入远程文件 %s 失败: %v", name, err)
 		}
 		if err := rf.Chmod(mode); err != nil {
 			_ = rf.Close()
+			_ = clientSFTP.Remove(tmpPath)
 			return fmt.Errorf("设置远程文件权限失败: %v", err)
 		}
 		if err := rf.Close(); err != nil {
+			_ = clientSFTP.Remove(tmpPath)
 			return fmt.Errorf("关闭远程文件失败: %v", err)
+		}
+		// 原子替换：优先 posix-rename 扩展（OpenSSH 支持，可覆盖已存在文件）；
+		// 不支持该扩展的服务器退化为先删旧文件再改名，绝不留下半写文件。
+		if err := clientSFTP.PosixRename(tmpPath, remotePath); err != nil {
+			_ = clientSFTP.Remove(remotePath)
+			if err2 := clientSFTP.Rename(tmpPath, remotePath); err2 != nil {
+				_ = clientSFTP.Remove(tmpPath)
+				return fmt.Errorf("替换远程文件 %s 失败: %v", name, err2)
+			}
 		}
 	}
 	return nil

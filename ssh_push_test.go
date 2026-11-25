@@ -7,6 +7,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/pkg/sftp"
@@ -108,6 +109,16 @@ func TestPushToRemoteWithPassword(t *testing.T) {
 	got, err := os.ReadFile(filepath.Join(dest, "site_cert.pem"))
 	if err != nil || string(got) != "CERT-CONTENT" {
 		t.Fatalf("远程文件内容不符: %q err=%v", got, err)
+	}
+	// 原子替换不应残留临时文件
+	entries, err := os.ReadDir(dest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range entries {
+		if strings.HasSuffix(e.Name(), ".acmesh-tmp") {
+			t.Fatalf("推送后残留临时文件: %s", e.Name())
+		}
 	}
 	h.Password = "wrong-password"
 	if err := pushToRemote(store, h, []string{src}); err == nil {
