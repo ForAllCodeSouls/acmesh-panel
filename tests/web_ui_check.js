@@ -139,7 +139,7 @@ check('注册表单与入口已移除', !html.includes('id="setup-form"') && !ht
 check('改账号表单存在', html.includes('id="user-form"') && html.includes('id="user-pass"')
   && html.includes('id="user-new"'));
 check('改账号走新接口并重新登录', app.includes("api('/api/username'")
-  && app.includes('showLogin(`账号已改为') || app.includes('showLogin('));
+  && (app.includes('showLogin(`账号已改为') || app.includes('showLogin(')));
 check('登录页说明 env 仅首次初始化', html.includes('首次启动用环境变量')
   && html.includes('ACME_PANEL_USER / ACME_PANEL_PASSWORD')
   && html.includes('之后在设置页修改会持久保存'));
