@@ -281,41 +281,11 @@ func originHost(v string) (string, bool) {
 	return "", false
 }
 
-// sameOrigin 校验 Origin/Referer 与目标主机一致，抵御跨站表单提交（登录接口的第一道闸）。
-// 规则按「主机名」比较，忽略端口与协议差异，兼容两种常见反代写法：
-//   - proxy_set_header Host $host：后端 Host 是公网主机名（无端口），浏览器 Origin 带端口；
-//   - 未设置 Host：后端看到 127.0.0.1:8080，但 nginx 会带 X-Forwarded-Host 公网主机名。
-//
-// 两者任一匹配即视为同源；攻击者无法从浏览器伪造 X-Forwarded-Host 越过这一关。
-func sameOrigin(r *http.Request) bool {
-	hosts := []string{hostNoPort(r.Host)}
-	if xfh := r.Header.Get("X-Forwarded-Host"); xfh != "" {
-		// X-Forwarded-Host 可能是逗号列表，第一项是原始请求主机。
-		hosts = append(hosts, hostNoPort(strings.TrimSpace(strings.Split(xfh, ",")[0])))
-	}
-
-	check := func(v string) bool {
-		h, ok := originHost(v)
-		if !ok {
-			return false
-		}
-		for _, want := range hosts {
-			if want != "" && h == want {
-				return true
-			}
-		}
-		return false
-	}
-
-	if origin := r.Header.Get("Origin"); origin != "" {
-		return check(origin)
-	}
-	// 没有 Origin 时看 Referer（部分浏览器同源 POST 不带 Origin）
-	if ref := r.Header.Get("Referer"); ref != "" {
-		return check(ref)
-	}
-	return true // 非浏览器客户端（curl 等）自行通过 CSRF token 防护
-}
+// sameOrigin 保留为兼容占位：普通 Web 面板不检查 Origin/Referer/Host，
+// 只要账号密码和 CSRF Token 对就放行。反代下 Host 会被改写成内网地址、
+// 浏览器 Origin 带公网域名与协议，再严格比对只会把合法登录挡在门外。
+// 状态变更接口仍由 CSRF Token 保护。
+func sameOrigin(r *http.Request) bool { return true }
 
 func constantTimeEq(a, b string) bool {
 	return subtle.ConstantTimeCompare([]byte(a), []byte(b)) == 1

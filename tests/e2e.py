@@ -202,8 +202,8 @@ def main():
         check("收到 X-Forwarded-Proto 也不下发 HSTS", "strict-transport-security" not in hd_xfp, hd_xfp.get("strict-transport-security"))
 
         # ---- 同源校验（反代端口差异）----
-        # nginx 反代常把 Host 设为不带端口的主机名，浏览器 Origin 带端口；
-        # 按主机名比较才不会把合法登录误判为跨站（登录登不进的根因）。
+        # 面板不再按 Host/Origin 拦截登录；反代改 Host、浏览器带端口或 https
+        # Origin 都不应影响登录。状态变更仍由 CSRF Token 保护。
         origin_port = f"http://{BASE_HOST}:{PORT}"
         rp = Client()
         st, _, j = rp.j("POST", "/api/login", {"username": "admin", "password": PASSWORD},
@@ -226,7 +226,7 @@ def main():
         cross = Client()
         st, _, j = cross.j("POST", "/api/login", {"username": "admin", "password": PASSWORD},
                            headers={"Host": BASE_HOST, "Origin": "http://evil.example.net"})
-        check("跨站 Origin 登录被拒", st == 403, (st, j))
+        check("任意 Origin 均不再影响登录", st == 200, (st, j))
 
         # ---- 登录失败 ----
         st, _, j = anon.j("POST", "/api/login", {"username": "admin", "password": "wrong-pass"})
@@ -334,7 +334,7 @@ def main():
         st, _, _ = c.req("POST", "/api/renew-all", {}, csrf=False)
         check("缺少 CSRF → 403", st == 403, st)
         st, _, _ = c.req("POST", "/api/renew-all", {}, origin="http://evil.example")
-        check("跨站 Origin → 403", st == 403, st)
+        check("带有效 CSRF Token 时 Origin 不再拦截", st == 202, st)
 
         # ---- 参数校验 ----
         st, _, j = c.j("POST", "/api/issue", {"domains": ["not_a_domain"], "code": "dns_ali", "env": {"Ali_Key": "a", "Ali_Secret": "b"}})

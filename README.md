@@ -71,7 +71,7 @@ English / 日本語 版为精简指南，覆盖部署与日常使用所需的全
 
 | 分类 | 能力 |
 |---|---|
-| **登录认证** | 单账号 + PBKDF2-HMAC-SHA256（600k 次迭代）；普通会话 Cookie（仅 `HttpOnly`，不带 `Secure` / `SameSite`，HTTP/HTTPS 反代通用）；CSRF Token + Origin 校验；5 次失败按 IP 指数退避锁定；可选「保持登录」90 天；环境变量仅首次初始化账号密码，之后可在设置页修改并持久保存，无 Web 注册入口 |
+| **登录认证** | 单账号 + PBKDF2-HMAC-SHA256（600k 次迭代）；普通会话 Cookie（仅 `HttpOnly`，不带 `Secure` / `SameSite`，HTTP/HTTPS 反代通用）；CSRF Token；不按 Host/Origin 拦截登录；5 次失败按 IP 指数退避锁定；可选「保持登录」90 天；环境变量仅首次初始化账号密码，之后可在设置页修改并持久保存，无 Web 注册入口 |
 | **证书管理** | 扫描 acme.sh home，解析 x509：SAN、签发者、有效期、密钥类型、剩余天数、过期告警 |
 | **签发** | DNS API 自动验证，支持泛域名；内置 43 家 DNS 服务商（见 [5.2 服务商清单](#52-签发证书)），每家都带官网直达链接，字段与 acme.sh 官方脚本逐一核对；ECC 256/384、RSA 2048/4096 |
 | **邮箱** | 全局默认 ACME 邮箱 + 按域名覆盖，留空自动回落 |
@@ -755,7 +755,7 @@ gofmt -w *.go && go vet ./...
 | 密码存储 | PBKDF2-HMAC-SHA256（600k 次），随机盐，恒定时间比对 |
 | 会话 | 内存会话 + 普通 Cookie（只带 `HttpOnly`，不带 `Secure` / `SameSite`；浏览器默认按 Lax 处理，HTTP 与 nginx HTTPS 反代通用），空闲与最长有效期双重限制，登录即换 ID；会话只存内存，**面板重启后需重新登录**（浏览器留着旧 Cookie 时会静默回到干净的登录页，不再误报「会话已过期」） |
 | HTTPS / HSTS | 面板只提供 HTTP，HTTPS 与 HSTS 全部由 nginx/Caddy 反代终结；面板不再下发 HSTS，避免反代头不一致把 HTTP 站点锁死 |
-| CSRF | 状态变更接口校验 Token 与 Origin/Referer |
+| CSRF | 状态变更接口校验 Token；不依赖 Origin/Referer，反代下不会因为 Host 被改写而误拦登录 |
 | 暴力破解 | 按 IP + 用户名的指数退避锁定，安全事件推送通知 |
 | 凭证 | DNS 凭证、通知渠道、远程主机密码/私钥 AES-256-GCM 加密落盘；API 只回掩码；日志按值脱敏 |
 | 私钥 | 二次确认 + 审计；前端 60 秒清屏；下载需明确点击 |
@@ -845,7 +845,7 @@ gofmt -w *.go && go vet ./...
 .
 ├── main.go            入口、配置、路由、安全响应头、内置续期调度
 ├── api.go             HTTP handlers（认证 / 证书 / 签发 / 凭证 / 通知 / 任务 / 审计）
-├── auth.go            会话、CSRF、登录限流、来源校验
+├── auth.go            会话、CSRF、登录限流
 ├── store.go           状态序列化、PBKDF2、AES-256-GCM、凭证与规则读写
 ├── db.go              SQLite 存储层、旧 JSON 导入、定时清理
 ├── db_test.go         SQLite 导入与清理单元测试

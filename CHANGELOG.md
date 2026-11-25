@@ -2,6 +2,12 @@
 
 本文件遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)。
 
+## [0.1.59] - 2026-11-26
+
+### 变更
+- 登录彻底不再依赖 Origin / Referer / Host / X-Forwarded-Host：普通面板只要账号密码正确就放行，反代怎么改写这些头都不会挡住登录。状态变更接口仍由 CSRF Token 保护。
+- 移除 `sameOrigin()` 的校验逻辑（保留函数占位以兼容调用），不再因为 Host 被反代改成 `127.0.0.1` 或浏览器 Origin 带 https/端口而拒绝登录。
+
 ## [0.1.58] - 2026-11-26
 
 ### 变更

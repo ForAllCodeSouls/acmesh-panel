@@ -215,7 +215,6 @@ check('面板固定纯 HTTP', goMain.includes('httpSrv.ListenAndServe()')
   && !goMain.includes('ListenAndServeTLS'));
 check('Cookie 为普通 Cookie（无 SameSite/Secure）', !goApi.includes('SameSite:')
   && !goApi.includes('Secure:') && goApi.includes('HttpOnly: true'));
-check('同源校验忽略端口（反代登录不误判）', goAuth.includes('func hostNoPort')
-  && goAuth.includes('func originHost') && goAuth.includes('X-Forwarded-Host'));
+check('登录不再按 Host/Origin 拦截', goAuth.includes('func sameOrigin(r *http.Request) bool { return true }'));
 
 console.log(`web UI checks: ${passed} passed`);

@@ -35,7 +35,7 @@ The full Chinese README has the detailed step-by-step explanation: [README.md](R
 
 | Area | Capability |
 |---|---|
-| **Authentication** | Single account + PBKDF2-HMAC-SHA256 (600k iterations); plain session cookie (`HttpOnly` only, no `Secure`/`SameSite`); CSRF token + origin checks; per-IP exponential lockout after 5 failures; optional 90-day "stay logged in"; env vars initialize credentials on first boot only — later changes made in the web UI persist across restarts, no web signup |
+| **Authentication** | Single account + PBKDF2-HMAC-SHA256 (600k iterations); plain session cookie (`HttpOnly` only, no `Secure`/`SameSite`); CSRF token (no Origin/Host checks on login); per-IP exponential lockout after 5 failures; optional 90-day "stay logged in"; env vars initialize credentials on first boot only — later changes made in the web UI persist across restarts, no web signup |
 | **Certificates** | Scans acme.sh home and parses X.509: SANs, issuer, validity, key type, days remaining, expiry alerts |
 | **Issuance** | DNS API validation, wildcard support; 43 built-in DNS providers, each with verified credential fields and a direct official-site link (full list in [README.md §5.2](README.md#52-签发证书)); ECC 256/384 and RSA 2048/4096 |
 | **E-mail** | Global default ACME e-mail + per-domain overrides |
@@ -142,7 +142,7 @@ A systemd unit example and macOS/Windows instructions are in the Chinese README 
 - Passwords stored as PBKDF2-HMAC-SHA256 (600k iterations, random salt, constant-time compare).
 - Sessions: in-memory + plain cookies (`HttpOnly` only, no `Secure`/`SameSite`; browsers default to Lax), works over plain HTTP and behind an HTTPS reverse proxy; session ID rotates on login.
 - The panel serves HTTP only. HTTPS and HSTS are terminated by your nginx/Caddy; the panel no longer emits HSTS itself.
-- CSRF: token + Origin/Referer checks on every state-changing request.
+- CSRF: token on every state-changing request; Origin/Referer/Host are not used to block login, so a reverse proxy rewriting Host never locks you out.
 - Brute force: exponential per-IP/username lockout + security notifications.
 - Credentials (DNS API keys, notify channels, SSH keys/passwords) encrypted with AES-256-GCM; API returns masked values; logs are scrubbed.
 - Web UI: strict CSP, no inline scripts/styles, no CDN.
