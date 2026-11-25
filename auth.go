@@ -281,11 +281,97 @@ func originHost(v string) (string, bool) {
 	return "", false
 }
 
-// sameOrigin 保留为兼容占位：普通 Web 面板不检查 Origin/Referer/Host，
-// 只要账号密码和 CSRF Token 对就放行。反代下 Host 会被改写成内网地址、
-// 浏览器 Origin 带公网域名与协议，再严格比对只会把合法登录挡在门外。
-// 状态变更接口仍由 CSRF Token 保护。
-func sameOrigin(r *http.Request) bool { return true }
+// requestIsHTTPS 判断「到客户端这一段」是否为 HTTPS，用于决定是否给 Cookie
+// 加 Secure、是否下发 HSTS。面板固定只监听 HTTP，所以主要看反代传来的
+// X-Forwarded-Proto；同时用 Origin/Referer 交叉验证，避免反代误配 XFP 时
+// 把纯 HTTP 的登录锁死（浏览器会明确带 http:// 来源）。
+// 无需任何开关：最坏情况只是自己拿不到 Cookie，不会引入越权。
+func requestIsHTTPS(r *http.Request) bool {
+	if r.TLS != nil {
+		return true
+	}
+	xfp := strings.TrimSpace(r.Header.Get("X-Forwarded-Proto"))
+	if xfp == "" {
+		return false
+	}
+	parts := strings.Split(xfp, ",")
+	// 与 XFF 一致：取最右侧、最近一层代理写入的值。
+	last := strings.TrimSpace(parts[len(parts)-1])
+	if !strings.EqualFold(last, "https") {
+		return false
+	}
+	if v := strings.ToLower(strings.TrimSpace(r.Header.Get("Origin"))); strings.HasPrefix(v, "http://") {
+		return false
+	}
+	if v := strings.ToLower(strings.TrimSpace(r.Header.Get("Referer"))); strings.HasPrefix(v, "http://") {
+		return false
+	}
+	return true
+}
+
+// isInternalHost 判断主机名是否为本机/内网地址（反代把 Host 改写后的常见形态）。
+func isInternalHost(h string) bool {
+	switch strings.ToLower(h) {
+	case "localhost", "127.0.0.1", "::1", "0.0.0.0":
+		return true
+	}
+	ip := net.ParseIP(h)
+	if ip == nil {
+		return false
+	}
+	return ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast()
+}
+
+// sameOrigin 校验 Origin/Referer 与请求目标是否同源，按「主机名」比较，
+// 忽略端口与协议差异，并兼容反代把 Host 改写成内网地址的场景。
+// 候选主机名同时取 Host 与 X-Forwarded-Host（逗号列表的第一项）。
+// 若反代既改写 Host 又不传 XFH，本侧无法得知公网主机名，此时跳过比对——
+// 状态变更接口仍由 CSRF Token 保护，不会因为这种配置把合法登录挡在门外。
+func sameOrigin(r *http.Request) bool {
+	hosts := []string{}
+	if h := hostNoPort(r.Host); h != "" {
+		hosts = append(hosts, h)
+	}
+	if xfh := strings.TrimSpace(r.Header.Get("X-Forwarded-Host")); xfh != "" {
+		if h := hostNoPort(strings.Split(xfh, ",")[0]); h != "" {
+			hosts = append(hosts, h)
+		}
+	}
+
+	check := func(v string) bool {
+		h, ok := originHost(v)
+		if !ok {
+			return false
+		}
+		for _, want := range hosts {
+			if want != "" && h == want {
+				return true
+			}
+		}
+		return false
+	}
+
+	value := r.Header.Get("Origin")
+	if value == "" {
+		value = r.Header.Get("Referer")
+	}
+	if value == "" {
+		return true // curl 等非浏览器客户端由 CSRF Token 保护
+	}
+	if check(value) {
+		return true
+	}
+	// 只有候选主机全是内网地址时才放行：说明反代隐去了公网主机名。
+	// 只要有一个候选是公网域名，跨站就必须拒绝。
+	allInternal := len(hosts) > 0
+	for _, h := range hosts {
+		if !isInternalHost(h) {
+			allInternal = false
+			break
+		}
+	}
+	return allInternal
+}
 
 func constantTimeEq(a, b string) bool {
 	return subtle.ConstantTimeCompare([]byte(a), []byte(b)) == 1

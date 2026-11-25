@@ -71,7 +71,7 @@ English / 日本語 版为精简指南，覆盖部署与日常使用所需的全
 
 | 分类 | 能力 |
 |---|---|
-| **登录认证** | 单账号 + PBKDF2-HMAC-SHA256（600k 次迭代）；普通会话 Cookie（仅 `HttpOnly`，不带 `Secure` / `SameSite`，HTTP/HTTPS 反代通用）；CSRF Token；不按 Host/Origin 拦截登录；5 次失败按 IP 指数退避锁定；可选「保持登录」90 天；环境变量仅首次初始化账号密码，之后可在设置页修改并持久保存，无 Web 注册入口 |
+| **登录认证** | 单账号 + PBKDF2-HMAC-SHA256（600k 次迭代）；智能会话 Cookie（HTTP 下普通 `HttpOnly` Cookie，确认 HTTPS 时自动带 `Secure` + `SameSite=Lax`）；CSRF Token + 智能同源校验（按主机名比较、兼容反代改写 Host，零开关）；5 次失败按 IP 指数退避锁定；可选「保持登录」90 天；环境变量仅首次初始化账号密码，之后可在设置页修改并持久保存，无 Web 注册入口 |
 | **证书管理** | 扫描 acme.sh home，解析 x509：SAN、签发者、有效期、密钥类型、剩余天数、过期告警 |
 | **签发** | DNS API 自动验证，支持泛域名；内置 43 家 DNS 服务商（见 [5.2 服务商清单](#52-签发证书)），每家都带官网直达链接，字段与 acme.sh 官方脚本逐一核对；ECC 256/384、RSA 2048/4096 |
 | **邮箱** | 全局默认 ACME 邮箱 + 按域名覆盖，留空自动回落 |
@@ -312,13 +312,14 @@ server {
         proxy_set_header Host $host;
         proxy_set_header X-Forwarded-For $remote_addr;   # 可选：仅当想让限流按真实 IP 统计时才设 ACME_PANEL_TRUST_PROXY=1
         proxy_set_header X-Forwarded-Host $host;         # 推荐：后端 Host 被覆盖时也能识别公网域名
+        proxy_set_header X-Forwarded-Proto $scheme;      # 推荐：面板据此给 Cookie 加 Secure、下发 HSTS
         proxy_buffering off;                              # SSE 实时日志需要
         proxy_read_timeout 3600s;
     }
 }
 ```
 
-面板只监听 HTTP，不再提供自身 TLS 终结；HTTPS、HSTS 都在 nginx 这一层配置即可，面板侧无需任何 Cookie / HSTS 开关。
+面板只监听 HTTP，不提供自身 TLS 终结；HTTPS 由 nginx/Caddy 负责。面板会**智能识别 HTTPS**：反代透传 `X-Forwarded-Proto: https` 时，Cookie 自动带 `Secure` + `SameSite=Lax` 并下发 HSTS；没透传或纯 HTTP 访问时保持普通 Cookie、不下发 HSTS，两种部署都能登录，无需任何开关。若静态资源被反代缓存导致升级后仍显示旧页面，现在 JS/CSS 的 URL 带版本号，会自动绕过旧缓存（无需清 nginx 缓存）。
 
 ### 3.8 数据卷与备份
 
@@ -528,7 +529,8 @@ Windows 上 acme.sh 需要 WSL / Git Bash 环境；只想用面板的话建议�
 |---|---|---|
 | 登录 401，提示「用户名或密码错误」 | 请求已到面板，账号密码不对 | 用 `ACME_PANEL_USER` / `ACME_PANEL_PASSWORD` 的实际值重输，别用浏览器自动填充 |
 | 登录 429，提示「失败次数过多，已锁定 N 秒」 | 连续输错触发限流 | 等锁定结束，或重启面板清空内存限流计数 |
-| 页面红字「未登录」，但登录请求返回 401 | 首屏会话探测失败，或浏览器缓存了旧版 JS | 强刷页面（v0.1.60 起 JS/CSS 已设 `no-store`，不会再缓存旧脚本） |
+| 页面红字「会话已过期」/「未登录」，但登录请求实际返回「用户名或密码错误」 | 浏览器跑的是旧版 JS（旧版把所有 401 都显示成会话过期）| 升级到 v0.1.61：JS/CSS 的 URL 带版本号，会自动绕开 nginx 缓存；确认首页引用的 `app.js?v=` 是新版本后强刷 |
+| 升级后页面仍是旧样式或旧文案 | 反代（nginx `proxy_cache`）缓存了旧静态文件 | v0.1.61 起资源 URL 带版本号自动绕过；若用了自定义强缓存，请给 `/app.js`、`/style.css` 设 `no-store` |
 | `session` 401 | 未登录时的正常探测，不是故障 | 忽略，看 `login` 请求的返回即可 |
 
 ### 5.2 签发证书
@@ -762,9 +764,9 @@ gofmt -w *.go && go vet ./...
 | 关注点 | 措施 |
 |---|---|
 | 密码存储 | PBKDF2-HMAC-SHA256（600k 次），随机盐，恒定时间比对 |
-| 会话 | 内存会话 + 普通 Cookie（只带 `HttpOnly`，不带 `Secure` / `SameSite`；浏览器默认按 Lax 处理，HTTP 与 nginx HTTPS 反代通用），空闲与最长有效期双重限制，登录即换 ID；会话只存内存，**面板重启后需重新登录**（浏览器留着旧 Cookie 时会静默回到干净的登录页，不再误报「会话已过期」） |
-| HTTPS / HSTS | 面板只提供 HTTP，HTTPS 与 HSTS 全部由 nginx/Caddy 反代终结；面板不再下发 HSTS，避免反代头不一致把 HTTP 站点锁死 |
-| CSRF | 状态变更接口校验 Token；不依赖 Origin/Referer，反代下不会因为 Host 被改写而误拦登录 |
+| 会话 | 内存会话 + 智能 Cookie：HTTP 直连为普通 `HttpOnly` Cookie；反代透传 `X-Forwarded-Proto: https`（或直连 TLS）时自动带 `Secure` + `SameSite=Lax`。空闲与最长有效期双重限制，登录即换 ID；会话只存内存，**面板重启后需重新登录**（浏览器留着旧 Cookie 时会静默回到干净的登录页） |
+| HTTPS / HSTS | 面板只提供 HTTP，HTTPS 由 nginx/Caddy 终结；HSTS 只在确认 HTTPS 时下发，纯 HTTP 不下发，避免配错一次把 HTTP 站点锁死一年。无需任何开关 |
+| CSRF | 状态变更接口校验 Token；同源校验按主机名比较、忽略端口/协议，兼容 `X-Forwarded-Host`；公网主机名明确时跨站请求被拒，反代隐去公网名时不误拦登录 |
 | 暴力破解 | 按 IP + 用户名的指数退避锁定，安全事件推送通知 |
 | 凭证 | DNS 凭证、通知渠道、远程主机密码/私钥 AES-256-GCM 加密落盘；API 只回掩码；日志按值脱敏 |
 | 私钥 | 二次确认 + 审计；前端 60 秒清屏；下载需明确点击 |

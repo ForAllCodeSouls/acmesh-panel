@@ -53,7 +53,7 @@ func (s *Server) requireAuth(h http.HandlerFunc) http.HandlerFunc {
 		}
 		sess := s.sess.Get(c.Value)
 		if sess == nil {
-			s.clearCookie(w)
+			s.clearCookie(w, r)
 			writeErr(w, http.StatusUnauthorized, "会话已过期，请重新登录")
 			return
 		}
@@ -78,31 +78,41 @@ func (s *Server) requireAuth(h http.HandlerFunc) http.HandlerFunc {
 	}
 }
 
-// setCookie 写普通会话 Cookie：只带 HttpOnly / Path / MaxAge，
-// 不带 Secure，也不显式写 SameSite 属性（浏览器默认按 Lax 处理）。
-// 面板只提供 HTTP，HTTPS 由用户自己的 nginx 终结，Cookie 在两种部署下都不需要特殊属性。
-func (s *Server) setCookie(w http.ResponseWriter, id string, longLived bool) {
+// setCookie 写会话 Cookie。智能加固：只有确认本次访问是 HTTPS 时才加
+// Secure 与 SameSite=Lax；纯 HTTP 直连仍是普通 Cookie（HttpOnly/Path/MaxAge），
+// 所以 nginx HTTPS 反代和 HTTP 直连都能正常登录，无需任何开关。
+func (s *Server) setCookie(w http.ResponseWriter, r *http.Request, id string, longLived bool) {
 	maxAge := int(12 * time.Hour / time.Second)
 	if longLived {
 		maxAge = int(90 * 24 * time.Hour / time.Second)
 	}
-	http.SetCookie(w, &http.Cookie{
+	c := &http.Cookie{
 		Name:     sessionCookie,
 		Value:    id,
 		Path:     "/",
 		HttpOnly: true,
 		MaxAge:   maxAge,
-	})
+	}
+	if requestIsHTTPS(r) {
+		c.Secure = true
+		c.SameSite = http.SameSiteLaxMode
+	}
+	http.SetCookie(w, c)
 }
 
-func (s *Server) clearCookie(w http.ResponseWriter) {
-	http.SetCookie(w, &http.Cookie{
+func (s *Server) clearCookie(w http.ResponseWriter, r *http.Request) {
+	c := &http.Cookie{
 		Name:     sessionCookie,
 		Value:    "",
 		Path:     "/",
 		HttpOnly: true,
 		MaxAge:   -1,
-	})
+	}
+	if requestIsHTTPS(r) {
+		c.Secure = true
+		c.SameSite = http.SameSiteLaxMode
+	}
+	http.SetCookie(w, c)
 }
 
 // ---------------- 登录 ----------------
@@ -185,7 +195,7 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 
 	s.limit.Reset(key)
 	sess := s.sess.Create(s.store.Username(), ip, r.UserAgent(), req.Remember)
-	s.setCookie(w, sess.ID, req.Remember)
+	s.setCookie(w, r, sess.ID, req.Remember)
 	s.store.Audit(s.store.Username(), ip, "login_ok", "登录成功")
 	writeJSON(w, http.StatusOK, map[string]any{
 		"user": sess.User,
@@ -198,7 +208,7 @@ func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
 	if c, err := r.Cookie(sessionCookie); err == nil {
 		s.sess.Delete(c.Value)
 	}
-	s.clearCookie(w)
+	s.clearCookie(w, r)
 	s.store.Audit(sess.User, clientIP(r, s.cfg.TrustProxy), "logout", "")
 	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 }
@@ -330,8 +340,8 @@ func (s *Server) handleSession(w http.ResponseWriter, r *http.Request) {
 		"acme_home":       s.cfg.AcmeHome,
 		"default_ca":      s.cfg.DefaultCA,
 		"default_email":   s.store.DefaultEmail(),
-		"cookie_secure":   false,
-		"tls":             false,
+		"cookie_secure":   requestIsHTTPS(r),
+		"tls":             requestIsHTTPS(r),
 		"cron":            s.cfg.Cron,
 		"cron_hour":       cronHour,
 		"cron_last_day":   lastDay,
@@ -808,7 +818,7 @@ func (s *Server) handleCatalog(w http.ResponseWriter, r *http.Request) {
 		"default_ca": s.cfg.DefaultCA,
 		"keylengths": []string{"ec-256", "ec-384", "2048", "4096"},
 		"version":    appVersion,
-		"cookie_sec": false,
+		"cookie_sec": requestIsHTTPS(r),
 		"output_dir": filepath.Join(s.cfg.DataDir, "output"),
 		"acme_home":  s.cfg.AcmeHome,
 	})

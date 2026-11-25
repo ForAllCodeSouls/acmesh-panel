@@ -199,12 +199,13 @@ def main():
         check("未登录访问证书接口 → 401", st == 401, st)
         check("API 响应 no-store", hd.get("cache-control") == ["no-store"])
         check("面板不下发 HSTS（由反代负责）", "strict-transport-security" not in hd, hd.get("strict-transport-security"))
+        check("纯 HTTP 不下发 HSTS（避免锁死 HTTP 站点）", "strict-transport-security" not in hd, hd.get("strict-transport-security"))
         st, hd_xfp, _ = anon.req("GET", "/api/certs", headers={"X-Forwarded-Proto": "https"})
-        check("收到 X-Forwarded-Proto 也不下发 HSTS", "strict-transport-security" not in hd_xfp, hd_xfp.get("strict-transport-security"))
+        check("确认 HTTPS 才下发 HSTS", "max-age=31536000" in hd_xfp.get("strict-transport-security", [""])[0], hd_xfp.get("strict-transport-security"))
 
-        # ---- 同源校验（反代端口差异）----
-        # 面板不再按 Host/Origin 拦截登录；反代改 Host、浏览器带端口或 https
-        # Origin 都不应影响登录。状态变更仍由 CSRF Token 保护。
+        # ---- 同源校验（智能恢复）----
+        # 按主机名比较、忽略端口/协议；反代改 Host、XFH、浏览器带端口或 https
+        # Origin 都不应影响登录。公网 Host 明确时跨站仍会被拒。
         origin_port = f"http://{BASE_HOST}:{PORT}"
         rp = Client()
         st, _, j = rp.j("POST", "/api/login", {"username": "admin", "password": PASSWORD},
@@ -224,10 +225,17 @@ def main():
                                   "Origin": f"https://{BASE_HOST}"})
         check("内网 Host + X-Forwarded-Host 仍可登录", st == 200, (st, j))
 
+        # 反代隐去公网主机名（Host 为内网且无 XFH）：无法比对，仍放行登录
+        opaque = Client()
+        st, _, j = opaque.j("POST", "/api/login", {"username": "admin", "password": PASSWORD},
+                            headers={"Host": "127.0.0.1:8080", "Origin": "http://evil.example.net"})
+        check("内网 Host 无 XFH 时不拦截登录", st == 200, (st, j))
+
+        # 公网 Host 明确时，跨站 Origin 必须拒绝
         cross = Client()
         st, _, j = cross.j("POST", "/api/login", {"username": "admin", "password": PASSWORD},
-                           headers={"Host": BASE_HOST, "Origin": "http://evil.example.net"})
-        check("任意 Origin 均不再影响登录", st == 200, (st, j))
+                           headers={"Host": "example.com", "Origin": "http://evil.example.net"})
+        check("公网 Host 下跨站 Origin → 403", st == 403, (st, j))
 
         # ---- 登录失败 ----
         st, _, j = anon.j("POST", "/api/login", {"username": "admin", "password": "wrong-pass"})
@@ -240,9 +248,19 @@ def main():
         c.csrf = j.get("csrf")
         sc = " ".join(hd.get("set-cookie", []))
         check("Cookie HttpOnly", "HttpOnly" in sc, sc)
-        check("Cookie 为普通 Cookie（不带 SameSite）", "SameSite" not in sc and "samesite" not in sc, sc)
-        check("Cookie 不带 Secure（HTTP/HTTPS 反代通用）", "; Secure" not in sc and "; secure" not in sc, sc)
+        check("HTTP 下 Cookie 为普通 Cookie（不带 SameSite）", "SameSite" not in sc and "samesite" not in sc, sc)
+        check("HTTP 下 Cookie 不带 Secure", "; Secure" not in sc and "; secure" not in sc, sc)
         check("登录返回 CSRF token", bool(c.csrf))
+
+        # HTTPS 反代（XFP=https）登录：Cookie 带 Secure + SameSite=Lax
+        https_login = Client()
+        st, hd_https, j = https_login.j("POST", "/api/login", {"username": "admin", "password": PASSWORD},
+                                        headers={"X-Forwarded-Proto": "https", "Origin": "https://example.com",
+                                                 "Host": "example.com"})
+        check("HTTPS 反代登录成功", st == 200, (st, j))
+        sc_https = " ".join(hd_https.get("set-cookie", []))
+        check("HTTPS 下 Cookie 带 Secure", "Secure" in sc_https, sc_https)
+        check("HTTPS 下 Cookie 带 SameSite=Lax", "SameSite=Lax" in sc_https, sc_https)
 
         # 每日检测时间可配置
         st, _, j = c.j("GET", "/api/session")
@@ -335,7 +353,7 @@ def main():
         st, _, _ = c.req("POST", "/api/renew-all", {}, csrf=False)
         check("缺少 CSRF → 403", st == 403, st)
         st, _, _ = c.req("POST", "/api/renew-all", {}, origin="http://evil.example")
-        check("带有效 CSRF Token 时 Origin 不再拦截", st == 202, st)
+        check("内网 Host 隐藏公网名时状态变更不被 Origin 拦截", st == 202, st)
 
         # ---- 参数校验 ----
         st, _, j = c.j("POST", "/api/issue", {"domains": ["not_a_domain"], "code": "dns_ali", "env": {"Ali_Key": "a", "Ali_Secret": "b"}})

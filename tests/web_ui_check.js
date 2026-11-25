@@ -209,14 +209,17 @@ check('非登录 401 静默回登录页', app.includes("showLogin('')"));
 const goMain = fs.readFileSync(path.join(root, 'main.go'), 'utf8');
 const goAuth = fs.readFileSync(path.join(root, 'auth.go'), 'utf8');
 check('面板不再有 HSTS 开关', !goMain.includes('ACME_PANEL_HSTS') && !goMain.includes('HSTS:'));
-check('面板不下发 HSTS（交给反代）', goMain.includes('HSTS 由反代（nginx/Caddy）负责')
-  && !goMain.includes('Strict-Transport-Security'));
+check('HSTS 仅在确认 HTTPS 时下发', goMain.includes('if requestIsHTTPS(r)')
+  && goMain.includes('Strict-Transport-Security'));
 check('面板固定纯 HTTP', goMain.includes('httpSrv.ListenAndServe()')
   && !goMain.includes('ListenAndServeTLS'));
 check('JS/CSS 不缓存（避免旧前端文案）', goMain.includes('strings.HasSuffix(r.URL.Path, ".js")')
   && goMain.includes('strings.HasSuffix(r.URL.Path, ".css")') && goMain.includes('"no-store"'));
-check('Cookie 为普通 Cookie（无 SameSite/Secure）', !goApi.includes('SameSite:')
-  && !goApi.includes('Secure:') && goApi.includes('HttpOnly: true'));
-check('登录不再按 Host/Origin 拦截', goAuth.includes('func sameOrigin(r *http.Request) bool { return true }'));
+check('首页资源带版本号，绕开反代旧缓存', goMain.includes('__VER__')
+  && fs.readFileSync(path.join(root, 'web', 'index.html'), 'utf8').includes('/app.js?v=__VER__'));
+check('Cookie 智能加固（HTTPS 才 Secure+Lax）', goApi.includes('if requestIsHTTPS(r)')
+  && goApi.includes('c.Secure = true') && goApi.includes('c.SameSite = http.SameSiteLaxMode'));
+check('同源校验智能恢复（按主机名兼容反代）', goAuth.includes('func sameOrigin(r *http.Request) bool {')
+  && goAuth.includes('isInternalHost') && goAuth.includes('X-Forwarded-Host'));
 
 console.log(`web UI checks: ${passed} passed`);

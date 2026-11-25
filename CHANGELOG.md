@@ -2,6 +2,15 @@
 
 本文件遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)。
 
+## [0.1.61] - 2026-11-26
+
+### 安全
+- 智能恢复安全加固，零开关：`X-Forwarded-Proto: https`（或直连 TLS）时 Cookie 自动带 `Secure` + `SameSite=Lax` 并下发 HSTS；纯 HTTP 保持普通 Cookie 且不下发 HSTS，避免把 HTTP 站点锁死。
+- 同源校验按主机名比较，忽略端口与协议，兼容 `X-Forwarded-Host` 与反代改写 Host；公网主机名明确时拒绝跨站，反代隐去公网名时不误拦登录。状态变更仍由 CSRF Token 保护。
+
+### 修复
+- 首页引用的 `app.js` / `style.css` 加版本号查询参数（随版本变化），绕开 nginx `proxy_cache` 对同名静态文件的旧缓存：升级后无需手动清缓存即可看到新前端，不再因为旧 JS 把密码错误显示成「未登录」。
+
 ## [0.1.60] - 2026-11-26
 
 ### 修复

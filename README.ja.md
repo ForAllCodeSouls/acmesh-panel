@@ -35,7 +35,7 @@
 
 | 分類 | 機能 |
 |---|---|
-| **認証** | 単一アカウント + PBKDF2-HMAC-SHA256（600k 反復）；素のセッション Cookie（`HttpOnly` のみ、`Secure` / `SameSite` なし）；CSRF トークン（ログインは Origin/Host で遮断しない）；IP ごとに 5 回失敗で指数バックオフロック；任意の 90 日「ログイン保持」。環境変数は**初回起動時のみ**認証情報を初期化し、以後は Web UI での変更が永続化（再起動で上書きされない）。Web 登録画面なし |
+| **認証** | 単一アカウント + PBKDF2-HMAC-SHA256（600k 反復）；スマートセッション Cookie（HTTP では素の `HttpOnly`、HTTPS 確認時は `Secure` + `SameSite=Lax` を自動付与）；CSRF トークン + スマート同一オリジン検証（ホスト名比較、リバースプロキシ対応、設定不要）；IP ごとに 5 回失敗で指数バックオフロック；任意の 90 日「ログイン保持」。環境変数は**初回起動時のみ**認証情報を初期化し、以後は Web UI での変更が永続化。Web 登録画面なし |
 | **証明書管理** | acme.sh home を走査して X.509 を解析：SAN・発行者・有効期限・鍵種別・残日数・期限切れ警告 |
 | **発行** | DNS API 自動検証、ワイルドカード対応；43 種類の DNS プロバイダ内蔵（認証情報フィールドは acme.sh 公式スクリプトと照合済み、各プロバイダの公式サイトへのリンク付き、全一覧は [README.md §5.2](README.md#52-签发证书)）；ECC 256/384、RSA 2048/4096 |
 | **メール** | グローバル既定 ACME メール + ドメイン別上書き |
@@ -140,9 +140,10 @@ systemd ユニット例および macOS / Windows の手順は中国語版 README
 ## セキュリティモデル（要約）
 
 - パスワードは PBKDF2-HMAC-SHA256（600k 反復、ランダムソルト、定数時間比較）で保存。
-- セッション：インメモリ + 素の Cookie（`HttpOnly` のみ、`Secure` / `SameSite` なし。ブラウザ既定では Lax）、HTTP と HTTPS リバースプロキシの両方で動作、ログイン時にセッション ID を再生成。
-- パネルは HTTP のみ提供。HTTPS / HSTS は nginx/Caddy で終端し、パネル自身は HSTS を送信しません。
-- CSRF：状態変更リクエストすべてにトークンを検証。Origin/Referer/Host はログイン遮断に使わないため、リバースプロキシが Host を書き換えてもログインできます。
+- セッション：インメモリ + スマート Cookie。平文 HTTP では素の `HttpOnly` Cookie、HTTPS 確認時（`X-Forwarded-Proto: https` または直接 TLS）は自動で `Secure` + `SameSite=Lax` を付与。設定なしで HTTP / HTTPS 両方で動作、ログイン時にセッション ID を再生成。
+- パネルは HTTP のみ提供。HTTPS は nginx/Caddy で終端。HSTS は HTTPS 確認時のみパネルが送信し、平文 HTTP では送信しないため自分をロック out しません。
+- CSRF：状態変更リクエストすべてにトークンを検証。同一オリジン検証はホスト名で比較（ポート/スキーム無視、`X-Forwarded-Host` 対応）するため、リバースプロキシが Host を書き換えてもログインでき、公開ホスト名が分かる場合はクロスサイトを拒否します。
+- 静的アセットは URL にバージョンを付与し、アップグレード時に古いプロキシキャッシュを自動で回避します。
 - 総当たり：IP + ユーザー名ごとの指数バックオフロック + セキュリティ通知。
 - 認証情報（DNS API キー・通知チャネル・SSH 鍵/パスワード）は AES-256-GCM で暗号化保存；API はマスク値のみ返却；ログは値をマスキング。
 - Web UI：厳格 CSP、インラインスクリプト / スタイルなし、CDN 不使用。
@@ -157,7 +158,7 @@ systemd ユニット例および macOS / Windows の手順は中国語版 README
 - **パスワードを忘れた**：`ACME_PANEL_USER` + `ACME_PANEL_PASSWORD` + `ACME_PANEL_RESET_CREDENTIALS=1` を設定して一度再起動し、完了後は必ず解除。
 - **ログインできるが発行に失敗する**：DNS プロバイダの認証情報とドメイン NS の向きを確認；ジョブログに acme.sh の出力がそのまま表示されます。
 - **ポート競合**：`docker-compose.yml` の `8800:8080` の左側を変更。
-- **リバースプロキシ背後**：nginx/Caddy 側で HTTPS と HSTS を終端。パネル側の Cookie / HSTS スイッチは不要。レート制限を実クライアント IP で取りたい場合のみ `ACME_PANEL_TRUST_PROXY=1` を設定。
+- **リバースプロキシ背後**：nginx/Caddy 側で HTTPS を終端。`X-Forwarded-Proto: https` を渡せばパネルが `Secure` / HSTS を付与。渡さなくてもログインは可能。パネル側の Cookie / HSTS スイッチは不要。レート制限を実クライアント IP で取りたい場合のみ `ACME_PANEL_TRUST_PROXY=1` を設定。
 
 ---
 

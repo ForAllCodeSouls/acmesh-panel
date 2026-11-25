@@ -270,8 +270,11 @@ func (s *Server) securityHeaders(next http.Handler) http.Handler {
 		h.Set("Permissions-Policy", "geolocation=(), microphone=(), camera=()")
 		h.Set("Cross-Origin-Opener-Policy", "same-origin")
 		h.Set("Cross-Origin-Resource-Policy", "same-origin")
-		// HSTS 由反代（nginx/Caddy）负责；面板固定 HTTP，不再自己下发，
-		// 避免反代头配置不一致时把 HTTP 站点锁死一年。
+		// 智能恢复 HSTS：只在确认客户端这一段确为 HTTPS 时下发。
+		// 纯 HTTP（含反代未透传 XFP）不下发，避免配错一次就把 HTTP 锁死一年。
+		if requestIsHTTPS(r) {
+			h.Set("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
+		}
 		if strings.HasPrefix(r.URL.Path, "/api/") {
 			h.Set("Cache-Control", "no-store")
 		} else if r.URL.Path == "/" || strings.HasSuffix(r.URL.Path, ".html") {
@@ -415,9 +418,22 @@ func (s *Server) routes() *http.ServeMux {
 	mux.HandleFunc("POST /api/remote/files", s.requireAuth(s.handleRemoteFiles))
 	mux.HandleFunc("POST /api/remote/push", s.requireAuth(s.handleRemotePush))
 
-	// 静态资源（内嵌，无 CDN 依赖）
+	// 首页：把 __VER__ 换成实际版本，使 app.js/style.css 的 URL 随版本变化，
+	// 绕开反代（nginx proxy_cache）对同名静态文件的旧缓存，升级后无需手动清缓存。
+	mux.HandleFunc("GET /{$}", s.serveIndex)
+	// 其它静态资源（内嵌，无 CDN 依赖）
 	mux.Handle("/", s.static)
 	return mux
+}
+
+func (s *Server) serveIndex(w http.ResponseWriter, r *http.Request) {
+	body, err := webFS.ReadFile("web/index.html")
+	if err != nil {
+		http.Error(w, "页面读取失败", http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	_, _ = w.Write([]byte(strings.ReplaceAll(string(body), "__VER__", appVersion)))
 }
 
 func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
