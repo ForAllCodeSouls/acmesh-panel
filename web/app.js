@@ -1841,7 +1841,7 @@
       toast(!events.length
         ? (r.message || (skipped ? `${skipped} 个文件未变化，已跳过；需要全部重推请勾选「强制同步」`
                                  : '没有可同步的文件：请检查目标机器上是否有面板签发的证书、主机是否启用'))
-        : `远程同步完成：${ok} 台成功${fail ? `，${fail} 台失败` : ''}${skipped ? `，跳过 ${skipped} 个未变化文件` : ''}`,
+        : `远程同步完成：${ok} 个文件成功${fail ? `，${fail} 个失败（详见同步记录）` : ''}${skipped ? `，跳过 ${skipped} 个未变化文件` : ''}`,
         fail ? 'err' : '');
       await loadSync();
     } catch (e) { toast(e.message, 'err'); }

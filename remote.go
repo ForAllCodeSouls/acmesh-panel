@@ -453,15 +453,64 @@ func readRemoteCertFiles(store *Store, h RemoteHost, names []string) (map[string
 	return out, nil
 }
 
+// pairedKeyName 由目标证书文件名推导配套私钥文件名：
+// app.example.com_cert.pem / _fullchain.pem / app.example.com.pem -> app.example.com_key.pem。
+func pairedKeyName(name string) string {
+	for _, suffix := range []string{
+		"_fullchain.pem", "-fullchain.pem", "_cert.pem", "-cert.pem",
+		"_chain.pem", "-chain.pem", ".pem", ".cer", ".crt",
+	} {
+		if len(name) > len(suffix) && strings.EqualFold(name[len(name)-len(suffix):], suffix) {
+			return name[:len(name)-len(suffix)] + "_key.pem"
+		}
+	}
+	return ""
+}
+
 // pushMatchedToRemote 把面板已签名证书的最新内容写到目标主机上的指定文件（按文件名一一对应）。
 // 与 pushToRemote 的区别：这里的目标文件名来自「目标机器现有证书」的匹配结果，
 // 内容来自面板已签名证书（ci.Name），所以写进去的是 dockge.xxx_cert.pem 对应的最新证书，
 // 而不是把本地 /certs 里规则命中的同名文件整批推过去。
-func pushMatchedToRemote(store *Store, certs *CertScanner, h RemoteHost, matches map[string]RemoteCertMatch, force bool) ([]SyncEvent, int) {
+func pushMatchedToRemote(store *Store, certs *CertScanner, h RemoteHost, matches map[string]RemoteCertMatch, force bool, remoteNames ...string) ([]SyncEvent, int) {
 	out := []SyncEvent{}
 	if !h.Enabled || len(matches) == 0 {
 		return out, 0
 	}
+	// 证书命中后必须连私钥一起同步：目标机器已有配套私钥就沿用它的文件名，
+	// 没有则按 <域名>_key.pem 新建。之前只写命中的证书文件，用户看到「密钥没同步」。
+	full := map[string]RemoteCertMatch{}
+	for name, m := range matches {
+		full[name] = m
+	}
+	for name, m := range matches {
+		if m.Kind == "key" {
+			continue
+		}
+		keyName := pairedKeyName(name)
+		if keyName == "" {
+			continue
+		}
+		// 已有任意命名的配套私钥（_key.pem / .key.pem / -key.pem）就不重复创建。
+		hasKey := false
+		for n, km := range matches {
+			if km.Kind == "key" && strings.EqualFold(certFileDomain(n), certFileDomain(keyName)) {
+				hasKey = true
+				break
+			}
+		}
+		if !hasKey {
+			for _, n := range remoteNames {
+				if strings.EqualFold(certFileDomain(n), certFileDomain(keyName)) && syncFileKind(n) == "key" {
+					hasKey = true
+					break
+				}
+			}
+		}
+		if !hasKey {
+			full[keyName] = RemoteCertMatch{Source: m.Source, Domain: m.Domain, Kind: "key"}
+		}
+	}
+	matches = full
 	all, err := certs.Scan()
 	if err != nil {
 		return out, 0
@@ -490,9 +539,17 @@ func pushMatchedToRemote(store *Store, certs *CertScanner, h RemoteHost, matches
 	seen := store.RemoteSeens()
 	updates := map[string]string{}
 	skipped := 0
+	fail := func(name, source, detail string) {
+		out = append(out, SyncEvent{
+			Time: time.Now().Format(time.RFC3339), Scope: "remote",
+			Rule: "按证书内容同步 · " + h.Name, Source: source, Target: name,
+			Result: "fail", Detail: detail,
+		})
+	}
 	for name, m := range matches {
 		ci, ok := byName[m.Source]
 		if !ok || ci.Status == "invalid" || ci.Status == "expired" {
+			fail(name, m.Source, "面板证书不存在或已失效，无法读取内容")
 			continue
 		}
 		var content []byte
@@ -500,12 +557,14 @@ func pushMatchedToRemote(store *Store, certs *CertScanner, h RemoteHost, matches
 		if m.Kind == "key" {
 			s, err := certs.ReadKey(ci.Name)
 			if err != nil {
+				fail(name, m.Source, "面板私钥读取失败: "+err.Error())
 				continue
 			}
 			content, mode = []byte(s), 0o600
 		} else {
 			s, err := certs.ReadPEM(ci.Name, "fullchain")
 			if err != nil {
+				fail(name, m.Source, "面板证书读取失败: "+err.Error())
 				continue
 			}
 			content = []byte(s)
@@ -521,6 +580,7 @@ func pushMatchedToRemote(store *Store, certs *CertScanner, h RemoteHost, matches
 		tmpPath := remotePath + ".acmesh-tmp"
 		rf, err := sftpClient.Create(tmpPath)
 		if err != nil {
+			fail(name, m.Source, "远程临时文件创建失败: "+err.Error())
 			continue
 		}
 		_, werr := rf.Write(content)
@@ -528,12 +588,14 @@ func pushMatchedToRemote(store *Store, certs *CertScanner, h RemoteHost, matches
 		clerr := rf.Close()
 		if werr != nil || cerr != nil || clerr != nil {
 			_ = sftpClient.Remove(tmpPath)
+			fail(name, m.Source, "远程文件写入失败")
 			continue
 		}
 		if err := sftpClient.PosixRename(tmpPath, remotePath); err != nil {
 			_ = sftpClient.Remove(remotePath)
 			if err2 := sftpClient.Rename(tmpPath, remotePath); err2 != nil {
 				_ = sftpClient.Remove(tmpPath)
+				fail(name, m.Source, "远程文件替换失败: "+err2.Error())
 				continue
 			}
 		}

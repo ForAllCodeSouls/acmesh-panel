@@ -1684,7 +1684,7 @@ func (s *Server) handleRemotePushByContent(w http.ResponseWriter, r *http.Reques
 			continue
 		}
 		matchedFiles += len(matches)
-		evs, skip := pushMatchedToRemote(s.store, s.sync.certs, h, matches, force)
+		evs, skip := pushMatchedToRemote(s.store, s.sync.certs, h, matches, force, names...)
 		events = append(events, evs...)
 		skipped += skip
 	}

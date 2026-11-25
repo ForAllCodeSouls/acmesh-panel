@@ -386,8 +386,9 @@ func TestMatchRemoteCertsExactClaimByContent(t *testing.T) {
 func TestRemoteCertDomains(t *testing.T) {
 	data := testCertPEM(t, "panel.wild.example.net", "panel.wild.example.net", "*.wild.example.net")
 	got := remoteCertDomains(data)
-	want := []string{"panel.wild.example.net"}
-	if len(got) != len(want) || got[0] != want[0] {
+	// 通配 SAN 必须保留：泛域证书内容只有 *.wild.example.net 时也要能匹配上。
+	want := []string{"panel.wild.example.net", "*.wild.example.net"}
+	if len(got) != len(want) || got[0] != want[0] || got[1] != want[1] {
 		t.Fatalf("域名解析异常: got=%v want=%v", got, want)
 	}
 	if d := remoteCertDomains([]byte("not a pem")); len(d) != 0 {

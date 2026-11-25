@@ -379,21 +379,29 @@ func (e *SyncEngine) tryKey(name string) (string, bool) {
 }
 
 // syncFileKind 按文件名判断这是私钥、证书链还是证书。
+// 只认结尾标记，不用 Contains：域名里含 monkey / keyboard / privilege 等字样时
+// 不会被误判成私钥（曾导致目标证书被当成 key 跳过内容读取）。
 func syncFileKind(name string) string {
 	lower := strings.ToLower(name)
-	// 注意顺序：fullchain 同时含 "chain"，必须先判断，否则会被误判为证书链。
-	switch {
-	case strings.Contains(lower, "key") || strings.Contains(lower, "priv"):
+	isKey := false
+	for _, suffix := range []string{"_key", "-key", ".key", "_priv", "-priv", ".priv", "privkey"} {
+		if strings.HasSuffix(strings.TrimSuffix(lower, ".pem"), suffix) || strings.HasSuffix(lower, suffix) {
+			isKey = true
+			break
+		}
+	}
+	if isKey {
 		return "key"
-	case strings.Contains(lower, "fullchain"):
-		return "cert"
-	case strings.Contains(lower, "chain") ||
-		strings.Contains(lower, "_ca.") || strings.HasPrefix(lower, "ca."):
-		// 不再用宽泛的 HasPrefix("ca")：caddy.example.com_cert.pem 会被误判成证书链
-		return "chain"
-	default:
+	}
+	// fullchain 同时含 chain，必须先判断。
+	if strings.Contains(lower, "fullchain") {
 		return "cert"
 	}
+	if strings.Contains(lower, "chain") ||
+		strings.Contains(lower, "_ca.") || strings.HasPrefix(lower, "ca.") {
+		return "chain"
+	}
+	return "cert"
 }
 
 // certExactClaims 建立「文件名域名 -> 拥有该域名证书的目录名」映射（主域名 + 非通配 SAN）。
@@ -628,7 +636,10 @@ func certFileDomain(name string) string {
 	for _, suffix := range []string{".pem", ".cer", ".crt"} {
 		s = strings.TrimSuffix(s, suffix)
 	}
-	for _, suffix := range []string{"_fullchain", "_cert", "_chain", "_key", "-cert", "-key"} {
+	for _, suffix := range []string{
+		"_fullchain", "-fullchain", "_cert", "-cert", "_chain", "-chain",
+		"_privkey", "-privkey", "_key", "-key", ".key", "_priv", "-priv", ".priv",
+	} {
 		s = strings.TrimSuffix(s, suffix)
 	}
 	return s
@@ -837,9 +848,11 @@ func remoteCertDomains(data []byte) []string {
 	seen := map[string]bool{}
 	add := func(s string) {
 		s = strings.ToLower(strings.TrimSpace(s))
-		if s == "" || strings.HasPrefix(s, "*.") {
-			return // 通配写法留到匹配阶段处理，避免 "*.a.com" 被当成真实域名
+		if s == "" {
+			return
 		}
+		// 保留 *. 前缀交给匹配阶段处理：泛域证书内容可能只有 *.example.com，
+		// 直接丢弃会整张匹配不上；但也不能去掉前缀当精确域名，否则非泛域证书会抢写。
 		if !seen[s] {
 			seen[s] = true
 			out = append(out, s)
@@ -885,7 +898,21 @@ func matchSignedCertByDomains(domains []string, all []CertInfo) (CertInfo, strin
 				continue
 			}
 			score := 0
-			if strings.EqualFold(dl, ci.Domain) {
+			if strings.HasPrefix(dl, "*.") {
+				// 目标证书自己是泛域证书：只有面板也签了同一张泛域证书才算归属，
+				// 普通域名证书不能抢写泛域文件。
+				wild := "*." + strings.TrimPrefix(dl, "*.")
+				if strings.EqualFold(wild, ci.Domain) {
+					score = 3
+				} else {
+					for _, san := range ci.SANs {
+						if strings.EqualFold(strings.TrimSpace(san), wild) {
+							score = 3
+							break
+						}
+					}
+				}
+			} else if strings.EqualFold(dl, ci.Domain) {
 				score = 3 // 精确主域名
 			} else {
 				for _, san := range ci.SANs {
