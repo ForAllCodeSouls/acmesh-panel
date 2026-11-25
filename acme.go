@@ -328,6 +328,10 @@ type Job struct {
 
 	logs   []string
 	Manual bool `json:"manual"` // 手动触发的任务才会展示"未到续签时间"提示
+
+	// 重试所需的原始执行参数。env 含凭证，绝不序列化给前端；args 也不直接暴露。
+	retryArgs []string
+	retryEnv  map[string]string
 }
 
 type JobManager struct {
@@ -357,6 +361,10 @@ type persistedJob struct {
 	Ended   time.Time `json:"ended"`
 	Manual  bool      `json:"manual"`
 	Logs    []string  `json:"logs"`
+
+	// 重试参数：args 不含凭证可明文；env 含凭证，经 store 的 AEAD 加密后存 EnvBlob。
+	Args    []string `json:"args,omitempty"`
+	EnvBlob string   `json:"env_blob,omitempty"` // base64(nonce||ciphertext)
 }
 
 // loadPersisted 从 SQLite 恢复历史任务（只保留已完成/取消的）。
@@ -387,6 +395,17 @@ func (m *JobManager) loadPersisted() {
 			Status: p.Status, Preview: p.Preview, Error: p.Error,
 			Created: p.Created, Started: p.Started, Ended: p.Ended,
 			Manual: p.Manual, logs: p.Logs,
+			retryArgs: p.Args,
+		}
+		// 重试凭证以密文落盘，恢复时用同一把密钥与任务 ID 作为 AAD 解封；
+		// 解不开（换过 secret.key）就当作不可重试，不让它阻断历史任务展示。
+		if p.EnvBlob != "" && m.store != nil {
+			if plain, e := m.store.OpenForRetry(p.EnvBlob, p.ID); e == nil {
+				var env map[string]string
+				if json.Unmarshal(plain, &env) == nil {
+					j.retryEnv = env
+				}
+			}
 		}
 		m.jobs[j.ID] = j
 		m.order = append(m.order, j.ID)
@@ -409,12 +428,22 @@ func (m *JobManager) savePersisted() {
 		if !ok {
 			continue
 		}
-		list = append(list, persistedJob{
+		p := persistedJob{
 			ID: j.ID, Kind: j.Kind, Title: j.Title, Domain: j.Domain,
 			Status: j.Status, Preview: j.Preview, Error: j.Error,
 			Created: j.Created, Started: j.Started, Ended: j.Ended,
 			Manual: j.Manual, Logs: append([]string(nil), j.logs...),
-		})
+			Args: append([]string(nil), j.retryArgs...),
+		}
+		// env 含 DNS API 凭证：加密后才落盘，AAD 绑定任务 ID。
+		if len(j.retryEnv) > 0 && m.store != nil {
+			if plain, e := json.Marshal(j.retryEnv); e == nil {
+				if blob, e := m.store.SealForRetry(plain, j.ID); e == nil {
+					p.EnvBlob = blob
+				}
+			}
+		}
+		list = append(list, p)
 	}
 
 	tx, err := m.store.DB().Begin()
@@ -537,6 +566,37 @@ func (m *JobManager) Cancel(id string) bool {
 	return true
 }
 
+// Retry 以原任务的凭证与命令参数重新提交一个新任务。
+// 仅允许终态任务重试；运行中的任务重试无意义且可能造成并发冲突。
+func (m *JobManager) Retry(id string) (*Job, error) {
+	m.mu.Lock()
+	old, ok := m.jobs[id]
+	if !ok {
+		m.mu.Unlock()
+		return nil, errors.New("任务不存在")
+	}
+	if old.Status != "failed" && old.Status != "canceled" && old.Status != "skipped" {
+		m.mu.Unlock()
+		return nil, errors.New("只有失败、已取消或未到期的任务可以重试")
+	}
+	if len(old.retryArgs) == 0 {
+		m.mu.Unlock()
+		return nil, errors.New("该任务缺少原始执行参数，无法重试，请在业务页面重新操作")
+	}
+	kind, title, domain, preview := old.Kind, old.Title, old.Domain, old.Preview
+	args := append([]string(nil), old.retryArgs...)
+	env := make(map[string]string, len(old.retryEnv))
+	for k, v := range old.retryEnv {
+		env[k] = v
+	}
+	m.mu.Unlock()
+
+	j := m.start(kind, title, domain, preview, env, args, true)
+	m.push(j, "↻ 重试任务（原任务 "+id+"）")
+	m.push(j, "  提示：若上次失败是证书尚未到续期时间，重试仍会跳过；如需强制续签请到证书页勾选强制续签")
+	return j, nil
+}
+
 func (m *JobManager) Start(kind, title, domain, preview string, env map[string]string, args []string) *Job {
 	return m.start(kind, title, domain, preview, env, args, true)
 }
@@ -547,15 +607,21 @@ func (m *JobManager) StartAuto(kind, title, domain, preview string, env map[stri
 }
 
 func (m *JobManager) start(kind, title, domain, preview string, env map[string]string, args []string, manual bool) *Job {
+	envCopy := make(map[string]string, len(env))
+	for k, v := range env {
+		envCopy[k] = v
+	}
 	j := &Job{
-		ID:      randToken(9),
-		Kind:    kind,
-		Title:   title,
-		Domain:  domain,
-		Status:  "queued",
-		Preview: preview,
-		Created: time.Now(),
-		Manual:  manual,
+		ID:        randToken(9),
+		Kind:      kind,
+		Title:     title,
+		Domain:    domain,
+		Status:    "queued",
+		Preview:   preview,
+		Created:   time.Now(),
+		Manual:    manual,
+		retryArgs: append([]string(nil), args...),
+		retryEnv:  envCopy,
 	}
 	m.mu.Lock()
 	m.jobs[j.ID] = j

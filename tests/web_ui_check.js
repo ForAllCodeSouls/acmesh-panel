@@ -185,6 +185,17 @@ check('服务商目录源码按 code 排序', (() => {
 check('签发弹窗有 DNS 等待秒数并默认 30', app.includes('id="iss-dnssleep"')
   && app.includes('type="number" min="0" max="600" value="30"')
   && app.includes('dns_sleep: parseInt($(\'#iss-dnssleep\').value, 10) || 0'));
+check('失败任务显示重试按钮', app.includes("['failed', 'canceled', 'skipped'].includes(j.status)")
+  && app.includes("class=\"btn small job-retry-btn\""));
+check('重试调用 retry 接口并跳转新任务', app.includes("/retry`, { method: 'POST', body: {} }")
+  && app.includes('openJobLog(r.job.id, r.job.title)'));
+check('日志弹窗有重试按钮', app.includes('id="job-retry"')
+  && app.includes("retryBtn.addEventListener('click', () => retryJob(id, title))"));
+check('后端有重试路由与处理函数', fs.readFileSync(path.join(root, 'main.go'), 'utf8').includes('/api/jobs/{id}/retry')
+  && goApi.includes('func (s *Server) handleRetryJob')
+  && goAcme.includes('func (m *JobManager) Retry'));
+check('重试凭证密文落盘', goAcme.includes('EnvBlob') && goAcme.includes('SealForRetry')
+  && fs.readFileSync(path.join(root, 'store.go'), 'utf8').includes('func (s *Store) SealForRetry'));
 check('README 引用全部四张示意图', readme.includes('docs/01-overview.svg')
   && readme.includes('docs/02-dns-credential.svg')
   && readme.includes('docs/03-domain-matching.svg')

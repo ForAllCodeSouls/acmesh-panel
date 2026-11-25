@@ -862,6 +862,17 @@
     b.classList.toggle('hidden', active === 0);
   }
 
+  async function retryJob(id, title) {
+    try {
+      const r = await api(`/api/jobs/${encodeURIComponent(id)}/retry`, { method: 'POST', body: {} });
+      toast('重试任务已创建');
+      state.closeJobLog?.();
+      await loadJobs();
+      if (r.job) openJobLog(r.job.id, r.job.title);
+      else switchView('jobs');
+    } catch (e) { toast(e.message, 'err'); }
+  }
+
   function renderJobs() {
     const box = $('#job-list');
     box.innerHTML = '';
@@ -871,21 +882,30 @@
       row.className = 'row job-item';
       row.dataset.id = j.id;
       const st = { queued: '排队', running: '执行中', success: '成功', failed: '失败', canceled: '已取消', skipped: '未到期' }[j.status] || j.status;
+      const retryable = ['failed', 'canceled', 'skipped'].includes(j.status);
       row.innerHTML = `
         <div class="row-main minw0">
           <div class="row-title">${esc(j.title)}</div>
           <div class="tiny muted mt2">${esc(fmtTime(j.created))} · ${esc(j.kind)}</div>
         </div>
+        ${retryable ? '<button class="btn small job-retry-btn" type="button" title="用原参数重新执行">重试</button>' : ''}
         <span class="job-status ${esc(j.status)}">${esc(st)}</span>
         <span class="muted">›</span>`;
+      const retryBtn = row.querySelector('.job-retry-btn');
+      if (retryBtn) {
+        retryBtn.addEventListener('click', (e) => { e.stopPropagation(); retryJob(j.id, j.title); });
+      }
       row.addEventListener('click', () => openJobLog(j.id, j.title));
       box.appendChild(row);
     }
   }
 
   function openJobLog(id, title) {
+    const cur = state.jobs.find((j) => j.id === id);
+    const canRetryLog = cur && ['failed', 'canceled', 'skipped'].includes(cur.status);
     openModal(title || '任务日志', `<div class="log" id="job-log"></div>`, `
       <button class="btn ghost small hidden" id="job-cancel">取消任务</button>
+      <button class="btn small hidden" id="job-retry">重试任务</button>
       <span class="grow"></span>
       <button class="btn small" id="job-reload">刷新列表</button>
       <button class="btn ghost" id="job-close">关闭</button>`);
@@ -920,6 +940,9 @@
       else if (ev.data === 'skipped') toast('证书未到续期时间');
       else toast('任务结束：' + ev.data, ev.data === 'canceled' ? 'warn' : 'err');
       $('#job-cancel')?.classList.add('hidden');
+      if (ev.data === 'failed' || ev.data === 'canceled' || ev.data === 'skipped') {
+        $('#job-retry')?.classList.remove('hidden');
+      }
     });
     es.onerror = () => { /* 关闭或断线时浏览器会自动重连，这里不打扰用户 */ };
     // 统一关闭入口：✕ / 遮罩 / Escape / 关闭按钮都会走到这里，避免 SSE 泄漏
@@ -938,6 +961,9 @@
       try { await api(`/api/jobs/${encodeURIComponent(id)}/cancel`, { method: 'POST', body: {} }); toast('已请求取消'); }
       catch (e) { toast(e.message, 'err'); }
     });
+    const retryBtn = $('#job-retry');
+    if (canRetryLog) retryBtn.classList.remove('hidden');
+    retryBtn.addEventListener('click', () => retryJob(id, title));
   }
 
   // 任务进行中时轮询列表，保证角标与状态新鲜

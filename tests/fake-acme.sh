@@ -55,6 +55,15 @@ case "$CMD" in
     printf '%s\n' "$@" > "$HOME_DIR/last-issue.args"
     case "$d" in
       fail.*) echo "[fake] 模拟 CA 拒绝签发" >&2; exit 1;;
+      flaky.*)
+        # 首次失败、之后成功：用于验证"失败任务重试"能重新执行并成功。
+        flag="$HOME_DIR/.flaky-${d}.done"
+        if [ ! -f "$flag" ]; then
+          touch "$flag"
+          echo "[fake] 模拟首次失败，重试应成功" >&2
+          exit 1
+        fi
+        ;;
     esac
     say "Using CA: ${SERVER:-letsencrypt}"
     say "Single domain='$d'"

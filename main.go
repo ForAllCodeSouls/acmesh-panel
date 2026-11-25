@@ -388,6 +388,7 @@ func (s *Server) routes() *http.ServeMux {
 	mux.HandleFunc("GET /api/jobs/{id}", s.requireAuth(s.handleJob))
 	mux.HandleFunc("GET /api/jobs/{id}/events", s.requireAuth(s.handleJobEvents))
 	mux.HandleFunc("POST /api/jobs/{id}/cancel", s.requireAuth(s.handleCancelJob))
+	mux.HandleFunc("POST /api/jobs/{id}/retry", s.requireAuth(s.handleRetryJob))
 	mux.HandleFunc("GET /api/audit", s.requireAuth(s.handleAudit))
 	mux.HandleFunc("POST /api/password", s.requireAuth(s.handlePassword))
 	mux.HandleFunc("POST /api/username", s.requireAuth(s.handleUsername))

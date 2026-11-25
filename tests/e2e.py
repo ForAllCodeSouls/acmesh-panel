@@ -805,6 +805,32 @@ def main():
                   wait_notify(1) and any("签发失败" in x["body"] for x in notifications),
                   [x["body"][:80] for x in notifications])
 
+        # ---- 失败任务重试：首次失败的任务可重新执行 ----
+        st, _, j = c.j("POST", "/api/issue", {
+            "domains": ["flaky.example.org"], "credential": "ali-test", "keylength": "2048"})
+        check("可重试签发请求被接受", st == 202, st)
+        if st == 202:
+            first = wait_job(c, j["job"]["id"])
+            check("首次签发失败", first and first["job"]["status"] == "failed",
+                  first and first["job"]["status"])
+            st2, _, j2 = c.j("POST", "/api/jobs/" + j["job"]["id"] + "/retry", {})
+            check("失败任务可重试", st2 == 202, (st2, j2))
+            if st2 == 202:
+                check("重试生成新任务 ID", j2["job"]["id"] != j["job"]["id"],
+                      (j["job"]["id"], j2["job"]["id"]))
+                retried = wait_job(c, j2["job"]["id"])
+                check("重试后签发成功", retried and retried["job"]["status"] == "success",
+                      retried and retried["job"]["status"])
+        # 成功任务不可重试
+        st, _, j = c.j("GET", "/api/jobs")
+        ok_jobs = [x for x in j.get("jobs", []) if x.get("status") == "success"]
+        if ok_jobs:
+            st3, _, j3 = c.j("POST", "/api/jobs/" + ok_jobs[0]["id"] + "/retry", {})
+            check("成功任务不允许重试", st3 == 400, (st3, j3))
+        # 不存在的任务不可重试
+        st4, _, _ = c.j("POST", "/api/jobs/no-such-job/retry", {})
+        check("不存在任务重试被拒绝", st4 == 400, st4)
+
         # ---- 临期提醒（造一张 20 天后到期的证书）----
         exp_dir = os.path.join(ACME_HOME, "expiring.example.org")
         os.makedirs(exp_dir, exist_ok=True)

@@ -509,6 +509,34 @@ func (s *Store) CheckUsername(name string) bool {
 	return subtle.ConstantTimeCompare(a[:], b[:]) == 1
 }
 
+// SealForRetry 用面板密钥加密一段数据（用于任务重试参数），aad 绑定所属任务，
+// 防止把某个任务的密文挪到另一个任务上重放。
+func (s *Store) SealForRetry(plain []byte, aad string) (string, error) {
+	nonce := make([]byte, s.aead.NonceSize())
+	if _, err := rand.Read(nonce); err != nil {
+		return "", err
+	}
+	ct := s.aead.Seal(nil, nonce, plain, []byte(aad))
+	return base64.StdEncoding.EncodeToString(append(nonce, ct...)), nil
+}
+
+// OpenForRetry 解密任务重试参数；密钥更换后应返回错误，由调用方降级为"不可重试"。
+func (s *Store) OpenForRetry(blob, aad string) ([]byte, error) {
+	raw, err := base64.StdEncoding.DecodeString(blob)
+	if err != nil {
+		return nil, err
+	}
+	ns := s.aead.NonceSize()
+	if len(raw) < ns {
+		return nil, errors.New("重试参数数据损坏")
+	}
+	plain, err := s.aead.Open(nil, raw[:ns], raw[ns:], []byte(aad))
+	if err != nil {
+		return nil, errors.New("重试参数解密失败（secret.key 可能已更换）")
+	}
+	return plain, nil
+}
+
 func (s *Store) PutProvider(name, code string, env map[string]string) error {
 	if name == "" || code == "" {
 		return errors.New("provider 名称与类型不能为空")

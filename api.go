@@ -884,6 +884,16 @@ func (s *Server) handleCancelJob(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 }
 
+func (s *Server) handleRetryJob(w http.ResponseWriter, r *http.Request) {
+	j, err := s.jobs.Retry(r.PathValue("id"))
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	s.store.Audit(sess(r).User, clientIP(r, s.cfg.TrustProxy), "job_retry", j.Title)
+	writeJSON(w, http.StatusAccepted, map[string]any{"job": j})
+}
+
 func (s *Server) handleJobEvents(w http.ResponseWriter, r *http.Request) {
 	j := s.jobs.Get(r.PathValue("id"))
 	if j == nil {
