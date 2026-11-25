@@ -1,0 +1,181 @@
+name: Release
+
+# 触发方式：
+#   1. 每次推送到 main/master → 自动编译并创建/更新对应版本的 Release
+#   2. push v* 标签（如 git tag v0.1.20 && git push origin v0.1.20）
+#   3. 在 Actions 页面手动 Run workflow，可覆盖版本号
+# 版本号默认读 version.go；同名 Release 已存在时会自动更新资源，不会失败。
+# 产物：linux/amd64、linux/arm64、windows/amd64 二进制 + SHA256SUMS
+
+on:
+  push:
+    branches: [main, master]
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      version:
+        description: '版本号覆盖（可选，留空读 version.go）'
+        required: false
+        default: ''
+
+permissions:
+  contents: write
+
+jobs:
+  prepare:
+    name: 解析版本号
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.ver.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: 读取版本
+        id: ver
+        shell: bash
+        run: |
+          if [ -n "${{ inputs.version }}" ]; then
+            V="${{ inputs.version }}"
+          elif [[ "${{ github.ref }}" == refs/tags/* ]]; then
+            V="${{ github.ref_name }}"
+          else
+            V="v$(grep -oE '[0-9]+\.[0-9]+\.[0-9]+' version.go | head -1)"
+          fi
+          [[ "$V" == v* ]] || V="v$V"
+          echo "version=$V" >> "$GITHUB_OUTPUT"
+          echo "版本: $V"
+
+  binaries:
+    name: 编译 ${{ matrix.goos }}/${{ matrix.goarch }}
+    needs: prepare
+    runs-on: ubuntu-latest
+    env:
+      RELEASE_VERSION: ${{ needs.prepare.outputs.version }}
+    strategy:
+      matrix:
+        include:
+          - goos: linux
+            goarch: amd64
+          - goos: linux
+            goarch: arm64
+          - goos: darwin
+            goarch: amd64
+          - goos: darwin
+            goarch: arm64
+          - goos: windows
+            goarch: amd64
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.26'
+          cache: false
+
+      - name: 交叉编译
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+        run: |
+          mkdir -p dist
+          EXT=""
+          if [ "$GOOS" = "windows" ]; then EXT=".exe"; fi
+          CGO_ENABLED=0 go build -trimpath -buildvcs=false \
+            -ldflags "-s -w -X main.appVersion=${RELEASE_VERSION}" \
+            -o "dist/acmesh-panel-${GOOS}-${GOARCH}${EXT}" .
+          ls -lh dist/
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: acmesh-panel-${{ matrix.goos }}-${{ matrix.goarch }}
+          path: dist/*
+
+  publish:
+    name: 生成校验和并发布 Release
+    needs: [binaries, prepare]
+    runs-on: ubuntu-latest
+    env:
+      RELEASE_VERSION: ${{ needs.prepare.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - name: SHA256SUMS
+        run: cd dist && sha256sum acmesh-panel-* > SHA256SUMS && cat SHA256SUMS
+      - name: 创建 Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ env.RELEASE_VERSION }}
+          name: acmesh-panel ${{ env.RELEASE_VERSION }}
+          generate_release_notes: false
+          body: |
+            ## acmesh-panel ${{ env.RELEASE_VERSION }}
+
+            带账号密码登录的轻量 acme.sh 证书管理面板：Web 签发 / 续期 / 查看私钥、按域名自定义 ACME 邮箱、Gotify 等 Webhook 通知、审计日志。
+
+            ### 下载哪个文件
+
+            | 文件 | 用途 |
+            |---|---|
+            | `acmesh-panel-linux-amd64` | Linux x86_64 服务器 |
+            | `acmesh-panel-linux-arm64` | Linux ARM64（树莓派、ARM 云主机） |
+            | `acmesh-panel-windows-amd64.exe` | Windows x86_64 |
+            | `SHA256SUMS` | 校验文件完整性 |
+
+            全部为静态链接二进制，下载后可直接执行（Windows 用 `.exe`）。
+
+            ### 方式一：Docker 镜像（推荐，自带 acme.sh）
+
+            ```bash
+            docker pull ghcr.io/forallcodesouls/acmesh-panel:${{ env.RELEASE_VERSION }}
+            docker run -d --name acmesh-panel -p 0.0.0.0:8800:8080 \
+              -e ACME_PANEL_PASSWORD='换成你的长密码' \
+              -e ACME_PANEL_EMAIL='you@example.com' \
+              -v acme_home:/acme.sh -v panel_data:/data \
+              ghcr.io/forallcodesouls/acmesh-panel:${{ env.RELEASE_VERSION }}
+            ```
+
+            浏览器打开 `http://服务器IP:8800`，账号 `admin`。
+
+            ### 方式二：Linux 二进制
+
+            **注意**：二进制只有面板本身，acme.sh 需要另外安装（Docker 镜像里已内置）。
+
+            ```bash
+            # 1. 安装 acme.sh（已有可跳过）
+            curl https://get.acme.sh | sh -s email=you@example.com
+
+            # 2. 一键安装面板（从本 Release 下载对应架构）
+            curl -fsSL https://raw.githubusercontent.com/ForAllCodeSouls/acmesh-panel/main/install.sh | sh
+
+            # 3. 或直接运行下载的文件
+            chmod +x acmesh-panel-linux-amd64
+            ACME_HOME="$HOME/.acme.sh" \
+            ACME_BIN="$HOME/.acme.sh/acme.sh" \
+            ACME_PANEL_DATA="$HOME/.acmesh-panel" \
+            ACME_PANEL_LISTEN=0.0.0.0:8800 \
+            ACME_PANEL_PASSWORD='换成你的长密码' \
+            ./acmesh-panel-linux-amd64
+            ```
+
+            ### 方式三：Windows
+
+            下载 `acmesh-panel-windows-amd64.exe`，在 PowerShell 中运行：
+
+            ```powershell
+            .\acmesh-panel-windows-amd64.exe version
+            ```
+
+            Windows 上 acme.sh 需要自行准备（WSL / Git Bash 等），或直接用 Docker 镜像。
+
+            ### 校验下载文件
+
+            ```bash
+            sha256sum -c SHA256SUMS
+            ```
+
+            完整文档：https://github.com/ForAllCodeSouls/acmesh-panel
+          files: |
+            dist/acmesh-panel-*
+            dist/SHA256SUMS

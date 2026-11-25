@@ -1,0 +1,421 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>acmesh panel · 证书管理</title>
+<link rel="icon" type="image/png" href="/assets/logo.png">
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+
+<!-- ============ 登录 ============ -->
+<section id="login-view" class="login hidden">
+  <form id="login-form" class="login-card" autocomplete="on">
+    <div class="brand">
+      <img class="brand-mark-img" src="/assets/logo.png" alt="" width="48" height="48">
+      <div>
+        <h1>acmesh panel</h1>
+        <p>acme.sh 证书管理台</p>
+      </div>
+    </div>
+    <div class="field">
+      <label for="login-user">账号</label>
+      <input id="login-user" name="username" autocomplete="username" spellcheck="false" required>
+    </div>
+    <div class="field">
+      <label for="login-pass">密码</label>
+      <input id="login-pass" name="password" type="password" autocomplete="current-password" required>
+    </div>
+    <button class="btn primary block" type="submit" id="login-btn">登录</button>
+    <label class="check"><input type="checkbox" id="login-remember"> 保持登录状态（30 天免登录）</label>
+    <p id="login-error" class="form-error" role="alert"></p>
+    <p class="tiny muted center">首次启动用环境变量 ACME_PANEL_USER / ACME_PANEL_PASSWORD 初始化账号密码；之后在设置页修改会持久保存。未设密码时启动日志会打印一个随机初始密码。连续 5 次失败会临时锁定来源 IP · 所有操作均记入审计日志</p>
+  </form>
+
+</section>
+
+<!-- ============ 主界面 ============ -->
+<div id="main-view" class="app hidden">
+  <aside class="sidebar">
+    <div class="brand small">
+      <img class="brand-mark-img" src="/assets/logo.png" alt="" width="32" height="32">
+      <div><h1>acmesh</h1><p id="sb-acme" class="tiny muted">acme.sh</p></div>
+    </div>
+    <nav id="nav">
+      <div class="nav-label">证书管理</div>
+      <button class="nav-item active" data-view="certs"><span>▤</span>证书</button>
+      <button class="nav-item" data-view="jobs"><span>⟳</span>任务<span id="job-badge" class="badge hidden">0</span></button>
+      <button class="nav-item" data-view="notify"><span>◎</span>通知</button>
+      <button class="nav-item" data-view="creds"><span>☁</span>DNS 凭证</button>
+      <button class="nav-item" data-view="sync"><span>⇄</span>证书同步</button>
+      <div class="nav-label">系统</div>
+      <button class="nav-item" data-view="settings"><span>⚙</span>设置</button>
+    </nav>
+    <div class="sidebar-foot">
+      <div class="tiny muted" id="sb-user">-</div>
+      <button class="btn ghost small" id="logout-btn">退出登录</button>
+    </div>
+  </aside>
+
+  <main class="main">
+    <header class="topbar">
+      <div>
+        <h2 id="page-title">证书</h2>
+        <p class="tiny muted" id="page-sub">—</p>
+      </div>
+      <div class="topbar-actions">
+        <a id="update-banner" class="update-banner hidden" target="_blank" rel="noopener noreferrer"></a>
+        <button class="btn ghost" id="refresh-btn" title="刷新">↻ 刷新</button>
+        <button class="btn primary" id="issue-btn">＋ 签发证书</button>
+      </div>
+    </header>
+
+    <!-- 证书 -->
+    <section id="view-certs" class="view">
+      <div class="stats">
+        <div class="stat"><span class="stat-num" id="st-total">0</span><span class="stat-label">证书总数</span></div>
+        <div class="stat ok"><span class="stat-num" id="st-valid">0</span><span class="stat-label">有效</span></div>
+        <div class="stat warn"><span class="stat-num" id="st-warning">0</span><span class="stat-label">30 天内到期</span></div>
+        <div class="stat bad"><span class="stat-num" id="st-expired">0</span><span class="stat-label">已过期</span></div>
+      </div>
+      <div class="toolbar">
+        <button class="btn ghost small" id="renew-all-btn">检查全部续期</button>
+        <span class="grow"></span>
+        <input id="cert-filter" class="input search" placeholder="搜索域名…" spellcheck="false">
+      </div>
+      <div id="cert-list" class="cert-grid"></div>
+      <div id="cert-empty" class="empty hidden">
+        <p>还没有证书</p>
+        <p class="tiny muted">点击右上角「签发证书」，用 DNS API 自动申请第一张证书</p>
+      </div>
+    </section>
+
+    <!-- 任务 -->
+    <section id="view-jobs" class="view hidden">
+      <div id="job-list" class="job-list scroll-area"></div>
+      <div id="job-empty" class="empty hidden"><p>暂无任务</p></div>
+    </section>
+
+    <!-- 通知 -->
+    <section id="view-notify" class="view hidden">
+      <div class="panel">
+        <h3>默认 ACME 通知邮箱</h3>
+        <p class="tiny muted">Let's Encrypt 等 CA 的到期提醒会发到这个邮箱。签发单张证书时可以单独指定，留空则使用这里配置的默认值。</p>
+        <div class="row mt12">
+          <input id="default-email" class="grow" type="email" placeholder="you@example.com" spellcheck="false">
+          <button class="btn small" id="save-default-email">保存</button>
+        </div>
+        <p class="hint" id="default-email-source">未设置时，签发不带 --accountemail，使用 acme.sh 安装时配置的账户。</p>
+      </div>
+
+      <div class="panel">
+        <div class="panel-head">
+          <h3>通知渠道</h3>
+          <button class="btn primary small" id="add-notifier">＋ 添加渠道</button>
+        </div>
+        <div id="notifier-list" class="list"></div>
+      </div>
+
+      <div class="panel">
+        <h3>可订阅的事件</h3>
+        <div id="event-help" class="chip-wrap"></div>
+      </div>
+    </section>
+
+    <!-- 凭证 -->
+    <section id="view-creds" class="view hidden">
+      <div class="toolbar">
+        <p class="muted tiny">凭证使用 AES-256-GCM 加密后存储在 <code id="cred-path">/data</code>，明文永不落盘；接口只返回掩码。</p>
+        <span class="grow"></span>
+        <button class="btn primary small" id="add-cred-btn">＋ 添加凭证</button>
+      </div>
+      <div id="cred-list" class="list"></div>
+    </section>
+
+    <!-- 证书同步 -->
+    <section id="view-sync" class="view hidden">
+      <div class="view-tabs" id="sync-tabs" role="tablist" aria-label="证书同步分区">
+        <button class="view-tab active" data-subtab="local" type="button">本地同步</button>
+        <button class="view-tab" data-subtab="remote" type="button">远程同步</button>
+        <button class="view-tab" data-subtab="records" type="button">同步记录</button>
+      </div>
+      <div class="subpanel" data-subpanel="local">
+      <div class="panel">
+        <div class="panel-head">
+          <h3>挂载目录</h3>
+          <div class="head-actions">
+            <label class="sync-force-label" title="忽略证书指纹记录，重新覆盖所有匹配到的文件"><input type="checkbox" id="sync-force"> 强制同步</label>
+            <button class="btn small" id="sync-run" type="button">立即同步</button>
+          </div>
+        </div>
+        <p class="tiny muted" id="sync-dir-info">—</p>
+        <p class="hint hidden" id="sync-dir-warn"></p>
+        <p class="tiny muted mt8" id="sync-dedupe-info">默认只在证书续签或文件首次匹配时同步一次；内容未变化的文件会自动跳过，不重复覆盖。需要重写全部文件时，勾选「强制同步」再点「立即同步」。</p>
+        <div class="mt8">
+          <div class="tiny muted">目录里的证书文件（同步的目标）：</div>
+          <div id="sync-file-list" class="list mt8 scroll-area"></div>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="panel-head">
+          <h3>同步规则</h3>
+          <button class="btn primary small" id="sync-add">＋ 新建规则</button>
+        </div>
+        <p class="tiny muted">面板签发或续期成功后，把新证书和私钥写到下面规则匹配到的文件里。写入时先写临时文件再替换，过程中断也不会留下坏文件；证书文件所有人可读写、其他人只读，私钥文件只有面板自己能读写。</p>
+        <p class="tiny muted mt8">匹配方式：先看目录里已有证书的名字或内容，找到对应的文件，再按规则把新内容写进去。下面预设一步创建，也可以用「新建规则」自己配，创建前可点「预览匹配」确认会覆盖哪些文件。</p>
+        <div class="chip-wrap mt8" id="sync-presets"></div>
+        <div id="sync-rule-list" class="list mt8"></div>
+      </div>
+      </div><!-- /本地同步 -->
+
+      <div class="subpanel hidden" data-subpanel="remote">
+      <div class="panel">
+        <div class="panel-head">
+          <div>
+            <h3>远程证书目录</h3>
+            <p class="tiny muted mt4">像本地挂载目录一样查看选中主机上的证书文件</p>
+          </div>
+          <div class="head-actions">
+            <select id="remote-file-host" aria-label="选择远程主机"></select>
+            <button class="btn small" id="remote-file-load" type="button">查看文件</button>
+          </div>
+        </div>
+        <p class="tiny muted" id="remote-file-info">目录直接读取主机配置里的「远程证书目录」，先选择主机，再点「查看文件」。</p>
+        <p class="tiny muted mt4">文件类型只在被同步规则命中时才标注：面板用「本地同步」页那套同步规则，从现有证书里匹配出会被同步的文件，据此判断是证书还是私钥；其余文件不标注类型。</p>
+        <div id="remote-file-list" class="list mt8 scroll-area"></div>
+      </div>
+
+      <div class="panel">
+        <div class="panel-head">
+          <h3>远程主机同步</h3>
+          <div class="head-actions">
+            <label class="sync-force-label" title="忽略远程同步摘要，把全部命中的证书文件重新同步一遍"><input type="checkbox" id="remote-force"> 强制同步</label>
+            <button class="btn small" id="remote-push" type="button">立即同步</button>
+            <button class="btn primary small" id="remote-add" type="button">＋ 添加主机</button>
+          </div>
+        </div>
+        <p class="tiny muted mt8" id="remote-sync-info">远程同步与本地使用同一套同步规则：只有规则命中的文件才会同步，且只同步到该规则在「远程主机」栏选中的主机。未变内容按主机分别跳过。</p>
+        <p class="tiny muted mt8">这里没有第二套规则。远程同步用的就是「本地同步」分区里那套同步规则：在每条规则的「远程主机」栏选择目标主机，规则命中的文件才会同步过去；不选主机的规则不做远程同步。主机上的「自动同步」开关只影响本地同步成功后是否立即同步。</p>
+        <p class="tiny muted">把本地同步好的证书文件，通过 SSH 同步到其他主机。支持 SSH 私钥或账号密码认证，凭证加密保存在面板数据库里，不会明文出现在网页或日志中。连接由面板内置的纯 Go SSH 完成，不依赖 <code>ssh</code> / <code>scp</code> 命令。</p>
+        <p class="tiny muted mt8">远程目录必须是绝对路径（如 <code>/etc/ssl/certs</code>），在主机配置里设置；目录不存在时会自动创建。首次连接会记录主机密钥指纹，后续密钥变化会拒绝连接。本地写入与远程同步的结果统一记录在下方「同步记录」里。</p>
+        <div id="remote-list" class="list mt8"></div>
+      </div>
+      </div><!-- /远程同步 -->
+
+      <div class="subpanel hidden" data-subpanel="records">
+      <div class="panel record-panel">
+        <div class="panel-head">
+          <div>
+            <h3>同步记录</h3>
+            <p class="tiny muted mt4">本地写入与远程同步的结果合并展示，按时间倒序</p>
+          </div>
+          <div class="head-actions">
+            <span class="tiny muted" id="sync-count">—</span>
+            <button class="btn ghost small" id="sync-events-refresh" type="button">刷新</button>
+            <button class="btn ghost small" id="sync-clear-events" type="button">清空记录</button>
+          </div>
+        </div>
+        <div class="audit-filters" id="sync-filters">
+          <input id="sync-q" type="search" placeholder="搜索规则 / 来源 / 目标 / 文件名 / 详情" aria-label="搜索同步记录">
+          <select id="sync-result" aria-label="按结果筛选">
+            <option value="">全部结果</option>
+            <option value="ok">成功</option>
+            <option value="fail">失败</option>
+            <option value="skip">跳过</option>
+          </select>
+          <select id="sync-scope" aria-label="按范围筛选">
+            <option value="">全部范围</option>
+            <option value="local">本地同步</option>
+            <option value="remote">远程同步</option>
+          </select>
+          <input id="sync-from" type="date" aria-label="起始日期">
+          <input id="sync-to" type="date" aria-label="结束日期">
+          <button class="btn small ghost" id="sync-reset" type="button">重置</button>
+        </div>
+        <div id="sync-event-list" class="list scroll-area"></div>
+        <div class="audit-pager">
+          <button class="btn small ghost" id="sync-prev" type="button">← 上一页</button>
+          <span class="tiny muted" id="sync-page">第 1 页</span>
+          <button class="btn small ghost" id="sync-next" type="button">下一页 →</button>
+        </div>
+      </div>
+      </div><!-- /同步记录 -->
+    </section>
+
+    <!-- 设置 -->
+    <section id="view-settings" class="view hidden">
+      <div class="view-tabs" id="settings-tabs" role="tablist" aria-label="设置分区">
+        <button class="view-tab active" data-subtab="security" type="button">账号安全</button>
+        <button class="view-tab" data-subtab="system" type="button">系统运行</button>
+        <button class="view-tab" data-subtab="audit" type="button">审计日志</button>
+        <button class="view-tab" data-subtab="backup" type="button">备份恢复</button>
+        <button class="view-tab" data-subtab="support" type="button">支持项目</button>
+      </div>
+      <div class="subpanel" data-subpanel="security">
+      <div class="panel panel-flat">
+        <h3>修改账号</h3>
+          <form id="user-form" class="stack">
+            <div class="field"><label for="user-pass">当前密码</label><input id="user-pass" type="password" autocomplete="current-password" required></div>
+            <div class="field"><label for="user-new">新账号（3-32 位，字母开头）</label><input id="user-new" autocomplete="username" spellcheck="false" required></div>
+            <button class="btn" type="submit">修改账号</button>
+            <p class="tiny muted">修改会持久保存，重启后仍生效；所有会话立即失效，需用新账号重新登录。环境变量只在首次启动时用于初始化。</p>
+          </form>
+        </div>
+        <div class="panel panel-flat mt12">
+        <h3>修改密码</h3>
+          <form id="pwd-form" class="stack">
+            <div class="field"><label for="pwd-old">当前密码</label><input id="pwd-old" type="password" autocomplete="current-password" required></div>
+            <div class="field"><label for="pwd-new">新密码（至少 12 位，含大写 / 小写 / 数字）</label><input id="pwd-new" type="password" autocomplete="new-password" minlength="12" required></div>
+            <div class="field"><label for="pwd-new2">确认新密码</label><input id="pwd-new2" type="password" autocomplete="new-password" minlength="12" required></div>
+            <button class="btn primary" type="submit">更新密码</button>
+            <p class="tiny muted">密码需至少 12 位且同时包含大写、小写字母与数字；修改会持久保存，重启后仍生效，其它登录会话会立即失效。环境变量只在首次启动时用于初始化。</p>
+          </form>
+        </div>
+      </div><!-- /账号安全 -->
+      <div class="subpanel hidden" data-subpanel="system">
+        <div class="panel">
+          <h3>运行信息</h3>
+          <dl class="kv" id="sys-info"></dl>
+          <div class="update-panel mt12">
+            <div class="panel-head">
+              <h3>面板版本更新</h3>
+              <span class="tiny muted" id="update-status">—</span>
+            </div>
+            <div class="field">
+              <label class="check-line" for="update-auto"><input id="update-auto" type="checkbox"> 自动检测新版本</label>
+              <div class="row">
+                <select id="update-interval" class="grow" aria-label="检测频次">
+                  <option value="off">关闭</option>
+                  <option value="startup">仅启动时</option>
+                  <option value="6h">每 6 小时</option>
+                  <option value="daily">每天一次</option>
+                  <option value="weekly">每周一次</option>
+                </select>
+                <button class="btn small" id="update-save" type="button">保存设置</button>
+                <button class="btn small ghost" id="update-check-now" type="button">立即检测</button>
+              </div>
+              <p class="hint" id="update-hint">后台按所选频次检测 GitHub 新版本；发现新版本时显示提醒并推送通知（仅提醒一次）。检测失败不影响面板使用，可稍后重试。</p>
+            </div>
+          </div>
+          <div class="field mt12">
+            <label for="cron-hour">每日自动检测时间</label>
+            <div class="row">
+              <select id="cron-hour" class="grow"></select>
+              <button class="btn small" id="cron-hour-save" type="button">保存</button>
+            </div>
+            <p class="hint" id="cron-hour-hint">每天到点自动检查证书续期与临期；同一天只执行一次，重启不会重复检测。</p>
+          </div>
+          <div class="field mt12">
+            <label for="retention-days">数据保留天数</label>
+            <div class="row">
+              <input id="retention-days" type="number" min="0" max="3650" class="grow" placeholder="30">
+              <button class="btn small" id="retention-save" type="button">保存</button>
+              <button class="btn small ghost" id="cleanup-now" type="button">立即清理</button>
+            </div>
+            <p class="hint">任务记录、审计日志与同步记录每天自动清理超过这个天数的旧数据；填 0 表示永不清理。凭证与配置不受影响。「立即清理」按当前保留天数执行一次。</p>
+          </div>
+        </div>
+      </div><!-- /系统运行 -->
+      <div class="subpanel hidden" data-subpanel="audit">
+      <div class="panel">
+        <div class="panel-head">
+          <h3>审计日志</h3>
+          <span class="tiny muted" id="audit-count">—</span>
+          <button class="btn ghost small" id="audit-refresh">刷新</button>
+        </div>
+        <div class="audit-filters">
+          <input id="audit-q" type="search" placeholder="搜索用户 / 来源 / 动作 / 详情" aria-label="搜索审计日志">
+          <select id="audit-action" aria-label="按动作筛选"><option value="">全部动作</option></select>
+          <select id="audit-user" aria-label="按用户筛选"><option value="">全部用户</option></select>
+          <input id="audit-from" type="date" aria-label="起始日期">
+          <input id="audit-to" type="date" aria-label="结束日期">
+          <button class="btn small ghost" id="audit-reset" type="button">重置</button>
+        </div>
+        <div class="table-wrap scroll-area">
+          <table class="table" id="audit-table">
+            <thead><tr><th>时间</th><th>用户</th><th>来源</th><th>动作</th><th>详情</th></tr></thead>
+            <tbody></tbody>
+          </table>
+        </div>
+        <div class="audit-pager">
+          <button class="btn small ghost" id="audit-prev" type="button">← 上一页</button>
+          <span class="tiny muted" id="audit-page">第 1 页</span>
+          <button class="btn small ghost" id="audit-next" type="button">下一页 →</button>
+        </div>
+      </div>
+      </div><!-- /审计日志 -->
+      <div class="subpanel hidden" data-subpanel="backup">
+      <div class="panel">
+        <div class="panel-head">
+          <div>
+            <h3>导出备份</h3>
+            <p class="tiny muted mt4">把面板配置打包成一个 JSON 文件下载保存</p>
+          </div>
+          <button class="btn primary small" id="backup-export" type="button">⭳ 导出备份</button>
+        </div>
+        <p class="tiny muted">包含：DNS 服务商凭证、通知渠道、远程主机（SSH 私钥）、同步规则与同步记录、去重摘要、证书邮箱、自动更新与清理设置。所有凭证都是加密后的密文，备份文件里没有明文私钥或 token。</p>
+        <p class="tiny muted mt8">不包含：登录账号与密码哈希、审计日志、任务记录、证书文件本身，以及 <code>secret.key</code> 主密钥。备份文件里的加密凭证需要同一份 <code>secret.key</code> 才能解开，跨机器迁移时请一并复制数据目录下的该文件，或迁移后重新填写凭证。</p>
+        <p class="tiny muted mt8">请妥善保管备份文件：拿到它再加上 <code>secret.key</code> 就等于拿到全部凭证。</p>
+      </div>
+      <div class="panel mt12">
+        <div class="panel-head">
+          <div>
+            <h3>恢复备份</h3>
+            <p class="tiny muted mt4">选择之前导出的备份文件，确认后覆盖当前配置</p>
+          </div>
+        </div>
+        <div class="field"><label for="backup-file">备份文件（.json）</label><input id="backup-file" type="file" accept=".json,application/json"></div>
+        <div id="backup-preview" class="backup-preview mt8 tiny muted">尚未选择文件。</div>
+        <button class="btn primary mt8" id="backup-import" type="button" disabled>恢复这份备份</button>
+        <p class="tiny muted mt8">恢复会覆盖当前全部配置与同步记录，操作不可撤销；登录凭据始终沿用当前环境变量，不会被备份覆盖。恢复后建议刷新页面确认各页面数据。</p>
+      </div>
+      </div><!-- /备份恢复 -->
+      <div class="subpanel hidden" data-subpanel="support">
+      <div class="panel">
+        <div class="panel-head">
+          <h3>支持本项目</h3>
+          <span class="tiny muted">自愿赞赏 · 不影响任何功能</span>
+        </div>
+        <p class="tiny muted">如果这个项目帮你省过一次续期的麻烦，欢迎扫码支持一杯咖啡 ☕。赞赏完全自愿。</p>
+        <div class="support-qr">
+          <figure>
+            <img src="/assets/wechat-pay.png" alt="微信赞赏码" class="qr-zoom" data-title="微信赞赏码" data-src="/assets/wechat-pay.png">
+            <figcaption>微信赞赏码</figcaption>
+          </figure>
+          <figure>
+            <img src="/assets/alipay.png" alt="支付宝收款码" class="qr-zoom" data-title="支付宝收款码" data-src="/assets/alipay.png">
+            <figcaption>支付宝</figcaption>
+          </figure>
+        </div>
+      </div>
+      </div><!-- /支持项目 -->
+    </section>
+  </main>
+</div>
+
+<!-- ============ 抽屉 / 弹窗容器 ============ -->
+<div id="overlay" class="overlay hidden"></div>
+<aside id="drawer" class="drawer hidden">
+  <div class="drawer-head">
+    <div><h3 id="drawer-title">证书详情</h3><p class="tiny muted" id="drawer-sub"></p></div>
+    <button class="icon-btn" id="drawer-close" aria-label="关闭">✕</button>
+  </div>
+  <div class="drawer-body" id="drawer-body"></div>
+</aside>
+
+<div id="modal" class="modal hidden">
+  <div class="modal-card" id="modal-card">
+    <div class="modal-head"><h3 id="modal-title"></h3><button class="icon-btn" id="modal-close" aria-label="关闭">✕</button></div>
+    <div class="modal-body" id="modal-body"></div>
+    <div class="modal-foot" id="modal-foot"></div>
+  </div>
+</div>
+
+<div id="toasts" class="toasts"></div>
+
+<script src="/app.js"></script>
+</body>
+</html>
