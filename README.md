@@ -804,6 +804,10 @@ gofmt -w *.go && go vet ./...
 - [acme.sh](https://github.com/acmesh-official/acme.sh) —— 真正完成 ACME 协议、DNS API 验证与续期逻辑的是它
 - [modernc.org/sqlite](https://gitlab.com/cznic/sqlite) —— 纯 Go SQLite 实现，无 CGO 即可交叉编译
 
+**同类开源项目**
+
+- [acmesh-ui](https://github.com/brightcolor/acmesh-ui) —— 同样是 Go 单二进制管理 acme.sh 的 Web UI；定位与取舍不同（bbolt 存储、v1 无内置登录、不提供 Docker 镜像），与本项目互为参考选项，按部署习惯选用即可
+
 **许可**
 
 MIT，详见 [LICENSE](LICENSE)。

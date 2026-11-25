@@ -160,3 +160,7 @@ go vet ./... && go test ./...
 ## ライセンス
 
 MIT — [LICENSE](LICENSE) を参照。このパネルが更新の手間を省いてくれたら、中国語版 README から任意でコーヒーを一杯おごっていただけます ☕。
+
+## 同種のオープンソースプロジェクト
+
+- [acmesh-ui](https://github.com/brightcolor/acmesh-ui) — 同じく acme.sh を管理する Go 製シングルバイナリ Web UI。設計判断が異なります（bbolt ストレージ、v1 では内蔵ログインなし、Docker イメージなし）。運用スタイルに合わせて選択してください。

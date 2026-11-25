@@ -2,6 +2,12 @@
 
 本文件遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)。
 
+## [0.1.32] - 2026-11-25
+
+### 文档
+
+- 致谢新增「同类开源项目」条目（README / README.en / README.ja 三份同步）：收录 [acmesh-ui](https://github.com/brightcolor/acmesh-ui)——同为 Go 单二进制管理 acme.sh 的 Web UI，定位与取舍不同，供按部署习惯对比选用；本条目仅为社区惯例列举，不代表本项目的实现来源
+
 ## [0.1.31] - 2026-11-25
 
 ### 修复

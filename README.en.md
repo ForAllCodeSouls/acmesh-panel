@@ -160,3 +160,7 @@ go vet ./... && go test ./...
 ## License
 
 MIT — see [LICENSE](LICENSE). If this panel saved you a renewal headache, you can optionally buy the author a coffee (see the Chinese README).
+
+## Similar open-source projects
+
+- [acmesh-ui](https://github.com/brightcolor/acmesh-ui) — another single-binary Go web UI for acme.sh with different trade-offs (bbolt storage, no built-in login in v1, no Docker image); pick whichever fits your deployment style.
