@@ -81,6 +81,7 @@ code { font-family: var(--mono); font-size: 12px; background: #ffffff0d; padding
 .brand.small .brand-mark-img { border-radius: 8px; }
 .field { display: flex; flex-direction: column; gap: 6px; margin-bottom: 14px; }
 .field label { font-size: 12px; color: var(--muted); }
+.field-end { justify-content: flex-end; } /* grid2 中与 select 底部对齐的复选项 */
 input, textarea, select {
   width: 100%; background: #0a121a; border: 1px solid var(--line); color: var(--text);
   border-radius: 9px; padding: 10px 12px; font: 13.5px/1.5 inherit; outline: none;

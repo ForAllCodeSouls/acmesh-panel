@@ -239,11 +239,25 @@ func TestParseAllCerts(t *testing.T) {
 	der, _ := x509.CreateCertificate(rand.Reader, tmpl, tmpl, &key.PublicKey, key)
 	one := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der})
 	chain := append(append([]byte{}, one...), one...)
-	certs, err := parseAllCerts(chain)
-	if err != nil || len(certs) != 2 {
-		t.Fatalf("解析证书链失败: %d %v", len(certs), err)
+	certs, bad, err := parseAllCerts(chain)
+	if err != nil || len(certs) != 2 || bad != 0 {
+		t.Fatalf("解析证书链失败: %d bad=%d %v", len(certs), bad, err)
 	}
 	if _, err := parseFirstCert(chain); err != nil {
 		t.Fatal(fmt.Sprintf("解析 leaf 失败: %v", err))
+	}
+	// DER 损坏的中间证书必须被计数，而不是静默跳过。
+	broken := append(append([]byte{}, one...),
+		pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: []byte("not-der")})...)
+	certs, bad, err = parseAllCerts(broken)
+	if err != nil || len(certs) != 1 || bad != 1 {
+		t.Fatalf("损坏证书未被记录: %d bad=%d %v", len(certs), bad, err)
+	}
+	// 非证书类型的 PEM 块不应被计为坏证书。
+	withKey := append(append([]byte{}, one...),
+		pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: []byte("placeholder")})...)
+	certs, bad, err = parseAllCerts(withKey)
+	if err != nil || len(certs) != 1 || bad != 0 {
+		t.Fatalf("非证书块被误判: %d bad=%d %v", len(certs), bad, err)
 	}
 }

@@ -136,6 +136,27 @@ func TestRetryStatusGuard(t *testing.T) {
 	}
 }
 
+// 同一失败任务只能被认领一次：手动重试后，自动退避队列到期不得再次执行。
+func TestRetryClaimOnce(t *testing.T) {
+	st, err := NewStore(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.db.Close()
+	m := NewJobManager(&ACME{Bin: "/nonexistent", Home: t.TempDir()}, st, 1)
+
+	failed := &Job{ID: "claim-once", Kind: "issue", Status: "failed", Ended: time.Now(),
+		retryArgs: []string{"--issue", "-d", "x.example.com"}, retryEnv: map[string]string{}}
+	addJob(m, failed)
+	if _, err := m.Retry(failed.ID); err != nil {
+		t.Fatal(err)
+	}
+	drainJobs(m)
+	if _, err := m.Retry(failed.ID); err == nil {
+		t.Fatal("同一任务被重复认领，自动退避可能触发第二次执行")
+	}
+}
+
 func contains(haystack, needle string) bool {
 	for i := 0; i+len(needle) <= len(haystack); i++ {
 		if haystack[i:i+len(needle)] == needle {

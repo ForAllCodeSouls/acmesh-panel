@@ -1020,7 +1020,7 @@
     b.classList.toggle('hidden', active === 0);
   }
 
-  async function retryJob(id, title) {
+  async function retryJob(id) {
     try {
       const r = await api(`/api/jobs/${encodeURIComponent(id)}/retry`, { method: 'POST', body: {} });
       toast('重试任务已创建');
@@ -1051,7 +1051,7 @@
         <span class="muted">›</span>`;
       const retryBtn = row.querySelector('.job-retry-btn');
       if (retryBtn) {
-        retryBtn.addEventListener('click', (e) => { e.stopPropagation(); retryJob(j.id, j.title); });
+        retryBtn.addEventListener('click', (e) => { e.stopPropagation(); retryJob(j.id); });
       }
       row.addEventListener('click', () => openJobLog(j.id, j.title));
       box.appendChild(row);
@@ -1126,7 +1126,7 @@
     });
     const retryBtn = $('#job-retry');
     if (canRetryLog) retryBtn.classList.remove('hidden');
-    retryBtn.addEventListener('click', () => retryJob(id, title));
+    retryBtn.addEventListener('click', () => retryJob(id));
   }
 
   // 任务进行中时轮询列表，保证角标与状态新鲜
@@ -2539,7 +2539,7 @@
     const ca = $('#account-default-ca').value;
     const btn = busyButton($('#account-ca-save'), '保存中…');
     try {
-      await api('/api/acme/accounts/default', { method: 'POST', body: JSON.stringify({ ca }) });
+      await api('/api/acme/accounts/default', { method: 'POST', body: { ca } });
       toast('默认 CA 已切换为 ' + ca, 'ok');
       await loadAccounts();
     } catch (e) { toast(e.message, 'err'); } finally { btn(); }
@@ -2582,7 +2582,7 @@
     const btn = busyButton($('#batch-run'), '排队中…');
     try {
       const body = {
-        domains, credential: $('#batch-credential').value, key_length: $('#batch-keylength').value,
+        domains, credential: $('#batch-credential').value, keylength: $('#batch-keylength').value,
         ca: $('#batch-ca').value, email: $('#batch-email').value.trim(),
         dns_sleep: parseInt($('#batch-dnssleep').value || '0', 10),
         force: $('#batch-force').checked,
@@ -2676,7 +2676,7 @@
     const btn = busyButton($('#expiry-renew-batch'), '排队中…');
     try {
       const r = await api('/api/expiry/renew', {
-        method: 'POST', body: JSON.stringify({ names, force }),
+        method: 'POST', body: { names, force },
       });
       const skipped = (r.skipped || []).length ? `<p class="tiny muted">已跳过 ${r.skipped.length} 张不存在的证书：${esc(r.skipped.join('、'))}</p>` : '';
       toast(`已排队 ${r.queued} 个续期任务`, 'ok');
@@ -2713,18 +2713,27 @@
       $('#backup-list').innerHTML = state.backups.length ? state.backups.map((b) => `<div class="row">
         <span class="chip ${b.status === 'ok' ? 'ok' : 'bad'}">${esc(b.kind)}</span>
         <span class="grow"><strong>${esc(b.name)}</strong><div class="tiny muted">${fmtTime(b.ts)} · ${fmtSize(b.size)} · ${esc(b.detail || '')}</div></span>
-        <button class="btn small ghost" data-backup-read="${b.id}">读取</button>
-        <button class="btn small ghost" data-backup-del="${b.id}">删除</button>
+        <button class="btn small ghost" data-backup-read="${esc(b.id)}">读取</button>
+        <button class="btn small ghost" data-backup-del="${esc(b.id)}">删除</button>
       </div>`).join('') : '<p class="tiny muted">尚无备份记录。</p>';
     } catch (e) { toast(e.message, 'err'); }
   }
 
   $('#autobackup-form').addEventListener('submit', async (e) => {
     e.preventDefault();
+    const hourRaw = $('#ab-hour').value.trim();
+    const keepRaw = $('#ab-keep').value.trim();
+    const hour = hourRaw === '' ? NaN : Number(hourRaw);
+    const keep = keepRaw === '' ? NaN : Number(keepRaw);
+    if (!Number.isInteger(hour) || hour < 0 || hour > 23) {
+      toast('执行小时需为 0–23 的整数', 'err'); return;
+    }
+    if (!Number.isInteger(keep) || keep < 1 || keep > 365) {
+      toast('保留份数需为 1–365 的整数', 'err'); return;
+    }
     const body = {
       enabled: $('#ab-enabled').checked, interval: $('#ab-interval').value,
-      hour: parseInt($('#ab-hour').value, 10), keep: parseInt($('#ab-keep').value, 10),
-      include_certs: $('#ab-certs').checked,
+      hour, keep, include_certs: $('#ab-certs').checked,
     };
     try {
       await api('/api/backups/config', { method: 'POST', body });
@@ -2943,7 +2952,8 @@
         const url = URL.createObjectURL(blob);
         const link = document.createElement('a');
         link.href = url;
-        link.download = a.getAttribute('href').split('?')[1] || 'export.csv';
+        const kind = new URLSearchParams(a.getAttribute('href').split('?')[1] || '').get('kind') || 'export';
+        link.download = kind + '.csv';
         link.click();
         setTimeout(() => URL.revokeObjectURL(url), 1000);
       } catch (err) { toast(err.message, 'err'); }

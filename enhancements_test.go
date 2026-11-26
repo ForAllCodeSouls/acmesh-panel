@@ -29,6 +29,13 @@ func TestInQuietWindow(t *testing.T) {
 			time.Date(2026, 11, 26, 12, 0, 0, 0, time.UTC), false},
 		{"weekday hit", QuietHours{Enabled: true, StartHour: 9, EndHour: 12, Days: []int{4}}, base, true},
 		{"weekday miss", QuietHours{Enabled: true, StartHour: 9, EndHour: 12, Days: []int{1, 2}}, base, false},
+		// 跨午夜：周五 22 点开始，周六凌晨仍属于周五的窗口。
+		{"overnight friday night", QuietHours{Enabled: true, StartHour: 22, EndHour: 7, Days: []int{5}},
+			time.Date(2026, 11, 27, 23, 0, 0, 0, time.UTC), true},
+		{"overnight saturday morning", QuietHours{Enabled: true, StartHour: 22, EndHour: 7, Days: []int{5}},
+			time.Date(2026, 11, 28, 2, 0, 0, 0, time.UTC), true},
+		{"overnight next day miss", QuietHours{Enabled: true, StartHour: 22, EndHour: 7, Days: []int{5}},
+			time.Date(2026, 11, 28, 12, 0, 0, 0, time.UTC), false},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -53,10 +60,53 @@ func TestQuietAllows(t *testing.T) {
 	}
 }
 
+func TestQuietHoursAllowCriticalMigration(t *testing.T) {
+	dir := t.TempDir()
+	s1, err := NewStore(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// 模拟 v0.1.70 写入的 state：quiet_hours 中没有 allow_critical 键。
+	old := `{"username":"admin","quiet_hours":{"enabled":true,"start_hour":22,"end_hour":7,"days":[5]}}`
+	if _, err := s1.DB().Exec(`INSERT OR REPLACE INTO state(key,value) VALUES('main',?)`, old); err != nil {
+		t.Fatal(err)
+	}
+	_ = s1.db.Close()
+
+	s2, err := NewStore(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s2.db.Close()
+	if !s2.Snapshot().QuietHours.AllowCritical {
+		t.Fatal("旧配置升级后应默认放行关键告警")
+	}
+
+	// 显式写 false 的用户选择必须保留。
+	explicit := `{"username":"admin","quiet_hours":{"enabled":true,"allow_critical":false}}`
+	if _, err := s2.DB().Exec(`INSERT OR REPLACE INTO state(key,value) VALUES('main',?)`, explicit); err != nil {
+		t.Fatal(err)
+	}
+	_ = s2.db.Close()
+	s3, err := NewStore(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s3.db.Close()
+	if s3.Snapshot().QuietHours.AllowCritical {
+		t.Fatal("显式关闭的关键告警放行不应被迁移覆盖")
+	}
+}
+
 func TestNormalizeRenewNames(t *testing.T) {
 	got, err := normalizeRenewNames([]string{" a.com ", "a.com", "b.com", ""})
 	if err != nil || len(got) != 2 || got[0] != "a.com" || got[1] != "b.com" {
 		t.Fatalf("normalizeRenewNames = %v, %v", got, err)
+	}
+	// acme.sh 目录名恒小写，大小写不同的同一域名应合并为一张。
+	got, err = normalizeRenewNames([]string{"A.COM", "a.com", "B.com_ECC", "b.com_ecc"})
+	if err != nil || len(got) != 2 || got[0] != "a.com" || got[1] != "b.com_ecc" {
+		t.Fatalf("大小写去重失败: %v, %v", got, err)
 	}
 	if _, err := normalizeRenewNames([]string{}); err == nil {
 		t.Fatal("空列表应报错")

@@ -217,7 +217,7 @@ check('失败任务显示重试按钮', app.includes("['failed', 'canceled', 'sk
 check('重试调用 retry 接口并跳转新任务', app.includes("/retry`, { method: 'POST', body: {} }")
   && app.includes('openJobLog(r.job.id, r.job.title)'));
 check('日志弹窗有重试按钮', app.includes('id="job-retry"')
-  && app.includes("retryBtn.addEventListener('click', () => retryJob(id, title))"));
+  && app.includes("retryBtn.addEventListener('click', () => retryJob(id))"));
 check('后端有重试路由与处理函数', fs.readFileSync(path.join(root, 'main.go'), 'utf8').includes('/api/jobs/{id}/retry')
   && goApi.includes('func (s *Server) handleRetryJob')
   && goAcme.includes('func (m *JobManager) Retry'));
@@ -444,7 +444,8 @@ check('到期看板批量续期有独立接口且复用单证书参数', goEnh.i
 check('批量续期限制数量并跳过无效证书', goEnh.includes('单批最多续期 50 张证书')
   && goEnh.includes('skipped = append') && app.includes('pickedExpiry()'));
 check('通知静默窗口含星期与跨午夜处理', goEnh.includes('inQuietWindow')
-  && goEnh.includes('StartHour < q.EndHour') && goEnh.includes('h >= q.StartHour || h < q.EndHour')
+  && goEnh.includes('crossMidnight := q.StartHour > q.EndHour')
+  && goEnh.includes('wd = (wd + 6) % 7') && goEnh.includes('h >= q.StartHour || h < q.EndHour')
   && goEnh.includes('quietAllows') && goNotify.includes('inQuietWindow(q, time.Now())')
   && html.includes('id="quiet-form"'));
 check('静默窗口不阻断手动测试通知', goNotify.includes('SendTest')
@@ -461,5 +462,23 @@ check('v0.1.71 全部新增路由已注册', ['POST /api/expiry/renew', 'GET /ap
   .every((route) => goMain.includes(route)));
 check('API 参考文档覆盖只读令牌与全部分区', fs.existsSync(path.join(root, 'docs', 'API.md'))
   && fs.readFileSync(path.join(root, 'docs', 'API.md'), 'utf8').includes('X-API-Token'));
+
+// v0.1.71 缺陷防回归：api() 内部已做 JSON.stringify，调用处只能传对象。
+check('写请求未被双重 JSON 序列化', !app.includes('body: JSON.stringify(')
+  && app.includes('body: { names, force }') && app.includes('body: { ca }'));
+check('批量签发字段与后端 keylength 一致', app.includes('keylength: $(\'#batch-keylength\').value')
+  && !app.includes('key_length:') && goApi.includes('json:"keylength"'));
+check('备份策略表单校验空值与非整数', app.includes('hourRaw === \'\' ? NaN')
+  && app.includes('Number.isInteger(hour)') && app.includes('Number.isInteger(keep)'));
+check('CSV 下载文件名取 kind 参数', app.includes('get(\'kind\') || \'export\'')
+  && app.includes('kind + \'.csv\''));
+check('批量续期域名统一小写去重', goEnh.includes('strings.ToLower(strings.TrimSpace(raw))'));
+check('备份打包错误不再被吞', goFeaturesApi.includes('archiveErr = walkErr')
+  && goFeaturesApi.includes('rec.Status = "fail"') && goFeaturesApi.includes('os.Remove(tgzPath)'));
+check('备份失败状态沿调用链呈现', goFeaturesUtil.includes('rec.Status != "ok"')
+  && goFeaturesApi.includes('rec.Status != "ok"'));
+check('只读令牌 sync scope 路由可达', ['GET /api/sync/catalog', 'GET /api/sync/rules',
+  'GET /api/sync/events', 'GET /api/remote/hosts']
+  .every((r) => goMain.includes('"' + r + '", s.requireRead')));
 
 console.log(`web UI checks: ${passed} passed`);

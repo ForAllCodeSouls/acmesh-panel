@@ -87,6 +87,11 @@ func minLen(s string, n int) int {
 func (s *Server) handleIPAllowlist(w http.ResponseWriter, r *http.Request) {
 	st := s.store.Snapshot()
 	_, err := parseCIDRList(st.IPAllowlist)
+	invalidMsg := ""
+	if err != nil {
+		// 错误详情只给已登录用户看，不暴露给入口中间件的拒绝响应。
+		invalidMsg = err.Error()
+	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"entries":     st.IPAllowlist,
 		"allow_local": st.AllowLocalBypass,
@@ -95,12 +100,8 @@ func (s *Server) handleIPAllowlist(w http.ResponseWriter, r *http.Request) {
 		"trust_hops":  s.cfg.TrustHops,
 		"configured":  len(st.IPAllowlist) > 0,
 		"valid":       err == nil,
-		"invalid_msg": "",
+		"invalid_msg": invalidMsg,
 	})
-	if err != nil {
-		// valid 字段已写入；错误详情只给登录用户看，不暴露给入口中间件响应。
-		_ = err
-	}
 }
 
 func (s *Server) handleIPAllowlistSave(w http.ResponseWriter, r *http.Request) {
@@ -399,15 +400,22 @@ func (s *Server) createBackup(kind string, includeCerts bool) (BackupRecord, err
 	if err := os.WriteFile(path, b, 0o600); err != nil {
 		return BackupRecord{}, err
 	}
+	var archiveErr error
 	if includeCerts {
 		tgzName := strings.TrimSuffix(name, ".json") + "-certs.tar.gz"
-		tgzPath, e := s.backupPath(tgzName)
-		if e == nil {
-			if f, e := os.Create(tgzPath); e == nil {
+		var tgzPath string
+		tgzPath, archiveErr = s.backupPath(tgzName)
+		if archiveErr == nil {
+			var f *os.File
+			f, archiveErr = os.Create(tgzPath)
+			if archiveErr == nil {
 				gz := gzip.NewWriter(f)
 				tw := tar.NewWriter(gz)
-				_ = filepath.Walk(s.cfg.AcmeHome, func(p string, info os.FileInfo, err error) error {
-					if err != nil || info.IsDir() {
+				walkErr := filepath.Walk(s.cfg.AcmeHome, func(p string, info os.FileInfo, err error) error {
+					if err != nil {
+						return err
+					}
+					if info.IsDir() {
 						return nil
 					}
 					rel, e := filepath.Rel(s.cfg.AcmeHome, p)
@@ -420,26 +428,45 @@ func (s *Server) createBackup(kind string, includeCerts bool) (BackupRecord, err
 					}
 					src, e := os.Open(p)
 					if e != nil {
-						return nil
+						return e
 					}
-					_, _ = io.Copy(tw, src)
-					_ = src.Close()
-					return nil
+					_, copyErr := io.Copy(tw, src)
+					closeErr := src.Close()
+					if copyErr != nil {
+						return copyErr
+					}
+					return closeErr
 				})
-				_ = tw.Close()
-				_ = gz.Close()
-				_ = f.Close()
+				// Close 错误只在没有更早的根因时记录，避免掩盖真正的失败原因。
+				if e := tw.Close(); e != nil && walkErr == nil {
+					walkErr = e
+				}
+				if e := gz.Close(); e != nil && walkErr == nil {
+					walkErr = e
+				}
+				if e := f.Close(); e != nil && walkErr == nil {
+					walkErr = e
+				}
+				archiveErr = walkErr
 			}
+		}
+		if archiveErr != nil && tgzPath != "" {
+			// 归档已损坏，立即删除半成品，防止灾难恢复时误用。
+			_ = os.Remove(tgzPath)
 		}
 	}
 	rec := BackupRecord{
 		TS: time.Now(), Name: name, Size: int64(len(b)),
 		Kind: kind, Status: "ok", Detail: "配置备份",
 	}
-	rec.ID = s.store.AddBackupRecord(rec)
-	if cfg := s.store.Snapshot().AutoBackup; cfg.IncludeCerts {
+	if archiveErr != nil {
+		// 配置 JSON 仍然有效，但必须如实标记证书归档失败。
+		rec.Status = "fail"
+		rec.Detail = "证书归档失败: " + archiveErr.Error()
+	} else if includeCerts {
 		rec.Detail += " + 证书归档"
 	}
+	rec.ID = s.store.AddBackupRecord(rec)
 	return rec, nil
 }
 
@@ -447,6 +474,10 @@ func (s *Server) handleBackupRun(w http.ResponseWriter, r *http.Request) {
 	rec, err := s.createBackup("manual", false)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, "备份失败: "+err.Error())
+		return
+	}
+	if rec.Status != "ok" {
+		writeErr(w, http.StatusInternalServerError, "备份失败: "+rec.Detail)
 		return
 	}
 	s.store.Audit(sess(r).User, clientIP(r, s.cfg.TrustProxy), "backup_create", rec.Name)
@@ -628,22 +659,29 @@ func (s *Server) handleCertVerify(w http.ResponseWriter, r *http.Request) {
 		add("私钥匹配", "ok", "私钥与 leaf 证书公钥一致")
 	}
 	// 证书链完整性：逐张检查 Issuer 是否由后续证书签发
-	chain, err := parseAllCerts([]byte(fullchain))
+	chain, badCerts, err := parseAllCerts([]byte(fullchain))
 	if err != nil || len(chain) == 0 {
 		add("证书链", "fail", "无法解析证书链")
-	} else if len(chain) == 1 {
-		add("证书链", "warn", "链中只有 leaf 证书，建议部署 fullchain")
 	} else {
-		broken := []string{}
-		for i := 0; i < len(chain)-1; i++ {
-			if chain[i].CheckSignatureFrom(chain[i+1]) != nil {
-				broken = append(broken, fmt.Sprintf("第 %d 张证书的签发者不是第 %d 张", i+1, i+2))
-			}
+		if badCerts > 0 {
+			add("证书链解析", "fail", fmt.Sprintf("有 %d 张证书 DER 解码失败，以下链校验结果可能不完整", badCerts))
 		}
-		if len(broken) > 0 {
-			add("证书链", "fail", strings.Join(broken, "；"))
+		if len(chain) == 1 {
+			add("证书链", "warn", "链中只有 leaf 证书，建议部署 fullchain")
 		} else {
-			add("证书链", "ok", fmt.Sprintf("链完整，共 %d 张", len(chain)))
+			broken := []string{}
+			for i := 0; i < len(chain)-1; i++ {
+				if chain[i].CheckSignatureFrom(chain[i+1]) != nil {
+					broken = append(broken, fmt.Sprintf("第 %d 张证书的签发者不是第 %d 张", i+1, i+2))
+				}
+			}
+			if len(broken) > 0 {
+				add("证书链", "fail", strings.Join(broken, "；"))
+			} else if badCerts == 0 {
+				add("证书链", "ok", fmt.Sprintf("链完整，共 %d 张", len(chain)))
+			} else {
+				add("证书链", "warn", "已解析部分签名链一致，但存在损坏证书，结果不完整")
+			}
 		}
 	}
 	// 有效期
@@ -715,8 +753,11 @@ func parseFirstCert(pemBytes []byte) (*x509.Certificate, error) {
 	return x509.ParseCertificate(block.Bytes)
 }
 
-func parseAllCerts(pemBytes []byte) ([]*x509.Certificate, error) {
+// parseAllCerts 返回成功解析的证书，以及 DER 损坏的证书块数。
+// 只统计类型为 CERTIFICATE 的块，避免把同文件里的私钥/注释误判为坏证书。
+func parseAllCerts(pemBytes []byte) ([]*x509.Certificate, int, error) {
 	out := []*x509.Certificate{}
+	bad := 0
 	rest := pemBytes
 	for {
 		var block *pem.Block
@@ -724,12 +765,17 @@ func parseAllCerts(pemBytes []byte) ([]*x509.Certificate, error) {
 		if block == nil {
 			break
 		}
-		c, err := x509.ParseCertificate(block.Bytes)
-		if err == nil {
-			out = append(out, c)
+		if block.Type != "CERTIFICATE" {
+			continue
 		}
+		c, err := x509.ParseCertificate(block.Bytes)
+		if err != nil {
+			bad++
+			continue
+		}
+		out = append(out, c)
 	}
-	return out, nil
+	return out, bad, nil
 }
 
 func certKeyMatch(cert *x509.Certificate, keyPEM []byte) error {

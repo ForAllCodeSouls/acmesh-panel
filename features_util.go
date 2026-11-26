@@ -202,6 +202,11 @@ func (s *Server) backupLoop(ctx context.Context) {
 			if err != nil {
 				cfg.LastResult = "失败: " + err.Error()
 				log.Printf("自动备份失败: %v", err)
+			} else if rec.Status != "ok" {
+				// 证书归档失败时 createBackup 返回 (rec, nil)，必须按失败呈现。
+				cfg.LastResult = "失败: " + rec.Detail
+				log.Printf("自动备份失败: %s", rec.Detail)
+				s.store.Audit("system", "127.0.0.1", "backup_auto_fail", rec.Detail)
 			} else {
 				cfg.LastResult = "成功: " + rec.Name
 				s.store.Audit("system", "127.0.0.1", "backup_auto", rec.Name)

@@ -724,6 +724,9 @@ func (s *Server) handleRenew(w http.ResponseWriter, r *http.Request) {
 	if ci.IsECC {
 		preview += " --ecc"
 	}
+	if body.Force {
+		preview += " --force"
+	}
 	job := s.jobs.Start("renew", "续期 "+ci.Domain, ci.Domain, preview, nil, args)
 	s.store.Audit(sess(r).User, clientIP(r, s.cfg.TrustProxy), "renew", name)
 	writeJSON(w, http.StatusAccepted, map[string]any{"job": job})
@@ -919,6 +922,7 @@ func (s *Server) handleCancelJob(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "任务无法取消")
 		return
 	}
+	s.retry.Cancel(r.PathValue("id"))
 	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 }
 
@@ -928,6 +932,7 @@ func (s *Server) handleRetryJob(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
+	s.retry.Cancel(r.PathValue("id"))
 	s.store.Audit(sess(r).User, clientIP(r, s.cfg.TrustProxy), "job_retry", j.Title)
 	writeJSON(w, http.StatusAccepted, map[string]any{"job": j})
 }

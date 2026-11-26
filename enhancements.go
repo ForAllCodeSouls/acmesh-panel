@@ -80,9 +80,19 @@ func inQuietWindow(q QuietHours, now time.Time) bool {
 	if !q.Enabled {
 		return false
 	}
+	h := now.Hour()
+	if q.StartHour == q.EndHour {
+		return false // 零长度窗口视为不启用，避免误伤全天
+	}
+	crossMidnight := q.StartHour > q.EndHour
 	if len(q.Days) > 0 {
-		hit := false
+		// 跨午夜窗口的后半夜属于「起始日的次日」，按起始日匹配星期，
+		// 否则只勾周五时，周六凌晨 02:00 会意外脱离静默期。
 		wd := int(now.Weekday())
+		if crossMidnight && h < q.EndHour {
+			wd = (wd + 6) % 7
+		}
+		hit := false
 		for _, d := range q.Days {
 			if d == wd {
 				hit = true
@@ -93,11 +103,7 @@ func inQuietWindow(q QuietHours, now time.Time) bool {
 			return false
 		}
 	}
-	h := now.Hour()
-	if q.StartHour == q.EndHour {
-		return false // 零长度窗口视为不启用，避免误伤全天
-	}
-	if q.StartHour < q.EndHour {
+	if !crossMidnight {
 		return h >= q.StartHour && h < q.EndHour
 	}
 	return h >= q.StartHour || h < q.EndHour
@@ -166,7 +172,9 @@ func normalizeRenewNames(names []string) ([]string, error) {
 	out := []string{}
 	seen := map[string]bool{}
 	for _, raw := range names {
-		n := strings.TrimSpace(raw)
+		// acme.sh 证书目录名恒为小写；统一大小写后再去重与查表，
+		// 避免 "A.com" 与 "a.com" 被当成两张证书。
+		n := strings.ToLower(strings.TrimSpace(raw))
 		if n == "" {
 			continue
 		}
@@ -266,8 +274,10 @@ func (s *Server) handleQuietHoursSave(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, "保存失败: "+err.Error())
 		return
 	}
-	s.recordDiff(r, "quiet_hours_save", "notification", before, jsonSnapshot(req))
-	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "quiet_hours": req})
+	// 记录实际落盘的规范化值（小时已 clamp、星期已去重排序），避免审计失真。
+	stored := s.store.Snapshot().QuietHours
+	s.recordDiff(r, "quiet_hours_save", "notification", before, jsonSnapshot(stored))
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "quiet_hours": stored})
 }
 
 // handleDefaultCASet 切换面板默认 CA；环境变量锁定时拒绝。

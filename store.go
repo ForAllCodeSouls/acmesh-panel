@@ -218,7 +218,7 @@ func NewStore(dir string) (*Store, error) {
 	s.state.AutoBackup = AutoBackupConfig{Interval: "daily", Hour: 4, Keep: 7}
 	s.state.RetryPolicy = RetryPolicy{Enabled: true, MaxAttempts: 3, BaseDelay: 30, MaxDelay: 600}
 	s.state.Locale = "zh"
-	s.state.QuietHours = QuietHours{Days: []int{}}
+	s.state.QuietHours = QuietHours{Days: []int{}, AllowCritical: true}
 	s.load()
 	return s, nil
 }
@@ -302,12 +302,19 @@ func (s *Store) load() {
 		st.Locale = "zh"
 	}
 	if _, ok := rawFields["quiet_hours"]; !ok {
-		st.QuietHours = QuietHours{Days: []int{}}
+		st.QuietHours = QuietHours{Days: []int{}, AllowCritical: true}
 	} else {
 		st.QuietHours.StartHour = clampInt(st.QuietHours.StartHour, 0, 23)
 		st.QuietHours.EndHour = clampInt(st.QuietHours.EndHour, 0, 23)
 		if st.QuietHours.Days == nil {
 			st.QuietHours.Days = []int{}
+		}
+		// v0.1.71 兼容：旧配置没有 allow_critical 键时，按界面承诺放行关键告警。
+		var qh map[string]json.RawMessage
+		if json.Unmarshal(rawFields["quiet_hours"], &qh) == nil {
+			if _, ok := qh["allow_critical"]; !ok {
+				st.QuietHours.AllowCritical = true
+			}
 		}
 	}
 	switch st.Locale {

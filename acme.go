@@ -333,7 +333,8 @@ type Job struct {
 	// 重试所需的原始执行参数。env 含凭证，绝不序列化给前端；args 也不直接暴露。
 	retryArgs []string
 	retryEnv  map[string]string
-	attempt   int // 自动重试累计次数（不含首次执行），仅用于退避策略
+	attempt   int  // 自动重试累计次数（不含首次执行），仅用于退避策略
+	retried   bool // 该任务是否已被认领重试（手动或自动），防止同一任务重复执行
 }
 
 type JobManager struct {
@@ -588,10 +589,17 @@ func (m *JobManager) Retry(id string) (*Job, error) {
 		m.mu.Unlock()
 		return nil, errors.New("只有失败、已取消或未到期的任务可以重试")
 	}
+	// 同一失败任务只允许被认领一次：手动重试与自动退避共用此原子检查，
+	// 避免用户在等待退避期间手动重试后，调度器到期又执行一次。
+	if old.retried {
+		m.mu.Unlock()
+		return nil, errors.New("该任务已重试过，请在任务页查看重试生成的任务")
+	}
 	if len(old.retryArgs) == 0 {
 		m.mu.Unlock()
 		return nil, errors.New("该任务缺少原始执行参数，无法重试，请在业务页面重新操作")
 	}
+	old.retried = true
 	kind, title, domain, preview := old.Kind, old.Title, old.Domain, old.Preview
 	args := append([]string(nil), old.retryArgs...)
 	env := make(map[string]string, len(old.retryEnv))

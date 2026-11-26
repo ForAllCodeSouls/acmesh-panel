@@ -506,17 +506,17 @@ func (s *Server) routes() *http.ServeMux {
 	mux.HandleFunc("POST /api/certs/{name}/email", s.requireAuth(s.handleCertEmail))
 
 	// 证书同步规则
-	mux.HandleFunc("GET /api/sync/catalog", s.requireAuth(s.handleSyncCatalog))
-	mux.HandleFunc("GET /api/sync/rules", s.requireAuth(s.handleSyncRules))
+	mux.HandleFunc("GET /api/sync/catalog", s.requireRead(s.handleSyncCatalog))
+	mux.HandleFunc("GET /api/sync/rules", s.requireRead(s.handleSyncRules))
 	mux.HandleFunc("POST /api/sync/rules", s.requireAuth(s.handleSyncSave))
 	mux.HandleFunc("DELETE /api/sync/rules/{id}", s.requireAuth(s.handleSyncDelete))
-	mux.HandleFunc("GET /api/sync/events", s.requireAuth(s.handleSyncEvents))
+	mux.HandleFunc("GET /api/sync/events", s.requireRead(s.handleSyncEvents))
 	mux.HandleFunc("DELETE /api/sync/events", s.requireAuth(s.handleSyncClearEvents))
 	mux.HandleFunc("POST /api/sync/run", s.requireAuth(s.handleSyncRun))
 	mux.HandleFunc("POST /api/sync/preview", s.requireAuth(s.handleSyncPreview))
 
 	// 远程主机证书同步
-	mux.HandleFunc("GET /api/remote/hosts", s.requireAuth(s.handleRemoteList))
+	mux.HandleFunc("GET /api/remote/hosts", s.requireRead(s.handleRemoteList))
 	mux.HandleFunc("POST /api/remote/hosts", s.requireAuth(s.handleRemoteSave))
 	mux.HandleFunc("DELETE /api/remote/hosts/{id}", s.requireAuth(s.handleRemoteDelete))
 	mux.HandleFunc("POST /api/remote/test", s.requireAuth(s.handleRemoteTest))
