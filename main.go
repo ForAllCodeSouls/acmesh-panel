@@ -560,6 +560,13 @@ func (s *Server) routes() *http.ServeMux {
 	mux.HandleFunc("GET /api/export.csv", s.requireAuth(s.handleCSVExport))
 	mux.HandleFunc("POST /api/locale", s.requireAuth(s.handleLocaleSave))
 
+	// v0.1.71 新增：批量续期 / 通知静默 / ACME 账户管理增强
+	mux.HandleFunc("POST /api/expiry/renew", s.requireAuth(s.handleExpiryRenewBatch))
+	mux.HandleFunc("GET /api/notify/quiet", s.requireAuth(s.handleQuietHours))
+	mux.HandleFunc("POST /api/notify/quiet", s.requireAuth(s.handleQuietHoursSave))
+	mux.HandleFunc("POST /api/acme/accounts/default", s.requireAuth(s.handleDefaultCASet))
+	mux.HandleFunc("POST /api/acme/accounts/key", s.requireAuth(s.handleACMEAccountKey))
+
 	// 首页：把 __VER__ 换成实际版本，使 app.js/style.css 的 URL 随版本变化，
 	// 绕开反代（nginx proxy_cache）对同名静态文件的旧缓存，升级后无需手动清缓存。
 	mux.HandleFunc("GET /{$}", s.serveIndex)

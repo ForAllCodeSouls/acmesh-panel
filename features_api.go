@@ -219,9 +219,9 @@ func (s *Server) runHealthCheck() HealthReport {
 	}
 
 	// 4. CA 连通性与系统时间偏差
-	url := caDirectoryURL[s.cfg.DefaultCA]
+	url := caDirectoryURL[s.effectiveCA()]
 	if url == "" {
-		add("CA 连通", "warn", "未识别的 CA："+s.cfg.DefaultCA)
+		add("CA 连通", "warn", "未识别的 CA："+s.effectiveCA())
 	} else {
 		client := &http.Client{Timeout: 6 * time.Second}
 		resp, err := client.Get(url)
@@ -229,7 +229,7 @@ func (s *Server) runHealthCheck() HealthReport {
 			add("CA 连通", "fail", "无法连接 "+url+"："+err.Error())
 		} else {
 			_ = resp.Body.Close()
-			add("CA 连通", "ok", fmt.Sprintf("%s 返回 %d", s.cfg.DefaultCA, resp.StatusCode))
+			add("CA 连通", "ok", fmt.Sprintf("%s 返回 %d", s.effectiveCA(), resp.StatusCode))
 			if ds := resp.Header.Get("Date"); ds != "" {
 				if t, e := http.ParseTime(ds); e == nil {
 					delta := time.Since(t)
@@ -795,7 +795,7 @@ func (s *Server) handleIssueBatch(w http.ResponseWriter, r *http.Request) {
 	}
 	ca := req.CA
 	if ca == "" {
-		ca = s.cfg.DefaultCA
+		ca = s.effectiveCA()
 	}
 	if _, ok := allowedCA[ca]; !ok {
 		writeErr(w, http.StatusBadRequest, "不支持的 CA")
@@ -869,16 +869,19 @@ func (s *Server) handleIssueBatch(w http.ResponseWriter, r *http.Request) {
 
 // handleACMEAccounts 从 acme.sh 目录解析账户摘要；不返回账户私钥内容。
 func (s *Server) handleACMEAccounts(w http.ResponseWriter, r *http.Request) {
-	accounts := scanACMEAccounts(s.cfg.AcmeHome, s.cfg.DefaultCA)
+	accounts := scanACMEAccounts(s.cfg.AcmeHome, s.effectiveCA())
 	st := s.store.Snapshot()
 	if len(accounts) > 0 {
 		_ = s.store.SetACMEAccounts(accounts)
 	} else {
 		accounts = st.ACMEAccounts // 目录暂不可读时沿用缓存
 	}
+	if accounts == nil {
+		accounts = []ACMEAccount{} // 始终返回数组，避免前端拿到 null
+	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"accounts":   accounts,
-		"default_ca": s.cfg.DefaultCA,
+		"default_ca": s.effectiveCA(),
 		"acme_home":  s.cfg.AcmeHome,
 		"env_pinned": os.Getenv("ACME_PANEL_CA") != "",
 	})

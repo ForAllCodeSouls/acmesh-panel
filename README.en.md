@@ -59,8 +59,11 @@ The full Chinese README has the detailed step-by-step explanation: [README.md](R
 | **Lifecycle** | Batch issuance wizard; chain/private-key/OCSP verification; ACME account summary without exposing account keys |
 | **Read-only tokens** | `X-API-Token` for GET endpoints with path scopes; hash-only storage, plaintext shown once; curl examples in the UI |
 | **More** | Unified schedule page; Telegram and WeCom notification channels; zh/en/ja UI switch; CSV export for audit/jobs/sync/diffs |
+| **Batch renewal (v0.1.71)** | Select several certificates on the expiry board and queue renewal at once; force mode adds `--force`; max 50 per batch; nonexistent names are skipped and reported |
+| **Quiet hours (v0.1.71)** | Pause automatic notifications by weekday and time-of-day (including overnight windows); critical alerts can still pass; manual "send test" always works |
+| **ACME accounts (v0.1.71)** | Switch the panel's default CA from the UI (locked when `ACME_PANEL_CA` is set); export an account key only after re-entering the login password, with path containment checks and an audit entry |
 
-See [README.md §5.10–5.15](README.md) for details (Chinese; the tables above are the feature summary in each language).
+See [README.md §5.10–5.16](README.md) for details (Chinese; the tables above are the feature summary in each language). The complete HTTP API reference — authentication, read-only token scopes, all endpoints and curl examples — is in [docs/API.md](docs/API.md).
 
 ---
 
@@ -162,6 +165,11 @@ A systemd unit example and macOS/Windows instructions are in the Chinese README 
 - Web UI: strict CSP, no inline scripts/styles, no CDN.
 - Container: non-root uid 10001, `read_only` rootfs, `cap_drop ALL` (only `CHOWN` added).
 
+- Read-only tokens: five scopes (`certs`/`jobs`/`sync`/`audit`/`overview`), path-prefix enforced. When the `X-API-Token` header is present, token permissions win even if a session cookie is also sent — a session cannot mask an unauthorized token. GET/HEAD only, SHA-256 storage, plaintext shown once.
+- Quiet hours affect automatic notifications only; the manual "send test" always works. Security alerts, issuance failures and renewal failures pass through by default so a maintenance window never hides critical signals.
+- Default CA can only be changed in the UI when `ACME_PANEL_CA` is unset (otherwise the API returns 409). The change applies to newly issued certificates only.
+- Exporting an ACME account key requires re-entering the current password. The path is derived from the account ID and checked with `filepath.EvalSymlinks` + relative-path containment; symlinks outside `ACME_HOME` are rejected. Exports are audited and never cached.
+
 Known boundaries: single account (no RBAC); private keys are viewable by the admin by design; acme.sh writes DNS credentials in plain text to `/acme.sh/account.conf`; the panel never terminates TLS itself. See [SECURITY.md](SECURITY.md).
 
 ---
@@ -171,7 +179,24 @@ Known boundaries: single account (no RBAC); private keys are viewable by the adm
 - **Forgot the password?** Set `ACME_PANEL_USER` + `ACME_PANEL_PASSWORD` + `ACME_PANEL_RESET_CREDENTIALS=1`, restart once, then remove the reset flag.
 - **Login works but issuance fails?** Check DNS provider credentials and that the domain's NS points at the provider zone; the job log shows the acme.sh output verbatim.
 - **Port already in use?** Change the left side of `8800:8080` in `docker-compose.yml`.
-- **Behind a reverse proxy?** Terminate HTTPS on nginx/Caddy. Forward `X-Forwarded-Proto: https` so the panel adds `Secure`/HSTS; without it, login still works (plain cookie). No panel-side Cookie/HSTS switches; optionally set `ACME_PANEL_TRUST_PROXY=1` only so rate limiting sees the real client IP.
+- **Behind a reverse proxy?** Terminate HTTPS on nginx/Caddy. Forward `X-Forwarded-Proto: https` so the panel adds `Secure`/HSTS; without it, login still works (plain cookie). No panel-side Cookie/HSTS switches; optionally set `ACME_PANEL_TRUST_PROXY=1` so rate limiting and the IP allowlist see the real client IP.
+- **Using the IP allowlist behind a proxy?** Set `ACME_PANEL_TRUST_PROXY=1` first, or the panel sees the proxy's IP and may lock you out. Loopback is exempt by default; `/api/health` is always allowed. Invalid CIDR configuration conservatively rejects non-loopback clients.
+- **Changed `.env` but nothing happened?** Run `docker compose up -d`. `restart` does not re-read container environment variables.
+- **Notifications stopped?** Check Settings → Notifications → Quiet hours. A quiet window pauses automatic events; manual "send test" still works, so use it to confirm the channel itself.
+- **"Default CA is locked" when switching?** `ACME_PANEL_CA` is set in the deployment. Change it there and recreate the container (`docker compose up -d`).
+- **Need to automate monitoring?** Create a read-only token in Security Center and see [docs/API.md](docs/API.md) for endpoints and scope rules.
+
+---
+
+## Using the advanced pages
+
+- **Security Center** — sessions (revoke any or all others), IPv4/IPv6 CIDR allowlist (loopback exempt, health endpoint always open), read-only API tokens with path scopes, and config-change diffs with secrets redacted. Token plaintext is shown once; only a SHA-256 hash is stored.
+- **Operations Center** — one-click health check (acme.sh, directories, CA reachability, clock skew, decryptable DNS credentials), expiry board (expired / ≤7 days / ≤30 days / healthy), config backups with retention and readable summaries, and a schedule page with next-run times.
+- **Lifecycle** — batch issuance wizard, chain/private-key/OCSP verification, ACME account summary and default-CA switching. Account keys are never shown on screen; export requires a password and is audited.
+- **Expiry board batch renewal** — tick certificates, optionally enable force, and queue renewal. Each domain becomes its own job, so one failure never blocks the others.
+- **CSV export** — audit, jobs, sync records and config diffs export as UTF-8-BOM CSV for direct Excel opening.
+
+For per-field details see the Chinese README (§5.10–5.16) and the [API reference](docs/API.md).
 
 ---
 

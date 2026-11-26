@@ -48,6 +48,7 @@ English / 日本語 版为精简指南，覆盖部署与日常使用所需的全
 | 装好了，想知道面板怎么用 | [第三部分：使用说明](#第三部分使用说明)（签发、通知、同步、续期等） |
 | 第一次看，想知道这项目解决什么问题 | [为什么用这个项目](#为什么用这个项目) |
 | 查配置项 / 排查报错 | [配置参考](#7-配置参考) · [常见问题](#10-常见问题) |
+| 通过 API 做自动化 / 接监控 | [docs/API.md](docs/API.md)（全部端点、认证、Token scope、curl 示例） |
 | 使用前确认合规边界 | [使用条款与免责声明](#12-使用条款与免责声明) · [DISCLAIMER.md](DISCLAIMER.md) |
 
 ---
@@ -392,7 +393,7 @@ docker compose up -d
 docker compose ps
 ```
 
-固定版本：把 `.env` 的 `ACMESH_IMAGE_TAG` 改成具体 tag（如 `0.1.70`）。升级不会动数据卷。
+固定版本：把 `.env` 的 `ACMESH_IMAGE_TAG` 改成具体 tag（如 `0.1.71`）。升级不会动数据卷。
 
 「设置 → 面板版本」会自动查询 GitHub 最新 Release：有新版本时版本号后会出现「可更新 vX」按钮，点击跳转到项目主页；网络不通或检测失败时只显示提示，不影响面板使用。
 
@@ -747,7 +748,7 @@ curl -H 'X-API-Token: acmp_你的令牌' https://acme.example.com/api/certs
 curl -H 'X-API-Token: acmp_你的令牌' https://acme.example.com/api/expiry
 ```
 
-令牌仅允许 GET/HEAD 请求，写操作仍需会话 Cookie 与 CSRF Token。勾选的范围按 API 路径前缀校验，未授权端点返回 401。IP 白名单与 HTTPS-only 策略对令牌同样生效。
+令牌仅允许 GET/HEAD 请求，写操作仍需会话 Cookie 与 CSRF Token。勾选的范围按 API 路径前缀校验，未授权端点返回 401。IP 白名单与 HTTPS-only 策略对令牌同样生效。**完整端点清单、scope 对照与监控示例见 [docs/API.md](docs/API.md)。**
 
 ### 5.12 健康自检与到期看板
 
@@ -774,6 +775,14 @@ curl -H 'X-API-Token: acmp_你的令牌' https://acme.example.com/api/expiry
 「运维中心 → 计划任务」集中展示自动续期、版本检测、自动备份、临期提醒、记录清理五项内置任务的状态、配置与下次执行时间。任务的实际开关仍在各自设置位置。
 
 审计日志、任务列表、同步记录与配置变更页面均提供 CSV 导出，文件带 UTF-8 BOM，Excel 直接打开不乱码。
+
+### 5.16 批量续期、静默窗口与账户管理（v0.1.71）
+
+「运维中心 → 到期看板」每张证书前增加勾选框，可一次选中多张证书点「批量续期已选」排队续期；勾选「强制续签」会为每张证书追加 `--force`，忽略 acme.sh 的未到期跳过。单批最多 50 张，非法证书名直接拒绝，不存在的证书会跳过并在结果里列出。每个域名仍是独立任务，失败不影响其它证书。
+
+「通知 → 维护窗口 / 通知静默」可按星期与时段暂停自动通知：设置开始 / 结束小时（如 22:00—07:00，开始大于结束即为跨午夜），星期留空表示每天。「放行关键告警」默认开启，静默期仍会推送安全告警、签发失败与续期失败；关闭后所有事件静默。手动点渠道的「发送测试」永远不受窗口影响。顶部会显示当前是否处于静默期。
+
+「证书生命周期 → ACME 账户」可直接切换面板默认 CA（letsencrypt / zerossl / buypass / google / letsencrypt_test），对新签发证书生效；若已设置 `ACME_PANEL_CA`，该下拉框锁定并提示到部署配置修改。账户私钥需输入当前登录密码二次确认后才能一次性下载，路径严格限制在 `ACME_HOME` 内（含符号链接校验），导出会写入审计日志。
 
 ---
 
@@ -936,9 +945,14 @@ gofmt -w *.go && go vet ./...
 ├── notify.go          通知渠道、多渠道发送、事件映射、临期检查
 ├── sync.go            证书同步：目录匹配、原子覆盖、指纹去重、规则与记录
 ├── remote.go          远程主机：SSH/SCP 推送与连接测试
+├── features.go        v0.1.70 数据模型与 Store 扩展方法
+├── features_api.go    v0.1.70 接口：会话/白名单/健康自检/备份/令牌/生命周期
+├── features_util.go   v0.1.70 后台循环：退避重试调度、自动备份与保留
+├── enhancements.go    v0.1.71：批量续期/静默窗口/默认 CA 覆盖/账户私钥导出
 ├── version.go         版本号（ldflags 注入）
+├── docs/              流程图 SVG 与 API.md（HTTP API 参考）
 ├── web/               index.html / style.css / app.js / assets（go:embed）
-├── tests/             fake-acme.sh、e2e.py、setup-check.py、ui-check.js
+├── tests/             fake-acme.sh、e2e.py、e2e_features.py、setup-check.py、ui-check.js
 ├── assets/            原创 logo 与赞赏码图片
 ├── Dockerfile         多阶段构建，非 root uid 10001 运行
 ├── docker-compose.yml 默认使用 GHCR 镜像（宿主 8800）

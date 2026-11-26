@@ -244,6 +244,66 @@ def main():
         st, j = c.j("GET", "/api/session")
         check("会话接口返回语言设置", j.get("locale") == "ja", j.get("locale"))
 
+        # ---- v0.1.71：静默窗口 ----
+        st, j = c.j("GET", "/api/notify/quiet")
+        check("静默窗口接口返回配置与状态", st == 200 and "quiet_hours" in j and "active" in j, (st, j))
+        st, j = c.j("POST", "/api/notify/quiet", {
+            "enabled": True, "start_hour": 0, "end_hour": 23, "days": [], "allow_critical": True,
+        })
+        check("保存静默窗口", st == 200 and j.get("quiet_hours", {}).get("enabled") is True, (st, j))
+        st, j = c.j("GET", "/api/notify/quiet")
+        check("静默窗口生效中", j.get("active") is True, j)
+        st, j = c.j("POST", "/api/notify/quiet", {
+            "enabled": False, "start_hour": 22, "end_hour": 7, "days": [], "allow_critical": True,
+        })
+        check("关闭静默窗口", st == 200 and j.get("quiet_hours", {}).get("enabled") is False, (st, j))
+        st, j = c.j("GET", "/api/config-diffs")
+        check("静默配置变更写入 Diff", st == 200 and any(
+            d.get("action") == "quiet_hours_save" for d in j.get("items", [])), st)
+
+        # ---- v0.1.71：默认 CA 切换与锁定 ----
+        st, j = c.j("GET", "/api/catalog")
+        check("目录返回 CA 选项与锁定状态", st == 200 and len(j.get("ca_options", [])) >= 5
+              and "ca_locked" in j, (st, j))
+        st, j = c.j("POST", "/api/acme/accounts/default", {"ca": "zerossl"})
+        check("切换默认 CA 成功", st == 200 and j.get("default_ca") == "zerossl", (st, j))
+        st, j = c.j("GET", "/api/catalog")
+        check("切换后目录反映新 CA", j.get("default_ca") == "zerossl", j.get("default_ca"))
+        st, j = c.j("POST", "/api/acme/accounts/default", {"ca": "not-a-ca"})
+        check("非法 CA 被拒绝", st == 400, st)
+
+        # ---- v0.1.71：账户私钥导出需密码 ----
+        st, j = c.j("POST", "/api/acme/accounts/key", {"id": "account.conf", "password": "wrong"})
+        check("错误密码拒绝导出账户私钥", st == 403, st)
+        st, data = c.req("POST", "/api/acme/accounts/key", {"id": "../account.conf", "password": PASSWORD})
+        check("越界账户 ID 被拒绝", st == 400, st)
+        st, j = c.j("GET", "/api/acme/accounts")
+        check("账户摘要不回显私钥内容", st == 200 and all(
+            "private_key" not in a for a in j.get("accounts", [])), st)
+
+        # ---- v0.1.71：到期看板批量续期 ----
+        st, j = c.j("GET", "/api/expiry")
+        check("到期看板返回证书分组", st == 200 and "groups" in j and "counts" in j, (st, j))
+        names = []
+        for group in j.get("groups", {}).values():
+            names.extend(x.get("name") for x in group if x.get("name"))
+        if names:
+            st, data = c.req("POST", "/api/expiry/renew", {
+                "names": names[:2] + ["nonexistent.example.com"], "force": False,
+            })
+            try:
+                rj = json.loads(data)
+            except Exception:
+                rj = {}
+            check("批量续期排队成功并跳过不存在证书", st == 202 and rj.get("queued") == 2
+                  and "nonexistent.example.com" in rj.get("skipped", []), (st, rj))
+        else:
+            check("批量续期排队成功并跳过不存在证书", False, "无证书可用")
+        st, data = c.req("POST", "/api/expiry/renew", {"names": []})
+        check("批量续期空列表被拒绝", st == 400, st)
+        st, data = c.req("POST", "/api/expiry/renew", {"names": ["../etc/passwd"]})
+        check("批量续期非法证书名被拒绝", st == 400, st)
+
     finally:
         proc.terminate()
         try:

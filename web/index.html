@@ -127,6 +127,30 @@
         <h3>可订阅的事件</h3>
         <div id="event-help" class="chip-wrap"></div>
       </div>
+
+      <div class="panel">
+        <h3>维护窗口 / 通知静默</h3>
+        <p class="tiny muted">在指定时段暂停自动通知，适合维护期避免告警轰炸。手动「发送测试」不受影响；安全告警默认仍会送达。</p>
+        <form id="quiet-form" class="grid2">
+          <label class="check"><input id="quiet-enabled" type="checkbox"><span>启用静默窗口</span></label>
+          <label class="check"><input id="quiet-critical" type="checkbox"><span>放行关键告警</span></label>
+          <label class="field"><span>开始小时（0-23）</span><input id="quiet-start" type="number" min="0" max="23" value="22"></label>
+          <label class="field"><span>结束小时（0-23）</span><input id="quiet-end" type="number" min="0" max="23" value="7"></label>
+          <div class="field"><span>生效星期（不勾=每天）</span>
+            <div class="chip-wrap" id="quiet-days">
+              <label class="check"><input type="checkbox" value="1"><span>一</span></label>
+              <label class="check"><input type="checkbox" value="2"><span>二</span></label>
+              <label class="check"><input type="checkbox" value="3"><span>三</span></label>
+              <label class="check"><input type="checkbox" value="4"><span>四</span></label>
+              <label class="check"><input type="checkbox" value="5"><span>五</span></label>
+              <label class="check"><input type="checkbox" value="6"><span>六</span></label>
+              <label class="check"><input type="checkbox" value="0"><span>日</span></label>
+            </div>
+          </div>
+          <div class="field"><span>&nbsp;</span><button class="btn primary" id="quiet-save" type="submit">保存窗口</button></div>
+        </form>
+        <p class="hint" id="quiet-status"></p>
+      </div>
     </section>
 
     <!-- 凭证 -->
@@ -298,7 +322,12 @@
       <div class="subpanel hidden" data-subpanel="accounts">
         <div class="card">
           <h3>ACME 账户</h3>
-          <p class="tiny muted">读取 acme.sh 目录里的账户摘要。这里不展示账户私钥内容；切换默认 CA 请通过环境变量 ACME_PANEL_CA 配置。</p>
+          <p class="tiny muted">读取 acme.sh 目录里的账户摘要，可在此切换面板默认 CA。账户私钥仅在通过当前密码二次确认后一次性下载，界面不展示内容。</p>
+          <div class="grid2">
+            <label class="field"><span>面板默认 CA</span><select id="account-default-ca" aria-label="面板默认 CA"></select></label>
+            <div class="field"><span>&nbsp;</span><button class="btn small" id="account-ca-save" type="button">切换默认 CA</button></div>
+          </div>
+          <p class="hint" id="account-ca-hint"></p>
           <div class="row-actions"><button class="btn ghost" id="accounts-refresh" type="button">↻ 重新扫描</button></div>
           <div id="accounts-list" class="list"></div>
         </div>
@@ -329,10 +358,15 @@
       <div class="subpanel hidden" data-subpanel="expiry">
         <div class="card">
           <h3>证书到期风险看板</h3>
-          <p class="tiny muted">按剩余天数分为已过期、7 天内、30 天内与正常四档。点击证书可跳转证书页查看详情。</p>
+          <p class="tiny muted">按剩余天数分为已过期、7 天内、30 天内与正常四档。可勾选多张证书批量续期；点击证书名可查看详情。</p>
           <div class="stats" id="expiry-stats"></div>
+          <div class="row-actions">
+            <button class="btn primary small" id="expiry-renew-batch" type="button" disabled>批量续期已选</button>
+            <label class="check"><input id="expiry-force" type="checkbox"><span>强制续签（忽略未到期跳过）</span></label>
+            <span class="grow"></span>
+            <a class="btn ghost" href="/api/export.csv?kind=jobs" data-csv="jobs">导出任务 CSV</a>
+          </div>
           <div id="expiry-list" class="list scroll-area"></div>
-          <div class="row-actions"><a class="btn ghost" href="/api/export.csv?kind=jobs" data-csv="jobs">导出任务 CSV</a></div>
         </div>
       </div>
 

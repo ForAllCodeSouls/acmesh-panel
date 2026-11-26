@@ -436,4 +436,30 @@ check('新接口均有审计或 Diff 记录', goFeaturesApi.includes('"ip_allowl
   && goFeaturesApi.includes('"auto_backup_save"') && goFeaturesApi.includes('"retry_policy_save"')
   && goFeaturesApi.includes('"token_create"'));
 
+// v0.1.71：批量续期 / 账户增强 / 静默窗口
+const goEnh = fs.readFileSync(path.join(root, 'enhancements.go'), 'utf8');
+check('到期看板批量续期有独立接口且复用单证书参数', goEnh.includes('handleExpiryRenewBatch')
+  && goEnh.includes('renewArgsFor') && goMain.includes('POST /api/expiry/renew')
+  && app.includes("'/api/expiry/renew'") && html.includes('id="expiry-renew-batch"'));
+check('批量续期限制数量并跳过无效证书', goEnh.includes('单批最多续期 50 张证书')
+  && goEnh.includes('skipped = append') && app.includes('pickedExpiry()'));
+check('通知静默窗口含星期与跨午夜处理', goEnh.includes('inQuietWindow')
+  && goEnh.includes('StartHour < q.EndHour') && goEnh.includes('h >= q.StartHour || h < q.EndHour')
+  && goEnh.includes('quietAllows') && goNotify.includes('inQuietWindow(q, time.Now())')
+  && html.includes('id="quiet-form"'));
+check('静默窗口不阻断手动测试通知', goNotify.includes('SendTest')
+  && !goNotify.slice(goNotify.indexOf('func (e *NotifyEngine) SendTest')).includes('inQuietWindow'));
+check('默认 CA 覆盖受环境变量锁定', goEnh.includes('effectiveCA')
+  && goEnh.includes('ACME_PANEL_CA') && goEnh.includes('SetDefaultCAOverride')
+  && goApi.includes('ca_locked'));
+check('账户私钥导出需密码且路径限制在 ACME_HOME', goEnh.includes('CheckPassword(req.Password)')
+  && goEnh.includes('resolveAccountKeyPath') && goEnh.includes('filepath.EvalSymlinks')
+  && goEnh.includes('strings.HasPrefix(rel2, "..")') && goEnh.includes('"account_key_export"')
+  && app.includes('id="account-key-pw"'));
+check('v0.1.71 全部新增路由已注册', ['POST /api/expiry/renew', 'GET /api/notify/quiet',
+  'POST /api/notify/quiet', 'POST /api/acme/accounts/default', 'POST /api/acme/accounts/key']
+  .every((route) => goMain.includes(route)));
+check('API 参考文档覆盖只读令牌与全部分区', fs.existsSync(path.join(root, 'docs', 'API.md'))
+  && fs.readFileSync(path.join(root, 'docs', 'API.md'), 'utf8').includes('X-API-Token'));
+
 console.log(`web UI checks: ${passed} passed`);

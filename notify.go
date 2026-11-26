@@ -126,8 +126,15 @@ func NewNotifyEngine(store *Store) *NotifyEngine {
 }
 
 // Send 向所有订阅了 event 的已启用渠道推送。返回成功发送数。
+// v0.1.71：维护窗口内暂停自动通知；关键安全事件按配置可放行。
+// 手动「发送测试」走 SendTest，不受静默窗口影响。
 func (e *NotifyEngine) Send(event, title, message string) int {
 	if !notifyEventCodes[event] {
+		return 0
+	}
+	q := e.store.Snapshot().QuietHours
+	if inQuietWindow(q, time.Now()) && !quietAllows(q, event) {
+		log.Printf("通知静默：跳过事件 %s（%s）", event, title)
 		return 0
 	}
 	msg := NotifyMessage{

@@ -1171,8 +1171,49 @@
       const cat = state.notifyCatalog;
       $('#event-help').innerHTML = (cat?.events || []).map((e) =>
         `<span class="chip" title="${esc(e.code)}">${esc(e.name)}</span>`).join('');
+      await loadQuietHours();
     } catch (e) { toast(e.message, 'err'); }
   }
+
+  async function loadQuietHours() {
+    try {
+      const r = await api('/api/notify/quiet');
+      const q = r.quiet_hours || {};
+      $('#quiet-enabled').checked = !!q.enabled;
+      $('#quiet-critical').checked = q.allow_critical !== false;
+      $('#quiet-start').value = q.start_hour == null ? 22 : q.start_hour;
+      $('#quiet-end').value = q.end_hour == null ? 7 : q.end_hour;
+      const days = q.days || [];
+      $$('#quiet-days input[type=checkbox]').forEach((el) => {
+        el.checked = days.includes(parseInt(el.value, 10));
+      });
+      const fmt = (h) => String(h).padStart(2, '0') + ':00';
+      const names = ['日', '一', '二', '三', '四', '五', '六'];
+      const dayText = days.length ? days.slice().sort().map((d) => '周' + names[d]).join('、') : '每天';
+      $('#quiet-status').textContent = !q.enabled
+        ? '当前未启用静默窗口，全部自动通知正常推送。'
+        : `窗口：${dayText} ${fmt(q.start_hour)}—${fmt(q.end_hour)}${q.start_hour > q.end_hour ? '（跨午夜）' : ''}；` +
+          `当前${r.active ? '处于静默期，自动通知已暂停' : '不在静默期'}${q.allow_critical !== false ? '（关键告警仍放行）' : ''}。`;
+    } catch (e) { toast(e.message, 'err'); }
+  }
+
+  $('#quiet-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const body = {
+      enabled: $('#quiet-enabled').checked,
+      allow_critical: $('#quiet-critical').checked,
+      start_hour: parseInt($('#quiet-start').value || '0', 10),
+      end_hour: parseInt($('#quiet-end').value || '0', 10),
+      days: $$('#quiet-days input[type=checkbox]').filter((el) => el.checked)
+        .map((el) => parseInt(el.value, 10)),
+    };
+    const btn = busyButton($('#quiet-save'), '保存中…');
+    try {
+      await api('/api/notify/quiet', { method: 'POST', body });
+      toast('静默窗口已保存', 'ok');
+      await loadQuietHours();
+    } catch (err) { toast(err.message, 'err'); } finally { btn(); }
+  });
 
   function renderNotifiers() {
     const box = $('#notifier-list');
@@ -2475,15 +2516,64 @@
     try {
       const r = await api('/api/acme/accounts');
       state.accounts = r.accounts || [];
+      const cat = state.catalog || await api('/api/catalog');
+      const options = cat.ca_options || (cat.cas || []).map((c) => ({ value: c.code, label: c.name }));
+      $('#account-default-ca').innerHTML = options.map((o) =>
+        `<option value="${esc(o.value)}" ${o.value === r.default_ca ? 'selected' : ''}>${esc(o.label)}</option>`).join('');
+      $('#account-ca-save').disabled = !!r.env_pinned;
+      $('#account-ca-hint').textContent = r.env_pinned
+        ? '默认 CA 已由环境变量 ACME_PANEL_CA 锁定；如需修改，请改部署配置后重建容器。'
+        : '切换后对新签发的证书生效；已有证书不受影响。';
       const box = $('#accounts-list');
       if (!state.accounts.length) { box.innerHTML = '<p class="tiny muted">未发现账户配置文件。</p>'; return; }
       box.innerHTML = state.accounts.map((a) => `<div class="row">
         <div class="grow"><strong>${esc(a.ca)}</strong><div class="tiny muted">${esc(a.email || '无邮箱')} · ${esc(a.account_dir)}</div></div>
         <span class="chip">${esc(a.key_fingerprint || '-')}</span>
         ${a.default ? '<span class="chip ok">默认</span>' : ''}
+        <button class="btn small ghost" data-account-key="${esc(a.id)}">导出私钥</button>
       </div>`).join('');
     } catch (e) { toast(e.message, 'err'); }
   }
+
+  $('#account-ca-save').addEventListener('click', async () => {
+    const ca = $('#account-default-ca').value;
+    const btn = busyButton($('#account-ca-save'), '保存中…');
+    try {
+      await api('/api/acme/accounts/default', { method: 'POST', body: JSON.stringify({ ca }) });
+      toast('默认 CA 已切换为 ' + ca, 'ok');
+      await loadAccounts();
+    } catch (e) { toast(e.message, 'err'); } finally { btn(); }
+  });
+
+  $('#accounts-list').addEventListener('click', (e) => {
+    const b = e.target.closest('[data-account-key]');
+    if (!b) return;
+    openModal('导出 ACME 账户私钥', `
+      <p class="tiny muted">账户私钥是最高敏感凭证，导出会写入审计日志。请输入当前登录密码以继续。</p>
+      <label class="field"><span>当前密码</span><input id="account-key-pw" type="password" autocomplete="current-password" aria-label="当前登录密码"></label>`,
+      '<button class="btn ghost" id="ak-cancel">取消</button><button class="btn primary" id="ak-export">确认导出</button>');
+    $('#ak-cancel').addEventListener('click', closeModal);
+    $('#ak-export').addEventListener('click', async () => {
+      const pw = $('#account-key-pw').value;
+      if (!pw) { toast('请输入当前密码', 'warn'); return; }
+      try {
+        const res = await api('/api/acme/accounts/key', {
+          method: 'POST', raw: true,
+          body: { id: b.dataset.accountKey, password: pw },
+        });
+        const blob = await res.blob();
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        a.download = b.dataset.accountKey.replace(/\.conf$/, '.key');
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+        closeModal();
+        toast('账户私钥已下载，请妥善保管', 'ok');
+      } catch (err) { toast(err.message, 'err'); }
+    });
+  });
 
   $('#batch-run').addEventListener('click', async () => {
     const domains = $('#batch-domains').value.split('\n').map((s) => s.trim()).filter(Boolean);
@@ -2559,19 +2649,52 @@
       const rows = [];
       ['expired', 'critical', 'warning', 'valid'].forEach((k) => {
         (groups[k] || []).forEach((cert) => rows.push(`<div class="row">
+          <label class="check" title="勾选以批量续期"><input type="checkbox" data-expiry-pick="${esc(cert.name)}" aria-label="选择 ${esc(cert.domain)} 进行批量续期"></label>
           <span class="chip ${k === 'expired' ? 'bad' : (k === 'valid' ? 'ok' : 'warn')}">${cert.days_left < 0 ? '已过期' : cert.days_left + ' 天'}</span>
-          <span class="grow"><strong>${esc(cert.domain)}</strong><div class="tiny muted">${esc(cert.issuer || '-')} · ${esc(cert.key_type || '')}</div></span>
-          <button class="btn small ghost" data-expiry-cert="${esc(cert.name)}">查看</button>
+          <span class="grow"><strong><a href="#" data-expiry-cert="${esc(cert.name)}">${esc(cert.domain)}</a></strong><div class="tiny muted">${esc(cert.issuer || '-')} · ${esc(cert.key_type || '')}</div></span>
         </div>`));
       });
       $('#expiry-list').innerHTML = rows.length ? rows.join('') : '<p class="tiny muted">尚未识别到证书。</p>';
+      syncExpirySelection();
     } catch (e) { toast(e.message, 'err'); }
   }
 
+  function pickedExpiry() {
+    return $$('[data-expiry-pick]').filter((el) => el.checked).map((el) => el.dataset.expiryPick);
+  }
+  function syncExpirySelection() {
+    const btn = $('#expiry-renew-batch');
+    if (btn) btn.disabled = pickedExpiry().length === 0;
+  }
+  $('#expiry-list').addEventListener('change', syncExpirySelection);
+
+  $('#expiry-renew-batch').addEventListener('click', async () => {
+    const names = pickedExpiry();
+    if (!names.length) return;
+    const force = $('#expiry-force').checked;
+    if (!confirm(`将为 ${names.length} 张证书排队续期${force ? '（强制续签）' : ''}，确认继续？`)) return;
+    const btn = busyButton($('#expiry-renew-batch'), '排队中…');
+    try {
+      const r = await api('/api/expiry/renew', {
+        method: 'POST', body: JSON.stringify({ names, force }),
+      });
+      const skipped = (r.skipped || []).length ? `<p class="tiny muted">已跳过 ${r.skipped.length} 张不存在的证书：${esc(r.skipped.join('、'))}</p>` : '';
+      toast(`已排队 ${r.queued} 个续期任务`, 'ok');
+      openModal('批量续期已排队', `${skipped}<div class="list">${(r.jobs || []).map((j) =>
+        `<div class="row"><span class="grow"><strong>${esc(j.domain)}</strong><div class="tiny muted">任务 ${esc(j.id)}</div></span></div>`).join('')}</div>`,
+        '<button class="btn ghost" id="rb-close">关闭</button><button class="btn primary" id="rb-jobs">查看任务</button>');
+      $('#rb-close').addEventListener('click', closeModal);
+      $('#rb-jobs').addEventListener('click', () => { closeModal(); switchView('jobs'); });
+      $$('[data-expiry-pick]').forEach((el) => { el.checked = false; });
+      syncExpirySelection();
+    } catch (e) { toast(e.message, 'err'); } finally { btn(); }
+  });
+
   $('#expiry-list').addEventListener('click', (e) => {
-    const b = e.target.closest('[data-expiry-cert]');
-    if (!b) return;
-    const cert = state.certs.find((c) => c.name === b.dataset.expiryCert);
+    const link = e.target.closest('[data-expiry-cert]');
+    if (!link) return;
+    e.preventDefault();
+    const cert = state.certs.find((c) => c.name === link.dataset.expiryCert);
     if (cert) { switchView('certs'); setTimeout(() => openCertDrawer(cert), 50); }
   });
 

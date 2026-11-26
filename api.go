@@ -339,7 +339,7 @@ func (s *Server) handleSession(w http.ResponseWriter, r *http.Request) {
 		"csrf":            sess.CSRF,
 		"acme_version":    s.acme.Version(r.Context()),
 		"acme_home":       s.cfg.AcmeHome,
-		"default_ca":      s.cfg.DefaultCA,
+		"default_ca":      s.effectiveCA(),
 		"default_email":   s.store.DefaultEmail(),
 		"cookie_secure":   requestIsHTTPS(r),
 		"tls":             requestIsHTTPS(r),
@@ -605,7 +605,7 @@ func (s *Server) handleIssue(w http.ResponseWriter, r *http.Request) {
 	}
 	ca := req.CA
 	if ca == "" {
-		ca = s.cfg.DefaultCA
+		ca = s.effectiveCA()
 	}
 	if _, ok := allowedCA[ca]; !ok {
 		writeErr(w, http.StatusBadRequest, "不支持的 CA")
@@ -842,7 +842,9 @@ func (s *Server) handleCatalog(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{
 		"providers":  providerCatalog,
 		"cas":        cas,
-		"default_ca": s.cfg.DefaultCA,
+		"default_ca": s.effectiveCA(),
+		"ca_locked":  env("ACME_PANEL_CA", "") != "",
+		"ca_options": caOptions(),
 		"keylengths": []string{"ec-256", "ec-384", "2048", "4096"},
 		"version":    appVersion,
 		"cookie_sec": requestIsHTTPS(r),
@@ -1014,6 +1016,7 @@ func (s *Server) handleNotifyCatalog(w http.ResponseWriter, r *http.Request) {
 		"events":        notifyEvents,
 		"kinds":         notifierKinds,
 		"default_email": s.store.DefaultEmail(),
+		"quiet_hours":   s.store.Snapshot().QuietHours,
 	})
 }
 

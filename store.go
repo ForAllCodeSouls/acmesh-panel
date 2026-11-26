@@ -146,6 +146,10 @@ type State struct {
 	RetryPolicy      RetryPolicy      `json:"retry_policy"`       // 失败任务指数退避重试
 	ACMEAccounts     []ACMEAccount    `json:"acme_accounts"`      // acme.sh 账户摘要缓存
 	Locale           string           `json:"locale"`             // 界面语言：zh | en | ja
+
+	// v0.1.71 新增：通知静默窗口与默认 CA 覆盖（仅环境变量未锁定时生效）。
+	QuietHours        QuietHours `json:"quiet_hours"`         // 维护窗口内暂停通知推送
+	DefaultCAOverride string     `json:"default_ca_override"` // 界面切换的默认 CA
 }
 
 // Store 负责状态持久化、凭证加解密、密码校验与审计日志。
@@ -214,6 +218,7 @@ func NewStore(dir string) (*Store, error) {
 	s.state.AutoBackup = AutoBackupConfig{Interval: "daily", Hour: 4, Keep: 7}
 	s.state.RetryPolicy = RetryPolicy{Enabled: true, MaxAttempts: 3, BaseDelay: 30, MaxDelay: 600}
 	s.state.Locale = "zh"
+	s.state.QuietHours = QuietHours{Days: []int{}}
 	s.load()
 	return s, nil
 }
@@ -295,6 +300,15 @@ func (s *Store) load() {
 	}
 	if _, ok := rawFields["locale"]; !ok {
 		st.Locale = "zh"
+	}
+	if _, ok := rawFields["quiet_hours"]; !ok {
+		st.QuietHours = QuietHours{Days: []int{}}
+	} else {
+		st.QuietHours.StartHour = clampInt(st.QuietHours.StartHour, 0, 23)
+		st.QuietHours.EndHour = clampInt(st.QuietHours.EndHour, 0, 23)
+		if st.QuietHours.Days == nil {
+			st.QuietHours.Days = []int{}
+		}
 	}
 	switch st.Locale {
 	case "zh", "en", "ja":
