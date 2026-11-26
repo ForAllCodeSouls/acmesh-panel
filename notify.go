@@ -67,6 +67,8 @@ var notifierKinds = []NotifierKind{
 	{"dingtalk", "钉钉群机器人", true, true, "Webhook 完整 URL", "加签 Secret（可选）", "支持加签与不加签两种模式"},
 	{"feishu", "飞书群机器人", true, true, "Webhook 完整 URL", "签名密钥（可选）", "支持签名校验"},
 	{"bark", "Bark (iOS)", false, true, "无需填写", "Bark Key", "通过 api.day.app 推送到 iPhone"},
+	{"telegram", "Telegram 机器人", true, true, "Chat ID", "Bot Token", "通过 api.telegram.org 发送，需先把机器人拉进群或发起对话"},
+	{"wecom", "企业微信群机器人", true, false, "Webhook 完整 URL", "无需填写", "从群机器人的 Webhook 地址复制，面板会 POST markdown 消息"},
 }
 
 var notifierKindByCode = func() map[string]NotifierKind {
@@ -272,6 +274,30 @@ func (e *NotifyEngine) sendOne(ctx context.Context, n Notifier, msg NotifyMessag
 		endpoint := "https://api.day.app/" + url.PathEscape(n.Secret) + "/" +
 			url.PathEscape(msg.Title) + "/" + url.PathEscape(msg.Message)
 		return e.postJSON(ctx, endpoint, map[string]any{}, nil)
+
+	case "telegram":
+		// Bot Token 属于凭证，放在路径里；Chat ID 是目标。两端都做转义，
+		// 域名固定为 Telegram 官方 API，避免 Secret 被发往任意主机。
+		endpoint := "https://api.telegram.org/bot" + url.PathEscape(n.Secret) + "/sendMessage"
+		payload := map[string]any{
+			"chat_id": n.Target,
+			"text":    msg.Title + "\n" + msg.Message,
+		}
+		return e.postJSON(ctx, endpoint, payload, nil)
+
+	case "wecom":
+		// 企业微信 Webhook 的 key 本身就在 URL 里，必须走 safeURL 做 SSRF 校验。
+		endpoint, err := safeURL(n.Target)
+		if err != nil {
+			return err
+		}
+		payload := map[string]any{
+			"msgtype": "markdown",
+			"markdown": map[string]string{
+				"content": "### " + msg.Title + "\n\n" + strings.ReplaceAll(msg.Message, "\n", "\n\n"),
+			},
+		}
+		return e.postJSON(ctx, endpoint.String(), payload, nil)
 	}
 	return fmt.Errorf("不支持的通知类型: %s", n.Kind)
 }

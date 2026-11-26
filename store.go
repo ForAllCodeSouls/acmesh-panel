@@ -137,6 +137,15 @@ type State struct {
 	RetentionDays int                    `json:"retention_days"` // 任务/审计/同步记录保留天数，0 表示不清理
 	Update        UpdateState            `json:"update"`         // 面板版本自动检测配置与结果
 	ForceHTTPS    bool                   `json:"force_https"`    // 仅允许 HTTPS 访问（HTTP 直连一律拒绝）
+
+	// v0.1.70 新增：会话安全、只读令牌、自动备份、退避重试、账户与界面语言。
+	IPAllowlist      []string         `json:"ip_allowlist"`       // 管理入口 CIDR 白名单，空=不限制
+	AllowLocalBypass bool             `json:"allow_local_bypass"` // 本地回环豁免，默认 true
+	APITokens        []APIToken       `json:"api_tokens"`         // 只读 API 令牌（仅存哈希）
+	AutoBackup       AutoBackupConfig `json:"auto_backup"`        // 自动备份配置
+	RetryPolicy      RetryPolicy      `json:"retry_policy"`       // 失败任务指数退避重试
+	ACMEAccounts     []ACMEAccount    `json:"acme_accounts"`      // acme.sh 账户摘要缓存
+	Locale           string           `json:"locale"`             // 界面语言：zh | en | ja
 }
 
 // Store 负责状态持久化、凭证加解密、密码校验与审计日志。
@@ -201,6 +210,10 @@ func NewStore(dir string) (*Store, error) {
 	s.state.RetentionDays = 30
 	s.state.Update.AutoCheck = true
 	s.state.Update.Interval = updateIntervalDaily
+	s.state.AllowLocalBypass = true
+	s.state.AutoBackup = AutoBackupConfig{Interval: "daily", Hour: 4, Keep: 7}
+	s.state.RetryPolicy = RetryPolicy{Enabled: true, MaxAttempts: 3, BaseDelay: 30, MaxDelay: 600}
+	s.state.Locale = "zh"
 	s.load()
 	return s, nil
 }
@@ -267,6 +280,45 @@ func (s *Store) load() {
 	if !validUpdateInterval(st.Update.Interval) {
 		st.Update.Interval = updateIntervalDaily
 	}
+	// v0.1.70 新字段兼容：旧 state 缺失时给出安全默认值。
+	if st.APITokens == nil {
+		st.APITokens = []APIToken{}
+	}
+	if st.IPAllowlist == nil {
+		st.IPAllowlist = []string{}
+	}
+	if st.ACMEAccounts == nil {
+		st.ACMEAccounts = []ACMEAccount{}
+	}
+	if _, ok := rawFields["allow_local_bypass"]; !ok {
+		st.AllowLocalBypass = true
+	}
+	if _, ok := rawFields["locale"]; !ok {
+		st.Locale = "zh"
+	}
+	switch st.Locale {
+	case "zh", "en", "ja":
+	default:
+		st.Locale = "zh"
+	}
+	if _, ok := rawFields["auto_backup"]; !ok {
+		st.AutoBackup = AutoBackupConfig{Interval: "daily", Hour: 4, Keep: 7}
+	} else {
+		if !validInterval(st.AutoBackup.Interval) {
+			st.AutoBackup.Interval = "daily"
+		}
+		st.AutoBackup.Hour = clampInt(st.AutoBackup.Hour, 0, 23)
+		if st.AutoBackup.Keep < 1 || st.AutoBackup.Keep > 50 {
+			st.AutoBackup.Keep = 7
+		}
+	}
+	if _, ok := rawFields["retry_policy"]; !ok {
+		st.RetryPolicy = RetryPolicy{Enabled: true, MaxAttempts: 3, BaseDelay: 30, MaxDelay: 600}
+	} else {
+		st.RetryPolicy.MaxAttempts = clampInt(st.RetryPolicy.MaxAttempts, 2, 10)
+		st.RetryPolicy.BaseDelay = clampInt(st.RetryPolicy.BaseDelay, 5, 3600)
+		st.RetryPolicy.MaxDelay = clampInt(st.RetryPolicy.MaxDelay, st.RetryPolicy.BaseDelay, 86400)
+	}
 	s.state = st
 }
 
@@ -330,6 +382,9 @@ func (s *Store) Snapshot() State {
 	for k, v := range s.state.RemoteHosts {
 		st.RemoteHosts[k] = v
 	}
+	st.IPAllowlist = append([]string(nil), s.state.IPAllowlist...)
+	st.APITokens = append([]APIToken(nil), s.state.APITokens...)
+	st.ACMEAccounts = append([]ACMEAccount(nil), s.state.ACMEAccounts...)
 	return st
 }
 
@@ -389,6 +444,32 @@ func (s *Store) Restore(st State) error {
 	// 备份会让 /api/sync/events 一次性返回超大响应。保留最新的 120 条。
 	if len(st.SyncEvents) > 120 {
 		st.SyncEvents = append([]SyncEvent(nil), st.SyncEvents[len(st.SyncEvents)-120:]...)
+	}
+	// v0.1.70：安全相关字段可随备份恢复，但必须裁剪与校验，避免超大备份拖慢接口。
+	if st.IPAllowlist == nil {
+		st.IPAllowlist = []string{}
+	}
+	if st.APITokens == nil {
+		st.APITokens = []APIToken{}
+	}
+	if len(st.APITokens) > 100 {
+		st.APITokens = append([]APIToken(nil), st.APITokens[:100]...)
+	}
+	if st.ACMEAccounts == nil {
+		st.ACMEAccounts = []ACMEAccount{}
+	}
+	if !validInterval(st.AutoBackup.Interval) {
+		st.AutoBackup.Interval = "daily"
+	}
+	st.AutoBackup.Hour = clampInt(st.AutoBackup.Hour, 0, 23)
+	st.AutoBackup.Keep = clampInt(st.AutoBackup.Keep, 1, 50)
+	st.RetryPolicy.MaxAttempts = clampInt(st.RetryPolicy.MaxAttempts, 2, 10)
+	st.RetryPolicy.BaseDelay = clampInt(st.RetryPolicy.BaseDelay, 5, 3600)
+	st.RetryPolicy.MaxDelay = clampInt(st.RetryPolicy.MaxDelay, st.RetryPolicy.BaseDelay, 86400)
+	switch st.Locale {
+	case "zh", "en", "ja":
+	default:
+		st.Locale = "zh"
 	}
 	s.state = st
 	return s.saveLocked()

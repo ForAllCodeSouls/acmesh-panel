@@ -298,6 +298,23 @@ textarea { font-family: var(--mono); font-size: 12.5px; resize: vertical; min-he
 .result-pill.yellow { color: #f5cd76; border-color: #81601a; background: #35280f; }
 .result-ico { font-size: 12px; line-height: 1; }
 .chip.merged { color: #9bd0ff; border-color: #245585; background: #102b45; }
+/* v0.1.70 新增组件：状态别名与操作行 */
+.chip.ok { color: #8bf0c1; border-color: #22684e; background: #123b2c; }
+.chip.warn { color: #f5cd76; border-color: #81601a; background: #35280f; }
+.chip.bad { color: #ffb3ad; border-color: #742d33; background: #38191c; }
+.row-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 10px 0; }
+.notice {
+  border: 1px solid #22684e; background: #102b23; color: #b6f5da;
+  border-radius: 8px; padding: 10px 12px; font-size: 12.5px; line-height: 1.6;
+  margin: 10px 0; word-break: break-all;
+}
+.notice pre, #token-usage pre, #token-new pre {
+  background: #080d12; border: 1px solid var(--line); border-radius: 6px;
+  padding: 8px 10px; margin: 6px 0; font-family: var(--mono); font-size: 11.5px;
+  color: var(--accent); white-space: pre-wrap; word-break: break-all;
+}
+#token-usage ul { margin: 6px 0 0 18px; line-height: 1.8; }
+#ui-locale { max-width: 220px; }
 .event-time { margin-left: auto; font-size: 11px; font-family: var(--mono); color: var(--muted); }
 .event-route { font-size: 12.5px; color: #dceaf5; font-family: var(--mono); word-break: break-all; line-height: 1.5; }
 .route-from { color: var(--muted); }

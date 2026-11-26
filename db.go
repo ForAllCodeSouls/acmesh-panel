@@ -49,6 +49,17 @@ func openDB(dir string) (*sql.DB, error) {
 		`CREATE TABLE IF NOT EXISTS audit (id INTEGER PRIMARY KEY AUTOINCREMENT, ts TEXT NOT NULL,
 		 user TEXT NOT NULL, ip TEXT NOT NULL, action TEXT NOT NULL, detail TEXT NOT NULL)`,
 		`CREATE INDEX IF NOT EXISTS idx_audit_ts ON audit(ts)`,
+		// v0.1.70：配置变更对比、健康自检快照、备份记录。
+		`CREATE TABLE IF NOT EXISTS config_diffs (id INTEGER PRIMARY KEY AUTOINCREMENT, ts TEXT NOT NULL,
+		 user TEXT NOT NULL, ip TEXT NOT NULL, action TEXT NOT NULL, category TEXT NOT NULL,
+		 before TEXT NOT NULL, after TEXT NOT NULL)`,
+		`CREATE INDEX IF NOT EXISTS idx_config_diffs_ts ON config_diffs(ts)`,
+		`CREATE TABLE IF NOT EXISTS health_snapshots (id INTEGER PRIMARY KEY AUTOINCREMENT,
+		 ts TEXT NOT NULL, result TEXT NOT NULL)`,
+		`CREATE INDEX IF NOT EXISTS idx_health_ts ON health_snapshots(ts)`,
+		`CREATE TABLE IF NOT EXISTS backups (id INTEGER PRIMARY KEY AUTOINCREMENT, ts TEXT NOT NULL,
+		 name TEXT NOT NULL, size INTEGER NOT NULL, kind TEXT NOT NULL, status TEXT NOT NULL, detail TEXT NOT NULL)`,
+		`CREATE INDEX IF NOT EXISTS idx_backups_ts ON backups(ts)`,
 	}
 	for _, q := range stmts {
 		if _, err := db.Exec(q); err != nil {

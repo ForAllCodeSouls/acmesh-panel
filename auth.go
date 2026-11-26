@@ -7,6 +7,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -115,6 +116,33 @@ func (s *SessionStore) Delete(id string) {
 	s.mu.Lock()
 	delete(s.m, id)
 	s.mu.Unlock()
+}
+
+// List 返回当前所有活跃会话的快照（按最近活跃时间倒序），供会话管理页展示。
+func (s *SessionStore) List() []Session {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	out := make([]Session, 0, len(s.m))
+	for _, v := range s.m {
+		out = append(out, *v)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].LastSeen.After(out[j].LastSeen) })
+	return out
+}
+
+// Exists 判断会话 ID 是否仍有效，不刷新 LastSeen。
+func (s *SessionStore) Exists(id string) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	_, ok := s.m[id]
+	return ok
+}
+
+// Count 返回当前会话数。
+func (s *SessionStore) Count() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return len(s.m)
 }
 
 // DeleteUser 在改密码后注销该用户的所有其它会话。

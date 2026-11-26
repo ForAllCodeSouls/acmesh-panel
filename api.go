@@ -349,6 +349,7 @@ func (s *Server) handleSession(w http.ResponseWriter, r *http.Request) {
 		"password_source": credSource,
 		"retention_days":  s.store.RetentionDays(),
 		"update":          s.store.UpdateConfig(),
+		"locale":          s.store.Snapshot().Locale,
 		"server_time":     time.Now(),
 	}
 	enforced, pinned := s.httpsOnly()

@@ -53,6 +53,14 @@ The full Chinese README has the detailed step-by-step explanation: [README.md](R
 | **Revoke / remove** | `--revoke`, `--remove` (optionally delete the on-disk directory) |
 | **Audit log** | Logins, failures, CSRF blocks, issuance, renewal, key views, deployments, deletions, password change, backup export/import — all stored in SQLite and filterable in the web UI |
 | **Frontend** | Hand-written HTML/CSS/JS embedded via `go:embed`, strict CSP, no frameworks, no CDN |
+| **Sessions & IP allowlist** | List active sessions and revoke any (or all others); IPv4/IPv6 CIDR allowlist for the management entry with loopback bypass |
+| **Operations** | One-click health check (acme.sh, dirs, CA, clock, DNS credentials); expiry board in four buckets; scheduled config backups with retention and readable summaries |
+| **Reliability** | Exponential backoff auto-retry for failed jobs; config-change diff with secrets redacted and CSV export |
+| **Lifecycle** | Batch issuance wizard; chain/private-key/OCSP verification; ACME account summary without exposing account keys |
+| **Read-only tokens** | `X-API-Token` for GET endpoints with path scopes; hash-only storage, plaintext shown once; curl examples in the UI |
+| **More** | Unified schedule page; Telegram and WeCom notification channels; zh/en/ja UI switch; CSV export for audit/jobs/sync/diffs |
+
+See [README.md §5.10–5.15](README.md) for details (Chinese; the tables above are the feature summary in each language).
 
 ---
 

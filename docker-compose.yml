@@ -40,6 +40,7 @@ services:
       # 面板固定 HTTP、HTTPS 由反代终结，无 Cookie/HSTS 开关。
       # TRUST_PROXY=1：仅在反代完全可信时开，从 XFF 取真实客户端 IP 做审计/限流
       # TRUST_PROXY_HOPS：XFF 从右往左取第 N 跳（默认 1）
+      # 若启用「安全中心 → IP 白名单」且有反代，必须开 TRUST_PROXY，否则白名单看到的是代理 IP
       ACME_PANEL_TRUST_PROXY: "${ACME_PANEL_TRUST_PROXY:-0}"
       ACME_PANEL_TRUST_PROXY_HOPS: "${ACME_PANEL_TRUST_PROXY_HOPS:-1}"
 

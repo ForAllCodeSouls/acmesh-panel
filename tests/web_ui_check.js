@@ -313,7 +313,8 @@ check('前端读取会话状态并二次确认', app.includes('s.force_https_pin
   && app.includes('确定开启？'));
 check('后端有开关接口与审计', goApi.includes('handleHTTPSSettings')
   && goApi.includes('"https_settings"') && goMain.includes('POST /api/https/settings'));
-check('强制 HTTPS 静默断连且放行健康检查', goMain.includes('srv.requireHTTPS(mux)')
+check('强制 HTTPS 静默断连且放行健康检查', goMain.includes('srv.requireHTTPS(')
+  && goMain.includes('srv.requireIPAllowlist(mux)')
   && goMain.includes('r.URL.Path == "/api/health"') && goMain.includes('dropConnection(w)')
   && goMain.includes('http.Hijacker') && !goMain.includes('httpsOnlyPage'));
 check('环境变量覆盖与恢复说明已文档化',
@@ -371,5 +372,68 @@ check('Release prepare 声明 plain 输出', (() => {
   const y = fs.readFileSync(path.join(root, '.github/workflows/release.yml'), 'utf8');
   return /outputs:\s*\n\s*version:.*\n\s*plain:/.test(y);
 })());
+
+// ============ v0.1.70 新功能回归 ============
+const goFeatures = fs.readFileSync(path.join(root, 'features.go'), 'utf8');
+const goFeaturesApi = fs.readFileSync(path.join(root, 'features_api.go'), 'utf8');
+const goFeaturesUtil = fs.readFileSync(path.join(root, 'features_util.go'), 'utf8');
+const goStore = fs.readFileSync(path.join(root, 'store.go'), 'utf8');
+
+check('新增三个顶级页面与视图容器', ['lifecycle', 'ops', 'security'].every((v) =>
+  html.includes(`data-view="${v}"`) && html.includes(`id="view-${v}"`)
+  && app.includes(`${v}: [`) && app.includes(`v === '${v}'`)));
+check('新页面子分区 tab 一一对应', (() => {
+  const inView = (v) => {
+    const start = html.indexOf(`id="view-${v}"`);
+    const end = html.indexOf('</section>', start);
+    const seg = html.slice(start, end);
+    const tabs = [...seg.matchAll(/data-subtab="([^"]+)"/g)].map((m) => m[1]);
+    const panels = [...seg.matchAll(/data-subpanel="([^"]+)"/g)].map((m) => m[1]);
+    return tabs.length > 0 && tabs.length === panels.length && tabs.every((t) => panels.includes(t));
+  };
+  return inView('lifecycle') && inView('ops') && inView('security');
+})());
+check('新页面绑定分区语义', ['#lifecycle-tabs', '#ops-tabs', '#security-tabs'].every((s) =>
+  app.includes(`bindSubTabs('${s}'`)));
+check('会话管理与 IP 白名单接口', goMain.includes('GET /api/sessions')
+  && goMain.includes('DELETE /api/sessions/{id}') && goMain.includes('POST /api/ip-allowlist')
+  && goFeatures.includes('func ipAllowed(') && goFeatures.includes('func parseCIDRList('));
+check('只读令牌仅放行的 GET 请求', goFeatures.includes('X-API-Token')
+  && goFeatures.includes('func (s *Server) requireRead(') && goFeatures.includes('tokenScopeAllowed(')
+  && goMain.includes('s.requireRead(s.handleExpiry)'));
+check('IP 白名单在入口最外层生效', goMain.includes('srv.requireIPAllowlist(mux)')
+  && goFeatures.includes('func (s *Server) requireIPAllowlist(')
+  && goFeatures.includes('r.URL.Path == "/api/health"'));
+check('健康自检覆盖 acme.sh / 目录 / CA / 时间 / 凭证',
+  ['acme.sh', '数据目录', '同步目录', 'CA 连通', '系统时间', 'DNS 凭证', '证书目录'].every((k) =>
+    goFeaturesApi.includes('"' + k + '"') || goFeaturesApi.includes('add("' + k + '"')));
+check('到期看板四档分组', ['expired', 'critical', 'warning', 'valid'].every((k) =>
+  new RegExp('"' + k + '"\\s*:\\s*\\{\\}').test(goFeaturesApi)));
+check('自动备份保留策略与内容读取', goFeaturesApi.includes('func (s *Server) createBackup(')
+  && goFeaturesApi.includes('func (s *Server) handleBackupContent(')
+  && goFeaturesUtil.includes('func (s *Server) pruneBackups(')
+  && goStore.includes('AutoBackupConfig'));
+check('失败任务指数退避自动重试', goFeaturesUtil.includes('BaseDelay << uint(attempt)')
+  && goFeaturesUtil.includes('MaxDelay') && goFeaturesApi.includes('handleRetryPolicySave')
+  && goAcme.includes('retryScheduler.Schedule(') && goAcme.includes('Attempt int'));
+check('配置变更 Diff 敏感字段打码', goFeatures.includes('diffSecretRe')
+  && goFeatures.includes('func redactDiff(')   && goFeaturesApi.includes('handleConfigDiffs')
+  && goFeatures.includes('func (s *Store) AddConfigDiff('));
+check('批量签发与证书链校验', goFeaturesApi.includes('handleIssueBatch')
+  && goFeaturesApi.includes('handleCertVerify') && goFeaturesApi.includes('ocsp.ParseResponseForCert')
+  && goFeaturesApi.includes('certKeyMatch('));
+check('ACME 账户摘要不泄露私钥', goFeaturesApi.includes('func scanACMEAccounts(')
+  && goFeaturesApi.includes('KeyFingerprint') && !goFeaturesApi.includes('PrivateKey:'));
+check('通知渠道扩展 Telegram 与企业微信', goNotify.includes('{"telegram"')
+  && goNotify.includes('{"wecom"') && goNotify.includes('case "telegram"')
+  && goNotify.includes('case "wecom"'));
+check('CSV 导出覆盖审计/任务/同步/配置变更', ['audit', 'jobs', 'sync', 'diff'].every((k) =>
+  goFeaturesApi.includes('case "' + k + '"')) && goFeaturesApi.includes('\\xef\\xbb\\xbf'));
+check('界面三语切换后端持久化', goFeaturesApi.includes('handleLocaleSave')
+  && app.includes('const I18N = {') && app.includes("state.locale = s.locale || 'zh'")
+  && html.includes('id="ui-locale"'));
+check('新接口均有审计或 Diff 记录', goFeaturesApi.includes('"ip_allowlist_save"')
+  && goFeaturesApi.includes('"auto_backup_save"') && goFeaturesApi.includes('"retry_policy_save"')
+  && goFeaturesApi.includes('"token_create"'));
 
 console.log(`web UI checks: ${passed} passed`);

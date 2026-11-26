@@ -28,6 +28,22 @@
     auditSeq: 0,
     syncSeq: 0,
     keyViewTimer: null,
+    // v0.1.70 新增状态
+    locale: 'zh',
+    sessions: [],
+    ipInfo: null,
+    tokens: [],
+    diffs: [],
+    diffPage: 0,
+    diffTotal: 0,
+    diffSeq: 0,
+    diffTimer: null,
+    backups: [],
+    autoBackup: null,
+    schedules: [],
+    health: null,
+    expiry: null,
+    accounts: [],
   };
 
   const AUDIT_PAGE_SIZE = 50;
@@ -285,7 +301,9 @@
       state.user = s.user;
       state.csrf = s.csrf;
       state.defaultEmail = s.default_email || '';
+      state.locale = s.locale || 'zh';
       showMain();
+      applyI18n();
       $('#sb-acme').textContent = s.acme_version || 'acme.sh 未就绪';
       await loadAll();
       // 刷新页面后回到上次所在页面，而不是总是证书首页
@@ -309,6 +327,9 @@
     notify: ['通知', '默认邮箱、域名专属邮箱与 Webhook 同步'],
     creds: ['DNS 凭证', 'AES-256-GCM 加密存储，接口只返回掩码'],
     sync: ['证书同步', '本地覆盖 / 远程同步 / 合并后的同步记录'],
+    lifecycle: ['证书生命周期', '批量签发、证书链与私钥校验、ACME 账户'],
+    ops: ['运维中心', '健康自检、到期风险、自动备份与计划任务'],
+    security: ['安全中心', '会话管理、IP 白名单、只读令牌与配置变更'],
     settings: ['设置', '账号安全、系统运行、审计、备份恢复与支持'],
   };
 
@@ -316,18 +337,21 @@
     state.view = v;
     try { localStorage.setItem('acmesh-view-' + state.user, v); } catch (e) { /* 隐私模式忽略 */ }
     $$('.nav-item').forEach((b) => b.classList.toggle('active', b.dataset.view === v));
-    ['certs', 'jobs', 'notify', 'creds', 'sync', 'settings'].forEach((k) => {
+    ['certs', 'jobs', 'notify', 'creds', 'sync', 'lifecycle', 'ops', 'security', 'settings'].forEach((k) => {
       $('#view-' + k).classList.toggle('hidden', k !== v);
     });
     const [t, s] = titles[v];
-    $('#page-title').textContent = t;
-    $('#page-sub').textContent = s;
+    $('#page-title').textContent = tr('title.' + v, t);
+    $('#page-sub').textContent = tr('sub.' + v, s);
     // 签发只在证书页有意义；其它页隐藏，避免误点后跳回证书页
     $('#issue-btn').classList.toggle('hidden', v !== 'certs');
     window.scrollTo({ top: 0, behavior: 'auto' });
     if (v === 'notify') loadNotify();
     if (v === 'creds') loadProviders();
     if (v === 'sync') loadSync();
+    if (v === 'lifecycle') loadLifecycle();
+    if (v === 'ops') loadOps();
+    if (v === 'security') loadSecurity();
     if (v === 'settings') { loadSysInfo(); loadAudit(); }
     if (v === 'jobs') loadJobs();
   }
@@ -380,6 +404,9 @@
     });
   }
   bindSubTabs('#sync-tabs', '#view-sync');
+  bindSubTabs('#lifecycle-tabs', '#view-lifecycle');
+  bindSubTabs('#ops-tabs', '#view-ops');
+  bindSubTabs('#security-tabs', '#view-security');
   bindSubTabs('#settings-tabs', '#view-settings');
 
   // ---------------- 证书 ----------------
@@ -490,6 +517,9 @@
       await loadAll();
       if (state.view === 'notify') await loadNotify();
       else if (state.view === 'sync') await loadSync();
+      else if (state.view === 'lifecycle') await loadLifecycle();
+      else if (state.view === 'ops') await loadOps();
+      else if (state.view === 'security') await loadSecurity();
       else if (state.view === 'settings') { await loadSysInfo(); await loadAudit(); }
       toast('已刷新');
     }
@@ -2335,6 +2365,466 @@
       toast(r.message || '配置已恢复，正在刷新页面');
       setTimeout(() => location.reload(), 600);
     } catch (e) { toast(e.message, 'err'); btn.disabled = false; btn.textContent = '恢复这份备份'; }
+  });
+
+  // ================= v0.1.70 新增功能 =================
+
+  // ---------- 界面多语言（zh / en / ja）----------
+  const I18N = {
+    zh: {
+      'title.certs': '证书', 'sub.certs': 'acme.sh 证书总览：查看、复制、续期与部署',
+      'title.jobs': '任务', 'sub.jobs': '签发 / 续期 / 部署的执行记录与实时日志',
+      'title.notify': '通知', 'sub.notify': '默认邮箱、域名专属邮箱与 Webhook 同步',
+      'title.creds': 'DNS 凭证', 'sub.creds': 'AES-256-GCM 加密存储，接口只返回掩码',
+      'title.sync': '证书同步', 'sub.sync': '本地覆盖 / 远程同步 / 合并后的同步记录',
+      'title.lifecycle': '证书生命周期', 'sub.lifecycle': '批量签发、证书链与私钥校验、ACME 账户',
+      'title.ops': '运维中心', 'sub.ops': '健康自检、到期风险、自动备份与计划任务',
+      'title.security': '安全中心', 'sub.security': '会话管理、IP 白名单、只读令牌与配置变更',
+      'title.settings': '设置', 'sub.settings': '账号安全、系统运行、审计、备份恢复与支持',
+      'nav.certs': '证书', 'nav.jobs': '任务', 'nav.notify': '通知', 'nav.creds': 'DNS 凭证',
+      'nav.sync': '证书同步', 'nav.lifecycle': '生命周期', 'nav.ops': '运维中心',
+      'nav.security': '安全中心', 'nav.settings': '设置', 'refresh': '↻ 刷新', 'issue': '＋ 签发证书',
+      'logout': '退出登录',
+    },
+    en: {
+      'title.certs': 'Certificates', 'sub.certs': 'acme.sh overview: inspect, copy, renew and deploy',
+      'title.jobs': 'Jobs', 'sub.jobs': 'Execution history and live logs for issue / renew / deploy',
+      'title.notify': 'Notifications', 'sub.notify': 'Default email, per-domain email and webhooks',
+      'title.creds': 'DNS Credentials', 'sub.creds': 'AES-256-GCM encrypted; only masks are returned',
+      'title.sync': 'Certificate Sync', 'sub.sync': 'Local copy, remote sync and merged history',
+      'title.lifecycle': 'Lifecycle', 'sub.lifecycle': 'Batch issue, chain / key verification and ACME accounts',
+      'title.ops': 'Operations', 'sub.ops': 'Health check, expiry board, auto backup and schedules',
+      'title.security': 'Security', 'sub.security': 'Sessions, IP allowlist, read-only tokens and config diff',
+      'title.settings': 'Settings', 'sub.settings': 'Account, runtime, audit, backup and support',
+      'nav.certs': 'Certs', 'nav.jobs': 'Jobs', 'nav.notify': 'Notify', 'nav.creds': 'DNS Creds',
+      'nav.sync': 'Sync', 'nav.lifecycle': 'Lifecycle', 'nav.ops': 'Operations',
+      'nav.security': 'Security', 'nav.settings': 'Settings', 'refresh': '↻ Refresh', 'issue': '＋ Issue',
+      'logout': 'Sign out',
+    },
+    ja: {
+      'title.certs': '証明書', 'sub.certs': 'acme.sh の概要：確認、コピー、更新、配置',
+      'title.jobs': 'ジョブ', 'sub.jobs': '発行・更新・配置の実行履歴とリアルタイムログ',
+      'title.notify': '通知', 'sub.notify': '既定メール、ドメイン別メール、Webhook',
+      'title.creds': 'DNS 認証情報', 'sub.creds': 'AES-256-GCM で暗号化、マスクのみ表示',
+      'title.sync': '証明書同期', 'sub.sync': 'ローカルコピー、リモート同期、統合履歴',
+      'title.lifecycle': 'ライフサイクル', 'sub.lifecycle': '一括発行、チェーンと秘密鍵の検証、ACME アカウント',
+      'title.ops': '運用', 'sub.ops': 'ヘルスチェック、期限ダッシュボード、自動バックアップ、スケジュール',
+      'title.security': 'セキュリティ', 'sub.security': 'セッション、IP 許可リスト、読み取り専用トークン、設定差分',
+      'title.settings': '設定', 'sub.settings': 'アカウント、システム、監査、バックアップ、サポート',
+      'nav.certs': '証明書', 'nav.jobs': 'ジョブ', 'nav.notify': '通知', 'nav.creds': 'DNS 認証',
+      'nav.sync': '同期', 'nav.lifecycle': 'ライフサイクル', 'nav.ops': '運用',
+      'nav.security': 'セキュリティ', 'nav.settings': '設定', 'refresh': '↻ 更新', 'issue': '＋ 発行',
+      'logout': 'ログアウト',
+    },
+  };
+
+  function tr(key, fallback) {
+    const dict = I18N[state.locale] || I18N.zh;
+    return dict[key] !== undefined ? dict[key] : (fallback !== undefined ? fallback : key);
+  }
+
+  function applyI18n() {
+    if (state.locale === 'ja') document.documentElement.lang = 'ja';
+    else if (state.locale === 'en') document.documentElement.lang = 'en';
+    else document.documentElement.lang = 'zh-CN';
+    $$('.nav-item').forEach((b) => {
+      const k = 'nav.' + b.dataset.view;
+      if (I18N[state.locale][k]) {
+        // 只替换文本节点，保留图标 span 与任务数 badge，避免切语言后角标消失。
+        const texts = Array.from(b.childNodes).filter((n) => n.nodeType === 3);
+        if (texts.length) texts[texts.length - 1].nodeValue = I18N[state.locale][k];
+        else b.appendChild(document.createTextNode(I18N[state.locale][k]));
+      }
+    });
+    $('#refresh-btn').textContent = tr('refresh');
+    $('#issue-btn').textContent = tr('issue');
+    $('#logout-btn').textContent = tr('logout');
+    $('#page-title').textContent = tr('title.' + state.view, titles[state.view][0]);
+    $('#page-sub').textContent = tr('sub.' + state.view, titles[state.view][1]);
+    const sel = $('#ui-locale');
+    if (sel) sel.value = state.locale;
+  }
+
+  function statusPill(status) {
+    const map = { ok: '正常', warn: '警告', fail: '失败', good: '正常' };
+    const cls = status === 'ok' || status === 'good' ? 'chip ok' : (status === 'warn' ? 'chip warn' : 'chip bad');
+    return `<span class="${cls}">${esc(map[status] || status)}</span>`;
+  }
+
+  // ---------- 证书生命周期 ----------
+  async function loadLifecycle() {
+    try {
+      const cat = await api('/api/catalog');
+      state.catalog = cat;
+      const cred = $('#batch-credential');
+      const saved = await api('/api/providers');
+      const providers = (saved.saved || []).map((p) => `<option value="${esc(p.name)}">${esc(p.name)}</option>`).join('');
+      cred.innerHTML = `<option value="">（临时填写凭证）</option>${providers}`;
+      $('#batch-keylength').innerHTML = (cat.keylengths || []).map((k) =>
+        `<option value="${esc(k)}">${esc(k)}</option>`).join('');
+      $('#batch-ca').innerHTML = (cat.cas || []).map((c) =>
+        `<option value="${esc(c.code)}" ${c.code === cat.default_ca ? 'selected' : ''}>${esc(c.name)}</option>`).join('');
+      const certs = state.certs && state.certs.length ? state.certs : (await api('/api/certs')).certs || [];
+      $('#verify-cert').innerHTML = certs.map((c) =>
+        `<option value="${esc(c.name)}">${esc(c.domain)}</option>`).join('');
+      await loadAccounts();
+    } catch (e) { toast(e.message, 'err'); }
+  }
+
+  async function loadAccounts() {
+    try {
+      const r = await api('/api/acme/accounts');
+      state.accounts = r.accounts || [];
+      const box = $('#accounts-list');
+      if (!state.accounts.length) { box.innerHTML = '<p class="tiny muted">未发现账户配置文件。</p>'; return; }
+      box.innerHTML = state.accounts.map((a) => `<div class="row">
+        <div class="grow"><strong>${esc(a.ca)}</strong><div class="tiny muted">${esc(a.email || '无邮箱')} · ${esc(a.account_dir)}</div></div>
+        <span class="chip">${esc(a.key_fingerprint || '-')}</span>
+        ${a.default ? '<span class="chip ok">默认</span>' : ''}
+      </div>`).join('');
+    } catch (e) { toast(e.message, 'err'); }
+  }
+
+  $('#batch-run').addEventListener('click', async () => {
+    const domains = $('#batch-domains').value.split('\n').map((s) => s.trim()).filter(Boolean);
+    if (!domains.length) { toast('请先填写域名，每行一个', 'warn'); return; }
+    if (!confirm(`将 ${domains.length} 个域名排队签发，确认继续？`)) return;
+    const btn = busyButton($('#batch-run'), '排队中…');
+    try {
+      const body = {
+        domains, credential: $('#batch-credential').value, key_length: $('#batch-keylength').value,
+        ca: $('#batch-ca').value, email: $('#batch-email').value.trim(),
+        dns_sleep: parseInt($('#batch-dnssleep').value || '0', 10),
+        force: $('#batch-force').checked,
+      };
+      const r = await api('/api/issue/batch', { method: 'POST', body });
+      $('#batch-result').innerHTML = `<div class="notice">已排队 ${r.count} 个任务。请到「任务」页查看进度。</div>` +
+        (r.jobs || []).map((j) => `<div class="row"><span class="chip">${esc(j.domain)}</span><span class="tiny muted">${esc(j.id)}</span></div>`).join('');
+      toast(`已排队 ${r.count} 个签发任务`);
+    } catch (e) { toast(e.message, 'err'); } finally { btn(); }
+  });
+
+  $('#verify-run').addEventListener('click', async () => {
+    const name = $('#verify-cert').value;
+    if (!name) { toast('请先选择证书', 'warn'); return; }
+    const btn = busyButton($('#verify-run'), '校验中…');
+    try {
+      const r = await api('/api/certs/' + encodeURIComponent(name) + '/verify', { method: 'POST', body: {} });
+      $('#verify-result').innerHTML = `<div class="notice">总体结果：${statusPill(r.overall)}</div>` +
+        (r.checks || []).map((c) => `<div class="row"><span class="grow">${esc(c.name)}</span>${statusPill(c.status)}<span class="tiny muted">${esc(c.detail)}</span></div>`).join('');
+    } catch (e) { toast(e.message, 'err'); } finally { btn(); }
+  });
+
+  $('#accounts-refresh').addEventListener('click', async () => { await loadAccounts(); toast('已重新扫描'); });
+
+  // ---------- 运维中心 ----------
+  async function loadOps() {
+    await Promise.all([loadHealthHistory(), loadExpiry(), loadBackups(), loadSchedules()]);
+  }
+
+  async function loadHealthHistory() {
+    try {
+      const r = await api('/api/health/report');
+      const list = r.history || [];
+      $('#health-history').innerHTML = list.length ? list.slice(0, 10).map((h) =>
+        `<div class="row"><span class="grow">${fmtTime(h.ts)}</span>${statusPill(h.overall)}<span class="tiny muted">${(h.checks || []).length} 项</span></div>`).join('')
+        : '<p class="tiny muted">尚无自检记录。</p>';
+    } catch (e) { /* 静默 */ }
+  }
+
+  $('#health-run').addEventListener('click', async () => {
+    const btn = busyButton($('#health-run'), '自检中…');
+    try {
+      const r = await api('/api/health/check', { method: 'POST', body: {} });
+      $('#health-summary').innerHTML = `<div class="stat"><span class="stat-num">${statusPill(r.overall)}</span><span class="stat-label">总体结果</span></div>
+        <div class="stat"><span class="stat-num">${(r.checks || []).filter((c) => c.status === 'ok').length}</span><span class="stat-label">正常项</span></div>
+        <div class="stat"><span class="stat-num">${(r.checks || []).filter((c) => c.status === 'warn').length}</span><span class="stat-label">警告项</span></div>
+        <div class="stat"><span class="stat-num">${(r.checks || []).filter((c) => c.status === 'fail').length}</span><span class="stat-label">失败项</span></div>`;
+      $('#health-result').innerHTML = (r.checks || []).map((c) =>
+        `<div class="row"><span class="grow"><strong>${esc(c.name)}</strong><div class="tiny muted">${esc(c.detail)}</div></span>${statusPill(c.status)}</div>`).join('');
+      await loadHealthHistory();
+    } catch (e) { toast(e.message, 'err'); } finally { btn(); }
+  });
+
+  async function loadExpiry() {
+    try {
+      const r = await api('/api/expiry');
+      state.expiry = r;
+      const c = r.counts || {};
+      $('#expiry-stats').innerHTML = [
+        ['总数', r.total, ''], ['已过期', c.expired || 0, 'bad'], ['7 天内', c.critical || 0, 'warn'],
+        ['30 天内', c.warning || 0, 'warn'], ['正常', c.valid || 0, 'ok'],
+      ].map(([label, n, cls]) => `<div class="stat ${cls}"><span class="stat-num">${n}</span><span class="stat-label">${label}</span></div>`).join('');
+      const groups = r.groups || {};
+      const rows = [];
+      ['expired', 'critical', 'warning', 'valid'].forEach((k) => {
+        (groups[k] || []).forEach((cert) => rows.push(`<div class="row">
+          <span class="chip ${k === 'expired' ? 'bad' : (k === 'valid' ? 'ok' : 'warn')}">${cert.days_left < 0 ? '已过期' : cert.days_left + ' 天'}</span>
+          <span class="grow"><strong>${esc(cert.domain)}</strong><div class="tiny muted">${esc(cert.issuer || '-')} · ${esc(cert.key_type || '')}</div></span>
+          <button class="btn small ghost" data-expiry-cert="${esc(cert.name)}">查看</button>
+        </div>`));
+      });
+      $('#expiry-list').innerHTML = rows.length ? rows.join('') : '<p class="tiny muted">尚未识别到证书。</p>';
+    } catch (e) { toast(e.message, 'err'); }
+  }
+
+  $('#expiry-list').addEventListener('click', (e) => {
+    const b = e.target.closest('[data-expiry-cert]');
+    if (!b) return;
+    const cert = state.certs.find((c) => c.name === b.dataset.expiryCert);
+    if (cert) { switchView('certs'); setTimeout(() => openCertDrawer(cert), 50); }
+  });
+
+  async function loadBackups() {
+    try {
+      const r = await api('/api/backups');
+      state.backups = r.records || [];
+      state.autoBackup = r.config || null;
+      const cfg = state.autoBackup || {};
+      $('#ab-enabled').checked = !!cfg.enabled;
+      $('#ab-interval').value = cfg.interval || 'daily';
+      $('#ab-hour').value = cfg.hour == null ? 4 : cfg.hour;
+      $('#ab-keep').value = cfg.keep || 7;
+      $('#ab-certs').checked = !!cfg.include_certs;
+      $('#ab-last').textContent = cfg.last_run ? ('上次备份：' + fmtTime(cfg.last_run) + ' · ' + (cfg.last_result || '')) : '尚未执行过自动备份';
+      $('#backup-list').innerHTML = state.backups.length ? state.backups.map((b) => `<div class="row">
+        <span class="chip ${b.status === 'ok' ? 'ok' : 'bad'}">${esc(b.kind)}</span>
+        <span class="grow"><strong>${esc(b.name)}</strong><div class="tiny muted">${fmtTime(b.ts)} · ${fmtSize(b.size)} · ${esc(b.detail || '')}</div></span>
+        <button class="btn small ghost" data-backup-read="${b.id}">读取</button>
+        <button class="btn small ghost" data-backup-del="${b.id}">删除</button>
+      </div>`).join('') : '<p class="tiny muted">尚无备份记录。</p>';
+    } catch (e) { toast(e.message, 'err'); }
+  }
+
+  $('#autobackup-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const body = {
+      enabled: $('#ab-enabled').checked, interval: $('#ab-interval').value,
+      hour: parseInt($('#ab-hour').value, 10), keep: parseInt($('#ab-keep').value, 10),
+      include_certs: $('#ab-certs').checked,
+    };
+    try {
+      await api('/api/backups/config', { method: 'POST', body });
+      toast('自动备份策略已保存');
+      await loadBackups();
+    } catch (err) { toast(err.message, 'err'); }
+  });
+
+  $('#ab-run').addEventListener('click', async () => {
+    const btn = busyButton($('#ab-run'), '备份中…');
+    try {
+      await api('/api/backups/run', { method: 'POST', body: {} });
+      toast('备份已完成');
+      await loadBackups();
+    } catch (e) { toast(e.message, 'err'); } finally { btn(); }
+  });
+
+  $('#backup-list').addEventListener('click', async (e) => {
+    const readId = e.target.closest('[data-backup-read]');
+    const delId = e.target.closest('[data-backup-del]');
+    if (readId) {
+      try {
+        const r = await api('/api/backups/' + readId.dataset.backupRead + '/content');
+        openModal('备份摘要', `<div class="kv">
+          <dt>文件</dt><dd>${esc(r.name)}</dd><dt>导出时间</dt><dd>${esc(String(r.exported_at).slice(0, 19).replace('T', ' '))}</dd>
+          <dt>面板版本</dt><dd>${esc(r.app_version || '-')}</dd><dt>大小</dt><dd>${fmtSize(r.bytes)}</dd>
+          <dt>DNS 凭证</dt><dd>${r.providers || 0}</dd><dt>通知渠道</dt><dd>${r.notifiers || 0}</dd>
+          <dt>同步规则</dt><dd>${r.sync_rules || 0}</dd><dt>远程主机</dt><dd>${r.remote_hosts || 0}</dd>
+        </div><p class="tiny muted">出于安全考虑，凭证密文不在浏览器中回显；可用「设置 → 备份恢复」下载原始文件。</p>`,
+          '<button class="btn ghost" id="backup-detail-close">关闭</button>');
+        $('#backup-detail-close').addEventListener('click', closeModal);
+      } catch (err) { toast(err.message, 'err'); }
+    }
+    if (delId) {
+      if (!confirm('删除这份备份？此操作不可撤销。')) return;
+      try {
+        await api('/api/backups/' + delId.dataset.backupDel, { method: 'DELETE' });
+        toast('已删除'); await loadBackups();
+      } catch (err) { toast(err.message, 'err'); }
+    }
+  });
+
+  async function loadSchedules() {
+    try {
+      const r = await api('/api/schedules');
+      state.schedules = r.items || [];
+      $('#schedule-list').innerHTML = state.schedules.map((s) => `<div class="row">
+        <span class="chip ${s.enabled ? 'ok' : ''}">${s.enabled ? '启用' : '停用'}</span>
+        <span class="grow"><strong>${esc(s.name)}</strong><div class="tiny muted">${esc(s.description)} · ${esc(s.detail)}</div></span>
+        <span class="tiny muted">下次：${esc(s.next_run)}</span>
+      </div>`).join('');
+    } catch (e) { toast(e.message, 'err'); }
+  }
+
+  // ---------- 安全中心 ----------
+  async function loadSecurity() {
+    await Promise.all([loadSessions(), loadIPAllowlist(), loadTokens(), loadDiffs()]);
+  }
+
+  async function loadSessions() {
+    try {
+      const r = await api('/api/sessions');
+      state.sessions = r.sessions || [];
+      $('#session-policy').textContent = `普通会话闲置 ${r.idle_minutes} 分钟 / 最长 ${r.life_hours} 小时；「保持登录」闲置 30 天 / 最长 90 天。过期会话自动清除。`;
+      $('#session-list').innerHTML = state.sessions.map((s) => `<div class="row">
+        <span class="chip ${s.current ? 'ok' : ''}">${s.current ? '当前' : '其它'}</span>
+        <span class="grow"><strong>${esc(s.ip)}</strong><div class="tiny muted">${esc(s.ua || '未知客户端')} · 登录 ${fmtTime(s.created)} · 活跃 ${fmtTime(s.last_seen)}</div></span>
+        ${s.current ? '' : `<button class="btn small ghost" data-session-revoke="${esc(s.id)}">下线</button>`}
+      </div>`).join('');
+    } catch (e) { toast(e.message, 'err'); }
+  }
+
+  $('#session-list').addEventListener('click', async (e) => {
+    const b = e.target.closest('[data-session-revoke]');
+    if (!b || !confirm('确认强制下线该会话？')) return;
+    try {
+      await api('/api/sessions/' + encodeURIComponent(b.dataset.sessionRevoke), { method: 'DELETE' });
+      toast('会话已下线'); await loadSessions();
+    } catch (err) { toast(err.message, 'err'); }
+  });
+
+  $('#sessions-revoke-others').addEventListener('click', async () => {
+    if (!confirm('确认下线除当前会话以外的所有会话？')) return;
+    try {
+      const r = await api('/api/sessions/revoke-others', { method: 'POST', body: {} });
+      toast(`已下线 ${r.kicked} 个会话`); await loadSessions();
+    } catch (e) { toast(e.message, 'err'); }
+  });
+
+  async function loadIPAllowlist() {
+    try {
+      const r = await api('/api/ip-allowlist');
+      state.ipInfo = r;
+      $('#ip-entries').value = (r.entries || []).join('\n');
+      $('#ip-local').checked = !!r.allow_local;
+      $('#ip-status').textContent = `当前来源 IP：${r.current_ip || '未知'} · 可信代理：${r.trust_proxy ? '是（' + r.trust_hops + ' 跳）' : '否'} · ${r.configured ? '已启用白名单' : '未限制'} · 配置${r.valid ? '有效' : '无效'}`;
+    } catch (e) { toast(e.message, 'err'); }
+  }
+
+  $('#ip-save').addEventListener('click', async () => {
+    const entries = $('#ip-entries').value.split('\n').map((s) => s.trim()).filter(Boolean);
+    const btn = busyButton($('#ip-save'), '保存中…');
+    try {
+      await api('/api/ip-allowlist', { method: 'POST', body: { entries, allow_local: $('#ip-local').checked } });
+      toast('白名单已保存并立即生效'); await loadIPAllowlist();
+    } catch (e) { toast(e.message, 'err'); } finally { btn(); }
+  });
+
+  $('#ip-test').addEventListener('click', async () => {
+    try {
+      const r = await api('/api/ip-allowlist/test', { method: 'POST', body: { ip: '' } });
+      toast(`来源 ${r.ip}：${r.allowed ? '允许访问' : '将被拒绝'}`, r.allowed ? '' : 'warn');
+    } catch (e) { toast(e.message, 'err'); }
+  });
+
+  async function loadTokens() {
+    try {
+      const r = await api('/api/tokens');
+      state.tokens = r.tokens || [];
+      $('#token-list').innerHTML = state.tokens.length ? state.tokens.map((t) => `<div class="row">
+        <span class="chip ${t.enabled ? 'ok' : ''}">${esc(t.prefix)}</span>
+        <span class="grow"><strong>${esc(t.name)}</strong><div class="tiny muted">权限：${esc((t.scopes || []).join(', ') || '全部只读')} · 创建 ${fmtTime(t.created)} · 最近使用 ${t.last_used ? fmtTime(t.last_used) : '从未'}</div></span>
+        <button class="btn small ghost" data-token-del="${esc(t.id)}">删除</button>
+      </div>`).join('') : '<p class="tiny muted">尚未创建令牌。</p>';
+      const u = await api('/api/tokens/usage');
+      $('#token-usage').innerHTML = `<ul>${u.rules.map((x) => `<li>${esc(x)}</li>`).join('')}</ul>` +
+        u.examples.map((x) => `<div class="mt4"><strong>${esc(x.name)}</strong><pre>${esc(x.cmd)}</pre></div>`).join('') +
+        `<p class="tiny muted">Header：${esc(u.header)}。白名单与 HTTPS 策略同样生效。</p>`;
+    } catch (e) { toast(e.message, 'err'); }
+  }
+
+  $('#token-create').addEventListener('click', async () => {
+    const name = $('#token-name').value.trim();
+    if (!name) { toast('请填写令牌名称', 'warn'); return; }
+    const scopes = Array.from($('#token-scopes').selectedOptions).map((o) => o.value);
+    const btn = busyButton($('#token-create'), '创建中…');
+    try {
+      const r = await api('/api/tokens', { method: 'POST', body: { name, scopes } });
+      $('#token-new').classList.remove('hidden');
+      $('#token-new').innerHTML = `<strong>令牌已创建，请立即复制保存（仅显示一次）：</strong><pre>${esc(r.plain)}</pre>` +
+        `<button class="btn small ghost" id="token-copy">复制</button>`;
+      $('#token-copy').addEventListener('click', () => copyText(r.plain, '令牌已复制'));
+      $('#token-name').value = '';
+      toast('令牌已创建'); await loadTokens();
+    } catch (e) { toast(e.message, 'err'); } finally { btn(); }
+  });
+
+  $('#token-list').addEventListener('click', async (e) => {
+    const b = e.target.closest('[data-token-del]');
+    if (!b || !confirm('删除该令牌？使用它的脚本会立即失去访问权限。')) return;
+    try {
+      await api('/api/tokens/' + encodeURIComponent(b.dataset.tokenDel), { method: 'DELETE' });
+      toast('令牌已删除'); await loadTokens();
+    } catch (err) { toast(err.message, 'err'); }
+  });
+
+  async function loadDiffs() {
+    const seq = ++state.diffSeq;
+    try {
+      const q = new URLSearchParams({
+        action: $('#diff-action').value, category: $('#diff-category').value,
+        limit: '50', offset: String(state.diffPage * 50),
+      });
+      const r = await api('/api/config-diffs?' + q.toString());
+      if (seq !== state.diffSeq) return;
+      state.diffs = r.items || [];
+      state.diffTotal = r.total || 0;
+      if (state.diffPage === 0) {
+        $('#diff-action').innerHTML = '<option value="">全部动作</option>' + (r.actions || []).map((a) => `<option value="${esc(a)}">${esc(a)}</option>`).join('');
+        $('#diff-category').innerHTML = '<option value="">全部分类</option>' + (r.categories || []).map((a) => `<option value="${esc(a)}">${esc(a)}</option>`).join('');
+      }
+      $('#diff-list').innerHTML = state.diffs.length ? state.diffs.map((d) => `<div class="row">
+        <span class="chip">${esc(d.category)}</span>
+        <span class="grow"><strong>${esc(d.action)}</strong><div class="tiny muted">${fmtTime(d.ts)} · ${esc(d.user || 'system')} · ${esc(d.ip)}</div>
+        <div class="tiny">变更前：<code>${esc(d.before || '（空）')}</code></div>
+        <div class="tiny">变更后：<code>${esc(d.after || '（空）')}</code></div></span>
+      </div>`).join('') : '<p class="tiny muted">暂无配置变更记录。</p>';
+      $('#diff-page').textContent = `第 ${state.diffPage + 1} 页 / 共 ${Math.ceil(state.diffTotal / 50) || 1} 页（${state.diffTotal} 条）`;
+      $('#diff-prev').disabled = state.diffPage === 0;
+      $('#diff-next').disabled = (state.diffPage + 1) * 50 >= state.diffTotal;
+    } catch (e) { toast(e.message, 'err'); }
+  }
+
+  function scheduleDiffSearch() {
+    clearTimeout(state.diffTimer);
+    state.diffTimer = setTimeout(() => { state.diffPage = 0; loadDiffs(); }, 300);
+  }
+  $('#diff-action').addEventListener('change', scheduleDiffSearch);
+  $('#diff-category').addEventListener('change', scheduleDiffSearch);
+  $('#diff-reset').addEventListener('click', () => {
+    $('#diff-action').value = ''; $('#diff-category').value = ''; state.diffPage = 0; loadDiffs();
+  });
+  $('#diff-prev').addEventListener('click', () => { if (state.diffPage > 0) { state.diffPage--; loadDiffs(); } });
+  $('#diff-next').addEventListener('click', () => {
+    if ((state.diffPage + 1) * 50 < state.diffTotal) { state.diffPage++; loadDiffs(); }
+  });
+
+  // ---------- 界面语言切换 ----------
+  $('#ui-locale-save').addEventListener('click', async () => {
+    const locale = $('#ui-locale').value;
+    try {
+      await api('/api/locale', { method: 'POST', body: { locale } });
+      state.locale = locale;
+      applyI18n();
+      toast('界面语言已切换');
+    } catch (e) { toast(e.message, 'err'); }
+  });
+
+  // CSV 下载：带上 CSRF 头，避免被 requireAuth 拒绝。
+  $$('[data-csv]').forEach((a) => {
+    a.addEventListener('click', async (e) => {
+      e.preventDefault();
+      try {
+        const r = await api(a.getAttribute('href'), { raw: true });
+        const blob = await r.blob();
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = a.getAttribute('href').split('?')[1] || 'export.csv';
+        link.click();
+        setTimeout(() => URL.revokeObjectURL(url), 1000);
+      } catch (err) { toast(err.message, 'err'); }
+    });
   });
 
   boot();

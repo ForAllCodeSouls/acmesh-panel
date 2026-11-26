@@ -91,6 +91,7 @@ type Server struct {
 	acme   *ACME
 	notify *NotifyEngine
 	sync   *SyncEngine
+	retry  *RetryScheduler
 	boot   time.Time
 	static http.Handler
 }
@@ -179,6 +180,8 @@ func main() {
 	}
 	srv.sync = NewSyncEngine(store, srv.certs, srv.notify, cfg.SyncDirs)
 	srv.jobs.certs = srv.certs
+	srv.retry = NewRetryScheduler(srv.jobs, func() RetryPolicy { return store.Snapshot().RetryPolicy })
+	srv.jobs.retryScheduler = srv.retry
 	srv.jobs.onDone = func(j *Job) {
 		srv.notify.OnJob(j)
 		// 签发/续期成功后自动同步到挂载目录。
@@ -193,7 +196,7 @@ func main() {
 	srv.static = http.FileServer(http.FS(sub))
 
 	mux := srv.routes()
-	handler := srv.securityHeaders(srv.requireHTTPS(mux))
+	handler := srv.securityHeaders(srv.requireHTTPS(srv.requireIPAllowlist(mux)))
 
 	httpSrv := &http.Server{
 		Addr:              cfg.Listen,
@@ -210,6 +213,8 @@ func main() {
 
 	go srv.cronLoop(ctx)
 	go srv.updateLoop(ctx)
+	go srv.backupLoop(ctx)
+	defer srv.retry.Close()
 
 	go func() {
 		enforce, pinned := srv.httpsOnly()
@@ -460,9 +465,9 @@ func (s *Server) routes() *http.ServeMux {
 	mux.HandleFunc("GET /api/update/check", s.requireAuth(s.handleUpdateCheck))
 	mux.HandleFunc("POST /api/update/check", s.requireAuth(s.handleUpdateCheck))
 	mux.HandleFunc("POST /api/update/settings", s.requireAuth(s.handleUpdateSettings))
-	mux.HandleFunc("GET /api/storage", s.requireAuth(s.handleStorage))
-	mux.HandleFunc("GET /api/overview", s.requireAuth(s.handleOverview))
-	mux.HandleFunc("GET /api/certs", s.requireAuth(s.handleListCerts))
+	mux.HandleFunc("GET /api/storage", s.requireRead(s.handleStorage))
+	mux.HandleFunc("GET /api/overview", s.requireRead(s.handleOverview))
+	mux.HandleFunc("GET /api/certs", s.requireRead(s.handleListCerts))
 	mux.HandleFunc("GET /api/certs/{name}", s.requireAuth(s.handleCertDetail))
 	mux.HandleFunc("GET /api/certs/{name}/pem/{kind}", s.requireAuth(s.handleCertPEM))
 	mux.HandleFunc("POST /api/certs/{name}/key", s.requireAuth(s.handleCertKey))
@@ -475,12 +480,12 @@ func (s *Server) routes() *http.ServeMux {
 	mux.HandleFunc("GET /api/providers", s.requireAuth(s.handleProviders))
 	mux.HandleFunc("POST /api/providers", s.requireAuth(s.handleSaveProvider))
 	mux.HandleFunc("DELETE /api/providers/{name}", s.requireAuth(s.handleDeleteProvider))
-	mux.HandleFunc("GET /api/jobs", s.requireAuth(s.handleJobs))
+	mux.HandleFunc("GET /api/jobs", s.requireRead(s.handleJobs))
 	mux.HandleFunc("GET /api/jobs/{id}", s.requireAuth(s.handleJob))
 	mux.HandleFunc("GET /api/jobs/{id}/events", s.requireAuth(s.handleJobEvents))
 	mux.HandleFunc("POST /api/jobs/{id}/cancel", s.requireAuth(s.handleCancelJob))
 	mux.HandleFunc("POST /api/jobs/{id}/retry", s.requireAuth(s.handleRetryJob))
-	mux.HandleFunc("GET /api/audit", s.requireAuth(s.handleAudit))
+	mux.HandleFunc("GET /api/audit", s.requireRead(s.handleAudit))
 	mux.HandleFunc("POST /api/password", s.requireAuth(s.handlePassword))
 	mux.HandleFunc("POST /api/username", s.requireAuth(s.handleUsername))
 	mux.HandleFunc("POST /api/cron/schedule", s.requireAuth(s.handleCronSchedule))
@@ -517,6 +522,43 @@ func (s *Server) routes() *http.ServeMux {
 	mux.HandleFunc("POST /api/remote/test", s.requireAuth(s.handleRemoteTest))
 	mux.HandleFunc("POST /api/remote/files", s.requireAuth(s.handleRemoteFiles))
 	mux.HandleFunc("POST /api/remote/push", s.requireAuth(s.handleRemotePush))
+
+	// v0.1.70 新增：会话管理 / IP 白名单
+	mux.HandleFunc("GET /api/sessions", s.requireAuth(s.handleSessions))
+	mux.HandleFunc("DELETE /api/sessions/{id}", s.requireAuth(s.handleSessionRevoke))
+	mux.HandleFunc("POST /api/sessions/revoke-others", s.requireAuth(s.handleSessionsRevokeOthers))
+	mux.HandleFunc("GET /api/ip-allowlist", s.requireAuth(s.handleIPAllowlist))
+	mux.HandleFunc("POST /api/ip-allowlist", s.requireAuth(s.handleIPAllowlistSave))
+	mux.HandleFunc("POST /api/ip-allowlist/test", s.requireAuth(s.handleIPAllowlistTest))
+
+	// v0.1.70 新增：健康自检 / 到期看板 / 备份 / 退避重试 / 配置 Diff
+	mux.HandleFunc("POST /api/health/check", s.requireAuth(s.handleHealthCheck))
+	mux.HandleFunc("GET /api/health/report", s.requireRead(s.handleHealthHistory))
+	mux.HandleFunc("GET /api/expiry", s.requireRead(s.handleExpiry))
+	mux.HandleFunc("GET /api/backups/config", s.requireAuth(s.handleBackupSettings))
+	mux.HandleFunc("POST /api/backups/config", s.requireAuth(s.handleBackupSettingsSave))
+	mux.HandleFunc("GET /api/backups", s.requireAuth(s.handleBackupList))
+	mux.HandleFunc("POST /api/backups/run", s.requireAuth(s.handleBackupRun))
+	mux.HandleFunc("GET /api/backups/{id}/content", s.requireAuth(s.handleBackupContent))
+	mux.HandleFunc("DELETE /api/backups/{id}", s.requireAuth(s.handleBackupDelete))
+	mux.HandleFunc("GET /api/retry/policy", s.requireAuth(s.handleRetryPolicy))
+	mux.HandleFunc("POST /api/retry/policy", s.requireAuth(s.handleRetryPolicySave))
+	mux.HandleFunc("GET /api/retry/queue", s.requireAuth(s.handleRetryQueue))
+	mux.HandleFunc("GET /api/config-diffs", s.requireRead(s.handleConfigDiffs))
+
+	// v0.1.70 新增：证书生命周期
+	mux.HandleFunc("POST /api/issue/batch", s.requireAuth(s.handleIssueBatch))
+	mux.HandleFunc("POST /api/certs/{name}/verify", s.requireAuth(s.handleCertVerify))
+	mux.HandleFunc("GET /api/acme/accounts", s.requireAuth(s.handleACMEAccounts))
+
+	// v0.1.70 新增：只读令牌 / 计划任务 / CSV 导出 / 界面语言
+	mux.HandleFunc("GET /api/tokens", s.requireAuth(s.handleTokens))
+	mux.HandleFunc("POST /api/tokens", s.requireAuth(s.handleTokenCreate))
+	mux.HandleFunc("DELETE /api/tokens/{id}", s.requireAuth(s.handleTokenDelete))
+	mux.HandleFunc("GET /api/tokens/usage", s.requireAuth(s.handleTokenUsage))
+	mux.HandleFunc("GET /api/schedules", s.requireAuth(s.handleSchedules))
+	mux.HandleFunc("GET /api/export.csv", s.requireAuth(s.handleCSVExport))
+	mux.HandleFunc("POST /api/locale", s.requireAuth(s.handleLocaleSave))
 
 	// 首页：把 __VER__ 换成实际版本，使 app.js/style.css 的 URL 随版本变化，
 	// 绕开反代（nginx proxy_cache）对同名静态文件的旧缓存，升级后无需手动清缓存。

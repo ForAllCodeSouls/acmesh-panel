@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"regexp"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -332,19 +333,21 @@ type Job struct {
 	// 重试所需的原始执行参数。env 含凭证，绝不序列化给前端；args 也不直接暴露。
 	retryArgs []string
 	retryEnv  map[string]string
+	attempt   int // 自动重试累计次数（不含首次执行），仅用于退避策略
 }
 
 type JobManager struct {
-	mu     sync.Mutex
-	jobs   map[string]*Job
-	order  []string
-	subs   map[string]map[chan string]struct{}
-	sem    chan struct{}
-	canc   map[string]context.CancelFunc
-	acme   *ACME
-	store  *Store
-	certs  *CertScanner
-	onDone func(*Job) // 任务结束后异步触发通知（由 Server 注入）
+	mu             sync.Mutex
+	jobs           map[string]*Job
+	order          []string
+	subs           map[string]map[chan string]struct{}
+	sem            chan struct{}
+	canc           map[string]context.CancelFunc
+	acme           *ACME
+	store          *Store
+	certs          *CertScanner
+	onDone         func(*Job)      // 任务结束后异步触发通知（由 Server 注入）
+	retryScheduler *RetryScheduler // 失败任务指数退避自动重试（由 Server 注入）
 
 	// purgeHooks 按任务 ID 注册的一次性"完成后清理"钩子（如删除证书目录）。
 	// 任务结束时在 finish 内直接触发，不再用固定 60s 轮询等待，避免任务超时 15min 时漏清理。
@@ -364,6 +367,7 @@ type persistedJob struct {
 	Started time.Time `json:"started"`
 	Ended   time.Time `json:"ended"`
 	Manual  bool      `json:"manual"`
+	Attempt int       `json:"attempt,omitempty"`
 	Logs    []string  `json:"logs"`
 
 	// 重试参数：args 不含凭证可明文；env 含凭证，经 store 的 AEAD 加密后存 EnvBlob。
@@ -398,7 +402,7 @@ func (m *JobManager) loadPersisted() {
 			ID: p.ID, Kind: p.Kind, Title: p.Title, Domain: p.Domain,
 			Status: p.Status, Preview: p.Preview, Error: p.Error,
 			Created: p.Created, Started: p.Started, Ended: p.Ended,
-			Manual: p.Manual, logs: p.Logs,
+			Manual: p.Manual, logs: p.Logs, attempt: p.Attempt,
 			retryArgs: p.Args,
 		}
 		// 重试凭证以密文落盘，恢复时用同一把密钥与任务 ID 作为 AAD 解封；
@@ -436,7 +440,7 @@ func (m *JobManager) savePersisted() {
 			ID: j.ID, Kind: j.Kind, Title: j.Title, Domain: j.Domain,
 			Status: j.Status, Preview: j.Preview, Error: j.Error,
 			Created: j.Created, Started: j.Started, Ended: j.Ended,
-			Manual: j.Manual, Logs: append([]string(nil), j.logs...),
+			Manual: j.Manual, Logs: append([]string(nil), j.logs...), Attempt: j.attempt,
 			Args: append([]string(nil), j.retryArgs...),
 		}
 		// env 含 DNS API 凭证：加密后才落盘，AAD 绑定任务 ID。
@@ -597,7 +601,11 @@ func (m *JobManager) Retry(id string) (*Job, error) {
 	m.mu.Unlock()
 
 	j := m.start(kind, title, domain, preview, env, args, true)
-	m.push(j, "↻ 重试任务（原任务 "+id+"）")
+	m.mu.Lock()
+	j.attempt = old.attempt + 1
+	m.mu.Unlock()
+	m.savePersisted()
+	m.push(j, "↻ 重试任务（原任务 "+id+"，第 "+strconv.Itoa(j.attempt+1)+" 次执行）")
 	m.push(j, "  提示：若上次失败是证书尚未到续期时间，重试仍会跳过；如需强制续签请到证书页勾选强制续签")
 	return j, nil
 }
@@ -792,6 +800,21 @@ func humanDuration(d time.Duration) string {
 }
 
 func (m *JobManager) finish(j *Job, status, errMsg string) {
+	// 失败任务按指数退避自动重试。排期日志必须写在 __done__ 之前，
+	// 否则前端收到结束事件后会忽略后续 SSE 消息。
+	if status == "failed" && m.retryScheduler != nil {
+		m.mu.Lock()
+		attempt := j.attempt
+		m.mu.Unlock()
+		if m.retryScheduler.Schedule(j.ID, attempt, errMsg) {
+			p := m.retryScheduler.policy()
+			delay := p.BaseDelay << uint(attempt)
+			if delay > p.MaxDelay {
+				delay = p.MaxDelay
+			}
+			m.push(j, fmt.Sprintf("↻ 已排入自动重试队列，%d 秒后重试（第 %d 次重试）", delay, attempt+1))
+		}
+	}
 	msg := "__done__:" + status
 	m.mu.Lock()
 	j.Status = status
