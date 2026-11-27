@@ -165,3 +165,47 @@ func contains(haystack, needle string) bool {
 	}
 	return false
 }
+
+func TestReissueParamsPersistWithoutSecrets(t *testing.T) {
+	dir := t.TempDir()
+	st, err := NewStore(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.db.Close()
+	m := NewJobManager(&ACME{Bin: "/nonexistent"}, st, 1)
+
+	j := &Job{
+		ID: "job-reissue-persist", Kind: "issue", Title: "签发 reissue.example.com",
+		Domain: "reissue.example.com", Status: "failed", Ended: time.Now(),
+		retryEnv:  map[string]string{"Ali_Secret": "SUPERSECRET-VALUE"},
+		retryArgs: []string{"--issue", "--dns", "dns_ali", "-d", "reissue.example.com"},
+	}
+	addJob(m, j)
+	m.SetReissue(j.ID, &ReissueInfo{
+		Kind: "issue", Domains: []string{"reissue.example.com"}, Code: "dns_ali",
+		KeyLength: "ec-256", CA: "letsencrypt", DNSSleep: 30, Force: true, TempEnv: true,
+	})
+
+	var raw string
+	if err := st.DB().QueryRow(`SELECT data FROM jobs WHERE id = ?`, j.ID).Scan(&raw); err != nil {
+		t.Fatal(err)
+	}
+	if contains(raw, "SUPERSECRET-VALUE") {
+		t.Fatal("重选参数落盘时出现明文凭证")
+	}
+
+	// 重启后重选参数仍可恢复，且环境凭证仍可用于原样重试。
+	m2 := NewJobManager(&ACME{Bin: "/nonexistent"}, st, 1)
+	info := m2.ReissueInfo(j.ID)
+	if info == nil || info.CA != "letsencrypt" || !info.Force || !info.TempEnv {
+		t.Fatalf("重选参数未恢复: %+v", info)
+	}
+	if len(info.Domains) != 1 || info.Domains[0] != "reissue.example.com" {
+		t.Fatalf("域名未恢复: %v", info.Domains)
+	}
+	restored := m2.Get(j.ID)
+	if restored == nil || restored.retryEnv["Ali_Secret"] != "SUPERSECRET-VALUE" {
+		t.Fatal("原任务的凭证未恢复，影响原样重试")
+	}
+}

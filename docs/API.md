@@ -1,6 +1,6 @@
 # acmesh-panel HTTP API 参考
 
-本文描述 acmesh-panel v0.1.73 的全部 HTTP 接口。面板是单二进制服务，默认监听容器内 `0.0.0.0:8080`，通常由 nginx / Caddy 反向代理对外提供 HTTPS。所有路径均以 `/api` 开头。
+本文描述 acmesh-panel v0.1.74 的全部 HTTP 接口。面板是单二进制服务，默认监听容器内 `0.0.0.0:8080`，通常由 nginx / Caddy 反向代理对外提供 HTTPS。所有路径均以 `/api` 开头。
 
 > 仅限管理你拥有或已获明确授权的域名与服务器。详见 [DISCLAIMER.md](../DISCLAIMER.md)。
 
@@ -114,8 +114,9 @@ Content-Type: application/json
 | GET | `/api/jobs` | 读 | 任务列表 |
 | GET | `/api/jobs/{id}` | 会话 | 任务详情 |
 | GET | `/api/jobs/{id}/events` | 会话 | 实时日志（SSE） |
+| GET | `/api/jobs/{id}/reissue` | 会话 | 重选参数：`kind/domains/credential/code/keylength/ca/email/dns_sleep/force/temp_env`；凭证明文不回显 |
 | POST | `/api/jobs/{id}/cancel` | 会话 | 取消任务 |
-| POST | `/api/jobs/{id}/retry` | 会话 | 手动重试 |
+| POST | `/api/jobs/{id}/retry` | 会话 | 手动重试（按原参数原样执行，不改参数请用重选） |
 | GET | `/api/retry/policy` | 会话 | 查询指数退避策略 |
 | POST | `/api/retry/policy` | 会话 | 修改退避策略；body 含 `enabled`、`max_attempts`、`base_delay`、`max_delay` |
 | GET | `/api/retry/queue` | 会话 | 当前等待自动重试的任务 |

@@ -703,6 +703,12 @@ func (s *Server) handleIssue(w http.ResponseWriter, r *http.Request) {
 		preview += " -d " + d
 	}
 	job := s.jobs.Start("issue", "签发 "+domains[0], domains[0], preview, env, args)
+	// 重选快照：只记录非敏感参数；临时凭证的明文 env 绝不回显。
+	s.jobs.SetReissue(job.ID, &ReissueInfo{
+		Kind: "issue", Domains: domains, Credential: req.Credential, Code: code,
+		KeyLength: req.KeyLength, CA: ca, Email: req.Email,
+		DNSSleep: req.DNSSleep, Force: req.Force, TempEnv: req.Credential == "",
+	})
 	s.store.Audit(sess(r).User, clientIP(r, s.cfg.TrustProxy), "issue", strings.Join(domains, ",")+" via "+code)
 	writeJSON(w, http.StatusAccepted, map[string]any{"job": job})
 }
@@ -921,6 +927,17 @@ func (s *Server) handleJob(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"job": j, "logs": j.logs})
+}
+
+// handleJobReissue 返回任务的非敏感签发参数，供「重选」回到签发弹窗预填。
+// 凭证明文绝不输出：已保存凭证只回名字，临时凭证只标记 temp_env。
+func (s *Server) handleJobReissue(w http.ResponseWriter, r *http.Request) {
+	info := s.jobs.ReissueInfo(r.PathValue("id"))
+	if info == nil {
+		writeErr(w, http.StatusNotFound, "该任务没有可重选的签发参数")
+		return
+	}
+	writeJSON(w, http.StatusOK, info)
 }
 
 func (s *Server) handleCancelJob(w http.ResponseWriter, r *http.Request) {

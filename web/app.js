@@ -828,33 +828,38 @@
     // 每次打开都刷新一次：同一次会话里刚在签发弹窗保存的凭证也要立即可选。
     await loadProviders();
     const saved = state.saved || [];
-    openModal('签发证书', `
+    const reissued = !!preset.reissue;
+    const presetCode = preset.code || 'dns_ali';
+    const presetKey = ['ec-256', 'ec-384', '2048', '4096'].includes(preset.keylength) ? preset.keylength : 'ec-256';
+    const presetCred = preset.credential || '';
+    openModal(reissued ? '重选参数并重新签发' : '签发证书', `
       <div class="field">
         <label for="iss-domains">域名（每行一个，首个为主域名）</label>
-        <textarea id="iss-domains" placeholder="example.com&#10;*.example.com"></textarea>
-        <p class="hint">支持泛域名 *.example.com（必须用 DNS API 验证）${preset.merge ? '<br>已预填当前证书的全部域名：保持首行主域名不变，在新行追加要合并的域名（如裸域），并勾选「强制重新签发」。签发成功后会覆盖原证书为一张包含全部域名的证书。' : ''}</p>
+        <textarea id="iss-domains" placeholder="example.com&#10;*.example.com">${esc((preset.domains || []).join('\n'))}</textarea>
+        <p class="hint">支持泛域名 *.example.com（必须用 DNS API 验证）${preset.merge ? '<br>已预填当前证书的全部域名：保持首行主域名不变，在新行追加要合并的域名（如裸域），并勾选「强制重新签发」。签发成功后会覆盖原证书为一张包含全部域名的证书。' : ''}${reissued ? '<br>已恢复原任务参数，可在此修改域名与下面的全部选项后再签发；原任务不会被改动。' : ''}</p>
       </div>
       <div class="grid2">
         <div class="field">
           <label for="iss-cred">凭证来源</label>
           <select id="iss-cred">
             <option value="">使用新的 DNS API 凭证</option>
-            ${saved.map((s) => `<option value="${esc(s.name)}">已保存：${esc(s.name)}（${esc(s.code)}）</option>`).join('')}
+            ${saved.map((s) => `<option value="${esc(s.name)}"${s.name === presetCred ? ' selected' : ''}>已保存：${esc(s.name)}（${esc(s.code)}）</option>`).join('')}
           </select>
+          ${reissued && preset.temp_env ? '<p class="hint">原任务使用临时凭证，密钥不会回显。请重新填写 DNS API 凭证，或改选上方已保存凭证。</p>' : ''}
         </div>
         <div class="field">
           <label for="iss-keysize">密钥类型</label>
           <select id="iss-keysize">
-            ${['ec-256', 'ec-384', '2048', '4096'].map((k) => `<option value="${k}"${k === 'ec-256' ? ' selected' : ''}>${k}</option>`).join('')}
+            ${['ec-256', 'ec-384', '2048', '4096'].map((k) => `<option value="${k}"${k === presetKey ? ' selected' : ''}>${k}</option>`).join('')}
           </select>
         </div>
       </div>
       <div id="iss-manual">
         <div class="field">
           <label for="iss-code">DNS 服务商</label>
-          <select id="iss-code">${providerOptions('dns_ali')}</select>
+          <select id="iss-code">${providerOptions(presetCode)}</select>
         </div>
-        <div id="iss-env">${envFieldsHTML('dns_ali')}</div>
+        <div id="iss-env">${envFieldsHTML(presetCode)}</div>
         <div class="field">
           <label for="iss-saveas">保存为凭证（可选）</label>
           <input id="iss-saveas" placeholder="例如 ali-prod" spellcheck="false">
@@ -863,23 +868,23 @@
       </div>
       <div class="field">
         <label for="iss-email">ACME 通知邮箱（可选）</label>
-        <input id="iss-email" type="email" placeholder="留空使用默认邮箱" spellcheck="false">
+        <input id="iss-email" type="email" placeholder="留空使用默认邮箱" spellcheck="false" value="${esc(preset.email || '')}">
         <p class="hint" id="iss-email-hint">${state.defaultEmail ? '默认：' + esc(state.defaultEmail) + ' · CA 的到期提醒会发到这里' : '未设置默认邮箱：将使用 acme.sh 安装时配置的账户'}</p>
       </div>
       <div class="field">
         <label for="iss-dnssleep">DNS 生效等待（秒）</label>
-        <input id="iss-dnssleep" type="number" min="0" max="600" value="30">
+        <input id="iss-dnssleep" type="number" min="0" max="600" value="${Number.isInteger(preset.dns_sleep) ? preset.dns_sleep : 30}">
         <p class="hint">默认 30 秒：跳过 acme.sh 的公共 DNS 轮询，避免动态 DNS（如 DuckDNS）一直卡在「Not valid yet」检查。填 0 则沿用 acme.sh 默认行为。</p>
       </div>
       <div class="grid2">
         <div class="field">
           <label for="iss-ca">CA</label>
           <select id="iss-ca">
-            ${(state.catalog?.cas || []).map((c) => `<option value="${esc(c.code)}"${c.code === (state.catalog?.default_ca || 'letsencrypt') ? ' selected' : ''}>${esc(c.name)}</option>`).join('')}
+            ${(state.catalog?.cas || []).map((c) => `<option value="${esc(c.code)}"${c.code === (preset.ca || state.catalog?.default_ca || 'letsencrypt') ? ' selected' : ''}>${esc(c.name)}</option>`).join('')}
           </select>
         </div>
         <div class="field field-end">
-          <label class="check mt8"><input type="checkbox" id="iss-force"> 强制重新签发</label>
+          <label class="check mt8"><input type="checkbox" id="iss-force"${preset.force ? ' checked' : ''}> 强制重新签发</label>
         </div>
       </div>
       <div class="callout info">签发前请确认域名的 DNS 解析已托管在你选择的服务商，且 API 凭证具备解析记录编辑权限。</div>
@@ -888,7 +893,6 @@
       <button class="btn primary" id="iss-go">开始签发</button>
     `);
 
-    $('#iss-domains').value = preset.domains || '';
     const credSel = $('#iss-cred');
     const manual = $('#iss-manual');
     const syncCred = () => { manual.classList.toggle('hidden', !!credSel.value); };
@@ -1043,6 +1047,16 @@
     } catch (e) { toast(e.message, 'err'); }
   }
 
+  // 重选：读取原任务的非敏感签发参数，回到签发弹窗预填，可修改后再签发。
+  // 凭证明文不回显；原任务不改动，新签发生成独立任务。
+  async function reissueJob(id) {
+    try {
+      const p = await api(`/api/jobs/${encodeURIComponent(id)}/reissue`);
+      state.closeJobLog?.();
+      await openIssueModal({ ...p, reissue: true });
+    } catch (e) { toast(e.message, 'err'); }
+  }
+
   function renderJobs() {
     const box = $('#job-list');
     box.innerHTML = '';
@@ -1053,17 +1067,23 @@
       row.dataset.id = j.id;
       const st = { queued: '排队', running: '执行中', success: '成功', failed: '失败', canceled: '已取消', skipped: '未到期' }[j.status] || j.status;
       const retryable = ['failed', 'canceled', 'skipped'].includes(j.status);
+      const reissueable = j.kind === 'issue';
       row.innerHTML = `
         <div class="row-main minw0">
           <div class="row-title">${esc(j.title)}</div>
           <div class="tiny muted mt2">${esc(fmtTime(j.created))} · ${esc(j.kind)}</div>
         </div>
         ${retryable ? '<button class="btn small job-retry-btn" type="button" title="用原参数重新执行">重试</button>' : ''}
+        ${reissueable ? '<button class="btn small ghost job-reissue-btn" type="button" title="恢复原参数并修改后重新签发">重选</button>' : ''}
         <span class="job-status ${esc(j.status)}">${esc(st)}</span>
         <span class="muted">›</span>`;
       const retryBtn = row.querySelector('.job-retry-btn');
       if (retryBtn) {
         retryBtn.addEventListener('click', (e) => { e.stopPropagation(); retryJob(j.id); });
+      }
+      const reissueBtn = row.querySelector('.job-reissue-btn');
+      if (reissueBtn) {
+        reissueBtn.addEventListener('click', (e) => { e.stopPropagation(); reissueJob(j.id); });
       }
       row.addEventListener('click', () => openJobLog(j.id, j.title));
       box.appendChild(row);
@@ -1073,9 +1093,11 @@
   function openJobLog(id, title) {
     const cur = state.jobs.find((j) => j.id === id);
     const canRetryLog = cur && ['failed', 'canceled', 'skipped'].includes(cur.status);
+    const canReissueLog = cur && cur.kind === 'issue';
     openModal(title || '任务日志', `<div class="log" id="job-log"></div>`, `
       <button class="btn ghost small hidden" id="job-cancel">取消任务</button>
       <button class="btn small hidden" id="job-retry">重试任务</button>
+      ${canReissueLog ? '<button class="btn small ghost" id="job-reissue">重选签发</button>' : ''}
       <span class="grow"></span>
       <button class="btn small" id="job-copy">复制日志</button>
       <button class="btn small" id="job-reload">刷新列表</button>
@@ -1144,6 +1166,7 @@
     const retryBtn = $('#job-retry');
     if (canRetryLog) retryBtn.classList.remove('hidden');
     retryBtn.addEventListener('click', () => retryJob(id));
+    $('#job-reissue')?.addEventListener('click', () => reissueJob(id));
   }
 
   // 任务进行中时轮询列表，保证角标与状态新鲜

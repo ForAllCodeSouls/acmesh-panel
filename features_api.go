@@ -915,6 +915,11 @@ func (s *Server) handleIssueBatch(w http.ResponseWriter, r *http.Request) {
 			title += fmt.Sprintf("（含 %d 个域名）", len(g))
 		}
 		j := s.jobs.Start("issue", title, g[0], preview, env, args)
+		s.jobs.SetReissue(j.ID, &ReissueInfo{
+			Kind: "issue", Domains: g, Credential: req.Credential, Code: code,
+			KeyLength: req.KeyLength, CA: ca, Email: req.Email,
+			DNSSleep: req.DNSSleep, Force: req.Force, TempEnv: req.Credential == "",
+		})
 		jobs = append(jobs, map[string]any{"id": j.ID, "domain": g[0], "domains": g, "cert_name": key})
 	}
 	s.store.Audit(sess(r).User, clientIP(r, s.cfg.TrustProxy), "issue_batch",

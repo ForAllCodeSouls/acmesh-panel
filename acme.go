@@ -335,6 +335,24 @@ type Job struct {
 	retryEnv  map[string]string
 	attempt   int  // 自动重试累计次数（不含首次执行），仅用于退避策略
 	retried   bool // 该任务是否已被认领重试（手动或自动），防止同一任务重复执行
+
+	// 重选签发所需的非敏感参数。env 含凭证明文，绝不放进这里。
+	reissue *ReissueInfo
+}
+
+// ReissueInfo 是任务「重选签发」时可回显的参数快照。
+// 凭证只记录已保存凭证的名字；临时凭证的明文 env 不回显，用户需重新填写。
+type ReissueInfo struct {
+	Kind       string   `json:"kind"`
+	Domains    []string `json:"domains"`
+	Credential string   `json:"credential"`
+	Code       string   `json:"code"`
+	KeyLength  string   `json:"keylength"`
+	CA         string   `json:"ca"`
+	Email      string   `json:"email"`
+	DNSSleep   int      `json:"dns_sleep"`
+	Force      bool     `json:"force"`
+	TempEnv    bool     `json:"temp_env"` // 原任务使用临时凭证：密钥不回显
 }
 
 type JobManager struct {
@@ -372,8 +390,9 @@ type persistedJob struct {
 	Logs    []string  `json:"logs"`
 
 	// 重试参数：args 不含凭证可明文；env 含凭证，经 store 的 AEAD 加密后存 EnvBlob。
-	Args    []string `json:"args,omitempty"`
-	EnvBlob string   `json:"env_blob,omitempty"` // base64(nonce||ciphertext)
+	Args    []string     `json:"args,omitempty"`
+	EnvBlob string       `json:"env_blob,omitempty"` // base64(nonce||ciphertext)
+	Reissue *ReissueInfo `json:"reissue,omitempty"`  // 重选参数快照，不含凭证明文
 }
 
 // loadPersisted 从 SQLite 恢复历史任务（只保留已完成/取消的）。
@@ -404,7 +423,7 @@ func (m *JobManager) loadPersisted() {
 			Status: p.Status, Preview: p.Preview, Error: p.Error,
 			Created: p.Created, Started: p.Started, Ended: p.Ended,
 			Manual: p.Manual, logs: p.Logs, attempt: p.Attempt,
-			retryArgs: p.Args,
+			retryArgs: p.Args, reissue: p.Reissue,
 		}
 		// 重试凭证以密文落盘，恢复时用同一把密钥与任务 ID 作为 AAD 解封；
 		// 解不开（换过 secret.key）就当作不可重试，不让它阻断历史任务展示。
@@ -426,58 +445,9 @@ func (m *JobManager) loadPersisted() {
 
 // savePersisted 把任务记录写入 SQLite（事务整体替换，不产生半写文件）。
 func (m *JobManager) savePersisted() {
-	if m.store == nil || m.store.DB() == nil {
-		return
-	}
 	m.mu.Lock()
-	defer m.mu.Unlock() // 快照与事务提交必须同一把锁，否则旧快照可能后写覆盖新状态
-	list := make([]persistedJob, 0, len(m.order))
-	for _, id := range m.order {
-		j, ok := m.jobs[id]
-		if !ok {
-			continue
-		}
-		p := persistedJob{
-			ID: j.ID, Kind: j.Kind, Title: j.Title, Domain: j.Domain,
-			Status: j.Status, Preview: j.Preview, Error: j.Error,
-			Created: j.Created, Started: j.Started, Ended: j.Ended,
-			Manual: j.Manual, Logs: append([]string(nil), j.logs...), Attempt: j.attempt,
-			Args: append([]string(nil), j.retryArgs...),
-		}
-		// env 含 DNS API 凭证：加密后才落盘，AAD 绑定任务 ID。
-		if len(j.retryEnv) > 0 && m.store != nil {
-			if plain, e := json.Marshal(j.retryEnv); e == nil {
-				if blob, e := m.store.SealForRetry(plain, j.ID); e == nil {
-					p.EnvBlob = blob
-				}
-			}
-		}
-		list = append(list, p)
-	}
-
-	tx, err := m.store.DB().Begin()
-	if err != nil {
-		return
-	}
-	defer func() { _ = tx.Rollback() }()
-	if _, err := tx.Exec(`DELETE FROM jobs`); err != nil {
-		return
-	}
-	for _, p := range list {
-		data, err := json.Marshal(p)
-		if err != nil {
-			return
-		}
-		created := p.Created.Format(time.RFC3339Nano)
-		if p.Created.IsZero() {
-			created = time.Now().Format(time.RFC3339Nano)
-		}
-		if _, err := tx.Exec(`INSERT INTO jobs(id,created,data) VALUES(?,?,?)`,
-			p.ID, created, string(data)); err != nil {
-			return
-		}
-	}
-	_ = tx.Commit()
+	defer m.mu.Unlock()
+	m.savePersistedLocked()
 }
 
 func NewJobManager(acme *ACME, store *Store, parallel int) *JobManager {
@@ -547,6 +517,81 @@ func (m *JobManager) Get(id string) *Job {
 	cp := *j
 	cp.logs = append([]string(nil), j.logs...)
 	return &cp
+}
+
+// SetReissue 记录任务的「重选签发」参数快照（不含凭证明文）。
+func (m *JobManager) SetReissue(id string, info *ReissueInfo) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if j := m.jobs[id]; j != nil {
+		j.reissue = info
+	}
+	m.savePersistedLocked()
+}
+
+// ReissueInfo 读取任务的「重选签发」参数快照；不存在时返回 nil。
+func (m *JobManager) ReissueInfo(id string) *ReissueInfo {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	j, ok := m.jobs[id]
+	if !ok || j.reissue == nil {
+		return nil
+	}
+	cp := *j.reissue
+	cp.Domains = append([]string(nil), j.reissue.Domains...)
+	return &cp
+}
+
+// savePersistedLocked 与 savePersisted 相同，但要求调用方已持有 m.mu。
+func (m *JobManager) savePersistedLocked() {
+	if m.store == nil || m.store.DB() == nil {
+		return
+	}
+	list := make([]persistedJob, 0, len(m.order))
+	for _, id := range m.order {
+		j, ok := m.jobs[id]
+		if !ok {
+			continue
+		}
+		p := persistedJob{
+			ID: j.ID, Kind: j.Kind, Title: j.Title, Domain: j.Domain,
+			Status: j.Status, Preview: j.Preview, Error: j.Error,
+			Created: j.Created, Started: j.Started, Ended: j.Ended,
+			Manual: j.Manual, Logs: append([]string(nil), j.logs...), Attempt: j.attempt,
+			Args: append([]string(nil), j.retryArgs...), Reissue: j.reissue,
+		}
+		if len(j.retryEnv) > 0 && m.store != nil {
+			if plain, e := json.Marshal(j.retryEnv); e == nil {
+				if blob, e := m.store.SealForRetry(plain, j.ID); e == nil {
+					p.EnvBlob = blob
+				}
+			}
+		}
+		list = append(list, p)
+	}
+	tx, err := m.store.DB().Begin()
+	if err != nil {
+		return
+	}
+	defer func() { _ = tx.Rollback() }()
+	if _, err := tx.Exec(`DELETE FROM jobs`); err != nil {
+		return
+	}
+	for _, p := range list {
+		data, err := json.Marshal(p)
+		if err != nil {
+			return
+		}
+		created := p.Created.Format(time.RFC3339Nano)
+		if p.Created.IsZero() {
+			created = time.Now().Format(time.RFC3339Nano)
+		}
+		if _, err := tx.Exec(`INSERT INTO jobs(id,created,data) VALUES(?,?,?)`,
+			p.ID, created, string(data)); err != nil {
+			return
+		}
+	}
+	_ = tx.Commit()
 }
 
 func (m *JobManager) List() []*Job {

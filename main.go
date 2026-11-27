@@ -482,6 +482,7 @@ func (s *Server) routes() *http.ServeMux {
 	mux.HandleFunc("DELETE /api/providers/{name}", s.requireAuth(s.handleDeleteProvider))
 	mux.HandleFunc("GET /api/jobs", s.requireRead(s.handleJobs))
 	mux.HandleFunc("GET /api/jobs/{id}", s.requireAuth(s.handleJob))
+	mux.HandleFunc("GET /api/jobs/{id}/reissue", s.requireAuth(s.handleJobReissue))
 	mux.HandleFunc("GET /api/jobs/{id}/events", s.requireAuth(s.handleJobEvents))
 	mux.HandleFunc("POST /api/jobs/{id}/cancel", s.requireAuth(s.handleCancelJob))
 	mux.HandleFunc("POST /api/jobs/{id}/retry", s.requireAuth(s.handleRetryJob))

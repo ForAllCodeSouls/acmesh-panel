@@ -210,7 +210,7 @@ check('服务商目录源码按 code 排序', (() => {
   return codes.length >= 43 && codes.join() === [...codes].sort().join();
 })());
 check('签发弹窗有 DNS 等待秒数并默认 30', app.includes('id="iss-dnssleep"')
-  && app.includes('type="number" min="0" max="600" value="30"')
+  && app.includes('type="number" min="0" max="600" value="${Number.isInteger(preset.dns_sleep) ? preset.dns_sleep : 30}"')
   && app.includes('dns_sleep: parseInt($(\'#iss-dnssleep\').value, 10) || 0'));
 check('失败任务显示重试按钮', app.includes("['failed', 'canceled', 'skipped'].includes(j.status)")
   && app.includes("class=\"btn small job-retry-btn\""));
@@ -501,5 +501,15 @@ check('证书抽屉提供合并签发入口', app.includes('id="drawer-merge"')
   && app.includes('保持首行主域名不变') && app.includes("[...new Set([cert.domain, ...(cert.sans || [])])"));
 check('任务日志有复制按钮', app.includes('id="job-copy"')
   && app.includes("copyText(text, '日志已复制')"));
+
+// 重选：任务列表/日志弹窗均提供入口，后端接口只回显非敏感参数。
+check('任务列表与日志提供重选入口', app.includes('job-reissue-btn')
+  && app.includes('id="job-reissue"') && app.includes('async function reissueJob(id)')
+  && goMain.includes('"GET /api/jobs/{id}/reissue"'));
+check('重选弹窗预填非敏感参数', app.includes('reissued ? \'重选参数并重新签发\' : \'签发证书\'')
+  && app.includes('preset.temp_env') && app.includes('esc((preset.domains || []).join(\'\\n\'))')
+  && app.includes('preset.dns_sleep'));
+check('重选接口不序列化凭证', goAcme.includes('TempEnv    bool')
+  && !goAcme.includes('Env        map[string]string `json:"env"`'));
 
 console.log(`web UI checks: ${passed} passed`);

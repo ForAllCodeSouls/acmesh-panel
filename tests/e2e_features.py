@@ -231,6 +231,25 @@ def main():
               and j.get("jobs", [{}])[0].get("domains") ==
               ["ddns1.example.net", "*.ddns1.example.net"], (st, j))
 
+        # ---- 重选签发：恢复非敏感参数，凭证明文不回显 ----
+        st, j = c.j("POST", "/api/issue", {
+            "domains": ["reissue.example.net", "www.reissue.example.net"],
+            "code": "dns_ali", "env": {"Ali_Key": "SUPERSECRET-KEY", "Ali_Secret": "SUPERSECRET-VALUE"},
+            "keylength": "ec-256", "ca": "letsencrypt", "dns_sleep": 45, "force": True,
+        })
+        check("重选用签发任务创建成功", st == 202 and j.get("job", {}).get("id"), (st, j))
+        jid = j["job"]["id"]
+        st, j = c.j("GET", "/api/jobs/" + jid + "/reissue")
+        raw = json.dumps(j, ensure_ascii=False)
+        check("重选参数含域名与选项", st == 200 and j.get("domains") ==
+              ["reissue.example.net", "www.reissue.example.net"]
+              and j.get("keylength") == "ec-256" and j.get("dns_sleep") == 45
+              and j.get("force") is True and j.get("temp_env") is True, (st, j))
+        check("重选参数不回显凭证明文", "SUPERSECRET" not in raw and "Ali_Key" not in raw
+              and "Ali_Secret" not in raw, raw[:200])
+        st, j = c.j("GET", "/api/jobs/does-not-exist/reissue")
+        check("不存在任务无重选参数", st == 404, (st, j))
+
         # ---- 证书链校验（签发完成后）----
         for _ in range(80):
             st, j = c.j("GET", "/api/jobs")

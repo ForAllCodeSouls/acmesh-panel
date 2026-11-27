@@ -12,7 +12,7 @@ body:
     attributes:
       label: 版本
       description: 面板版本 / 镜像 tag / commit
-      placeholder: "0.1.73"
+      placeholder: "0.1.74"
     validations:
       required: true
   - type: textarea
