@@ -818,8 +818,29 @@ func certKeyMatch(cert *x509.Certificate, keyPEM []byte) error {
 
 // ---------------- 批量签发向导 ----------------
 
+// groupBatchDomains 把「同一主域的裸域与泛域」合并成一组：
+// x 与 *.x 共用同一条 _acme-challenge.x TXT 记录，并行签发在 DuckDNS 这类
+// 单 TXT 槽位的服务商上会互相覆盖、导致公共 DNS 校验永远不过；
+// acme.sh 一条命令本就支持多个 -d，因此合并为一张 SAN 证书、一个任务。
+// 保持用户输入顺序（首个域名决定证书目录名）。
+func groupBatchDomains(domains []string) [][]string {
+	groups := [][]string{}
+	index := map[string]int{}
+	for _, d := range domains {
+		base := strings.TrimPrefix(d, "*.")
+		if i, ok := index[base]; ok {
+			groups[i] = append(groups[i], d)
+		} else {
+			index[base] = len(groups)
+			groups = append(groups, []string{d})
+		}
+	}
+	return groups
+}
+
 // handleIssueBatch 把一次文本域里的多个域名拆成独立任务排队。
-// 每个域名单独签发，避免一个域名失败拖累整批；公共参数（凭证/CA/密钥/邮箱）只校验一次。
+// 每组域名单独签发，避免一个域名失败拖累整批；公共参数（凭证/CA/密钥/邮箱）只校验一次。
+// 同一主域的裸域与泛域会先合并为一个任务（见 groupBatchDomains）。
 func (s *Server) handleIssueBatch(w http.ResponseWriter, r *http.Request) {
 	var req issueReq
 	if err := readJSON(w, r, &req); err != nil {
@@ -877,35 +898,27 @@ func (s *Server) handleIssueBatch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	jobs := make([]map[string]any, 0, len(domains))
-	for _, d := range domains {
-		key := d
+	groups := groupBatchDomains(domains)
+	jobs := make([]map[string]any, 0, len(groups))
+	for _, g := range groups {
+		key := g[0]
 		if strings.HasPrefix(req.KeyLength, "ec-") {
 			key += "_ecc"
 		}
-		args := []string{"--issue", "--dns", code}
-		if req.DNSSleep > 0 {
-			args = append(args, "--dnssleep", strconv.Itoa(req.DNSSleep))
+		args := buildIssueArgs(code, req.DNSSleep, email, req.KeyLength, ca, req.Force, g)
+		preview := "acme.sh --issue --dns " + code
+		for _, d := range g {
+			preview += " -d " + d
 		}
-		if email != "" {
-			args = append(args, "--accountemail", email)
+		title := "批量签发 " + g[0]
+		if len(g) > 1 {
+			title += fmt.Sprintf("（含 %d 个域名）", len(g))
 		}
-		if req.KeyLength != "" {
-			args = append(args, "--keylength", req.KeyLength)
-		}
-		if ca != "letsencrypt" {
-			args = append(args, "--server", ca)
-		}
-		if req.Force {
-			args = append(args, "--force")
-		}
-		args = append(args, "-d", d)
-		preview := "acme.sh --issue --dns " + code + " -d " + d
-		j := s.jobs.Start("issue", "批量签发 "+d, d, preview, env, args)
-		jobs = append(jobs, map[string]any{"id": j.ID, "domain": d, "cert_name": key})
+		j := s.jobs.Start("issue", title, g[0], preview, env, args)
+		jobs = append(jobs, map[string]any{"id": j.ID, "domain": g[0], "domains": g, "cert_name": key})
 	}
 	s.store.Audit(sess(r).User, clientIP(r, s.cfg.TrustProxy), "issue_batch",
-		fmt.Sprintf("count=%d via %s", len(domains), code))
+		fmt.Sprintf("count=%d via %s", len(groups), code))
 	writeJSON(w, http.StatusAccepted, map[string]any{
 		"jobs": jobs, "count": len(jobs), "queued": true,
 	})

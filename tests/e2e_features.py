@@ -221,6 +221,16 @@ def main():
         check("批量任务域名正确", [x["domain"] for x in j.get("jobs", [])] ==
               ["batch1.example.net", "batch2.example.net"], j.get("jobs"))
 
+        # 裸域与泛域共用同一条 TXT 记录，必须合并为一张证书、一个任务
+        st, j = c.j("POST", "/api/issue/batch", {
+            "domains": ["ddns1.example.net", "*.ddns1.example.net"],
+            "code": "dns_ali", "env": {"Ali_Key": "test-key", "Ali_Secret": "test-secret"},
+            "keylength": "ec-256", "ca": "letsencrypt", "dns_sleep": 0, "force": False,
+        })
+        check("裸域与泛域合并为一张证书任务", st == 202 and j.get("count") == 1
+              and j.get("jobs", [{}])[0].get("domains") ==
+              ["ddns1.example.net", "*.ddns1.example.net"], (st, j))
+
         # ---- 证书链校验（签发完成后）----
         for _ in range(80):
             st, j = c.j("GET", "/api/jobs")

@@ -292,7 +292,7 @@
       <div class="subpanel" data-subpanel="batch">
         <div class="card">
           <h3>批量签发向导</h3>
-          <p class="tiny muted">每行一个域名，公共参数只需设置一次。每个域名会作为独立任务排队，单个失败不影响其它域名。单批最多 50 个。</p>
+          <p class="tiny muted">每行一个域名，公共参数只需设置一次。同一主域的裸域与泛域（如 example.com 与 *.example.com）会合并为一张证书、一个任务，避免 DuckDNS 等共享 TXT 记录的服务商互踩；其余域名各自独立排队。单批最多 50 个。</p>
           <label class="field"><span>域名列表</span><textarea id="batch-domains" rows="6" placeholder="example.com&#10;*.example.com&#10;www.example.com" aria-label="批量签发域名列表"></textarea></label>
           <div class="grid2">
             <label class="field"><span>DNS 凭证</span><select id="batch-credential" aria-label="批量签发 DNS 凭证"></select></label>

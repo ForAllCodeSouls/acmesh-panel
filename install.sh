@@ -1,10 +1,10 @@
 #!/bin/sh
 # 从 GitHub Releases 安装 acmesh-panel 二进制（Linux amd64/arm64）
 # 用法：curl -fsSL https://raw.githubusercontent.com/ForAllCodeSouls/acmesh-panel/main/install.sh | sh
-#       VERSION=0.1.72 BINDIR=~/.local/bin sh install.sh
+#       VERSION=0.1.73 BINDIR=~/.local/bin sh install.sh
 set -eu
 
-VERSION="${VERSION:-0.1.72}"
+VERSION="${VERSION:-0.1.73}"
 REPO="ForAllCodeSouls/acmesh-panel"
 BINDIR="${BINDIR:-/usr/local/bin}"
 

@@ -584,6 +584,31 @@ func filterEnv(code string, in map[string]string) (map[string]string, error) {
 	return out, nil
 }
 
+// buildIssueArgs 组装 acme.sh 签发参数；单个签发与批量签发共用，避免两处漂移。
+func buildIssueArgs(code string, dnsSleep int, email, keylength, ca string, force bool, domains []string) []string {
+	args := []string{"--issue", "--dns", code}
+	if dnsSleep > 0 {
+		// 指定秒数会让 acme.sh 跳过公共 DNS(DoH) 轮询，避免动态 DNS 长时间卡在预检。
+		args = append(args, "--dnssleep", strconv.Itoa(dnsSleep))
+	}
+	if email != "" {
+		args = append(args, "--accountemail", email)
+	}
+	if keylength != "" {
+		args = append(args, "--keylength", keylength)
+	}
+	if ca != "letsencrypt" {
+		args = append(args, "--server", ca)
+	}
+	if force {
+		args = append(args, "--force")
+	}
+	for _, d := range domains {
+		args = append(args, "-d", d)
+	}
+	return args
+}
+
 func (s *Server) handleIssue(w http.ResponseWriter, r *http.Request) {
 	var req issueReq
 	if err := readJSON(w, r, &req); err != nil {
@@ -668,26 +693,7 @@ func (s *Server) handleIssue(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	args := []string{"--issue", "--dns", code}
-	if req.DNSSleep > 0 {
-		// 指定秒数会让 acme.sh 跳过公共 DNS(DoH) 轮询，避免动态 DNS 长时间卡在预检。
-		args = append(args, "--dnssleep", strconv.Itoa(req.DNSSleep))
-	}
-	if email != "" {
-		args = append(args, "--accountemail", email)
-	}
-	if req.KeyLength != "" {
-		args = append(args, "--keylength", req.KeyLength)
-	}
-	if ca != "letsencrypt" {
-		args = append(args, "--server", ca)
-	}
-	if req.Force {
-		args = append(args, "--force")
-	}
-	for _, d := range domains {
-		args = append(args, "-d", d)
-	}
+	args := buildIssueArgs(code, req.DNSSleep, email, req.KeyLength, ca, req.Force, domains)
 
 	preview := "acme.sh --issue --dns " + code
 	if req.DNSSleep > 0 {

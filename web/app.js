@@ -317,6 +317,9 @@
 
   async function loadAll() {
     await Promise.all([loadCatalog(), loadNotifyCatalog(), loadCerts(), loadJobs()]);
+    // 凭证列表必须随启动加载：签发弹窗的「凭证来源」依赖 state.saved。
+    // 必须在 loadCatalog 之后串行执行——两者都会写 state.catalog，并发会互相覆盖 providers。
+    await loadProviders();
     refreshJobsBadge();
   }
 
@@ -567,6 +570,7 @@
       <div class="section-title">操作</div>
       <div class="pem-actions">
         <button class="btn small" id="drawer-renew">续期</button>
+        <button class="btn small" id="drawer-merge">合并签发</button>
         <button class="btn small" id="drawer-email">修改邮箱</button>
         <button class="btn small" id="drawer-revoke">吊销</button>
         <button class="btn small danger" id="drawer-remove">移除证书</button>
@@ -614,6 +618,12 @@
     $('#drawer-key').addEventListener('click', () => confirmKeyView(cert));
     $('#drawer-email').addEventListener('click', () => openCertEmailModal(cert));
     $('#drawer-renew').addEventListener('click', () => doRenew(cert));
+    // 合并签发：预填证书现有域名（主域名保持首行，目录名不变，重签后覆盖为一张含全部域名的证书）
+    $('#drawer-merge').addEventListener('click', () => {
+      closeDrawer();
+      const domains = [...new Set([cert.domain, ...(cert.sans || [])])].join('\n');
+      openIssueModal({ domains, merge: true });
+    });
     $('#drawer-install').addEventListener('click', () => doInstall(cert));
     $('#drawer-revoke').addEventListener('click', () => doRevoke(cert));
     $('#drawer-remove').addEventListener('click', () => doRemove(cert));
@@ -814,13 +824,15 @@
       </div>`).join('');
   }
 
-  function openIssueModal(preset = {}) {
+  async function openIssueModal(preset = {}) {
+    // 每次打开都刷新一次：同一次会话里刚在签发弹窗保存的凭证也要立即可选。
+    await loadProviders();
     const saved = state.saved || [];
     openModal('签发证书', `
       <div class="field">
         <label for="iss-domains">域名（每行一个，首个为主域名）</label>
         <textarea id="iss-domains" placeholder="example.com&#10;*.example.com"></textarea>
-        <p class="hint">支持泛域名 *.example.com（必须用 DNS API 验证）</p>
+        <p class="hint">支持泛域名 *.example.com（必须用 DNS API 验证）${preset.merge ? '<br>已预填当前证书的全部域名：保持首行主域名不变，在新行追加要合并的域名（如裸域），并勾选「强制重新签发」。签发成功后会覆盖原证书为一张包含全部域名的证书。' : ''}</p>
       </div>
       <div class="grid2">
         <div class="field">
@@ -1065,9 +1077,14 @@
       <button class="btn ghost small hidden" id="job-cancel">取消任务</button>
       <button class="btn small hidden" id="job-retry">重试任务</button>
       <span class="grow"></span>
+      <button class="btn small" id="job-copy">复制日志</button>
       <button class="btn small" id="job-reload">刷新列表</button>
       <button class="btn ghost" id="job-close">关闭</button>`);
     const logEl = $('#job-log');
+    $('#job-copy').addEventListener('click', () => {
+      const text = logEl.innerText.trim();
+      if (text) copyText(text, '日志已复制');
+    });
     const append = (line, cls) => {
       const span = document.createElement('span');
       if (cls) span.className = cls;
@@ -2578,7 +2595,7 @@
   $('#batch-run').addEventListener('click', async () => {
     const domains = $('#batch-domains').value.split('\n').map((s) => s.trim()).filter(Boolean);
     if (!domains.length) { toast('请先填写域名，每行一个', 'warn'); return; }
-    if (!confirm(`将 ${domains.length} 个域名排队签发，确认继续？`)) return;
+    if (!confirm(`将所选域名排队签发（同一主域的裸域与泛域会合并为一张证书），确认继续？`)) return;
     const btn = busyButton($('#batch-run'), '排队中…');
     try {
       const body = {

@@ -457,6 +457,17 @@ textarea { font-family: var(--mono); font-size: 12.5px; resize: vertical; min-he
   #sync-file-list, #remote-file-list, #sync-event-list { max-height: 200px; }
   #job-list { max-height: 320px; }
   .table-wrap.scroll-area { max-height: 280px; }
+  /* 手机端补充优化 */
+  .nav-item { padding: 8px 10px; font-size: 12.5px; white-space: nowrap; }
+  .modal-card { max-height: 92vh; }
+  .modal-foot { flex-wrap: wrap; }
+  .modal-foot .btn { flex: 1 1 auto; min-width: 96px; justify-content: center; }
+  .pem-actions .btn { flex: 1 1 auto; min-width: 104px; justify-content: center; }
+  .btn { min-height: 38px; }
+  /* 16px 输入字号避免 iOS Safari 聚焦时自动放大页面 */
+  input, textarea, select { font-size: 16px; }
+  .toasts { left: 12px; right: 12px; bottom: 12px; }
+  .toast { max-width: none; }
 }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; }

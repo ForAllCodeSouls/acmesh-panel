@@ -481,4 +481,25 @@ check('只读令牌 sync scope 路由可达', ['GET /api/sync/catalog', 'GET /ap
   'GET /api/sync/events', 'GET /api/remote/hosts']
   .every((r) => goMain.includes('"' + r + '", s.requireRead')));
 
+// 刷新后签发弹窗的「凭证来源」必须列出已保存凭证：启动即加载，打开弹窗再刷新一次。
+const loadAllFn = app.slice(app.indexOf('async function loadAll()'), app.indexOf('// ---------------- 视图切换'));
+const issueFn = app.slice(app.indexOf('async function openIssueModal'), app.indexOf('// ---------------- 证书操作'));
+check('签发弹窗能读取已保存 DNS 凭证', loadAllFn.includes('await loadProviders();')
+  && issueFn.includes('await loadProviders();') && app.includes('已保存：${esc(s.name)}'));
+check('凭证加载不与目录加载并发写 state.catalog', loadAllFn.indexOf('await loadProviders();')
+  > loadAllFn.indexOf('await Promise.all('));
+
+// 批量签发：同一主域的裸域与泛域必须合并为一张证书，避免共享 TXT 记录互踩。
+check('批量签发合并同一主域的裸域与泛域', goFeaturesApi.includes('func groupBatchDomains')
+  && goFeaturesApi.includes('strings.TrimPrefix(d, "*.")')
+  && goApi.includes('args := buildIssueArgs(code, req.DNSSleep, email, req.KeyLength, ca, req.Force, domains)')
+  && html.includes('合并为一张证书'));
+
+// 证书抽屉提供「合并签发」入口：预填现有域名，主域名保持首行。
+check('证书抽屉提供合并签发入口', app.includes('id="drawer-merge"')
+  && app.includes('openIssueModal({ domains, merge: true })')
+  && app.includes('保持首行主域名不变') && app.includes("[...new Set([cert.domain, ...(cert.sans || [])])"));
+check('任务日志有复制按钮', app.includes('id="job-copy"')
+  && app.includes("copyText(text, '日志已复制')"));
+
 console.log(`web UI checks: ${passed} passed`);

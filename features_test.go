@@ -261,3 +261,30 @@ func TestParseAllCerts(t *testing.T) {
 		t.Fatalf("非证书块被误判: %d bad=%d %v", len(certs), bad, err)
 	}
 }
+
+func TestGroupBatchDomains(t *testing.T) {
+	got := groupBatchDomains([]string{
+		"pyworker.duckdns.org", "*.pyworker.duckdns.org",
+		"a.example.com", "*.other.example.com", "b.example.com",
+	})
+	if len(got) != 4 {
+		t.Fatalf("期望 4 组，得到 %d: %v", len(got), got)
+	}
+	if len(got[0]) != 2 || got[0][0] != "pyworker.duckdns.org" || got[0][1] != "*.pyworker.duckdns.org" {
+		t.Fatalf("裸域与泛域未合并为一组: %v", got[0])
+	}
+	if len(got[1]) != 1 || got[1][0] != "a.example.com" {
+		t.Fatalf("不同主域不应合并: %v", got[1])
+	}
+	if len(got[2]) != 1 || got[2][0] != "*.other.example.com" {
+		t.Fatalf("泛域基域不应与其它裸域合并: %v", got[2])
+	}
+	if len(got[3]) != 1 || got[3][0] != "b.example.com" {
+		t.Fatalf("独立裸域应自成一组: %v", got[3])
+	}
+	// 保持输入顺序：首个域名决定证书目录名
+	got = groupBatchDomains([]string{"*.x.example.net", "x.example.net"})
+	if len(got) != 1 || got[0][0] != "*.x.example.net" {
+		t.Fatalf("未保持输入顺序: %v", got)
+	}
+}
