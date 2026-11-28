@@ -2,6 +2,16 @@
 
 本文件遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)。
 
+## [0.1.77] - 2026-11-28
+
+### 新增
+- EAB 凭证库：凭证页可加密保存 Google Trust Services / ZeroSSL 的 EAB kid / HMAC key（AES-256-GCM，接口只返回掩码），签发与批量签发均可下拉选择，无需每次粘贴；附 Google Cloud 控制台 / gcloud 与 ZeroSSL 开发者页的获取指引。
+- 已保存 EAB 凭证按 CA 匹配校验，避免把 Google 的 EAB 用到 ZeroSSL；重选任务保留"曾使用 EAB"标记，凭证明文不回显。
+
+### 修复
+- EAB HMAC 兼容标准 base64：含 `=` padding 与 `+` `/` 的值自动转换为 acme.sh 需要的无 padding base64url，解决从 Google API / Terraform 导出的凭证无法使用的问题。
+- 限流失败分类过宽：仅当日志明确出现超长 Retry-After（>600 秒，acme.sh 放弃进程内重试）时才判定为永久失败并跳过自动重试；Let's Encrypt「失败授权过多」等约一小时恢复的限流继续交给退避队列，提示不再误导为"等 24 小时"。
+
 ## [0.1.76] - 2026-11-28
 
 ### Added

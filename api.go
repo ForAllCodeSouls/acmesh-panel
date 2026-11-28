@@ -526,6 +526,7 @@ type issueReq struct {
 	DNSSleep   int               `json:"dns_sleep"` // 跳过 acme.sh 公共 DNS 轮询的固定等待秒数；0 表示沿用 acme.sh 默认
 	EABKid     string            `json:"eab_kid"`   // ACME 外部账户绑定（Google / ZeroSSL 注册账户用），不回显、不落 args
 	EABHMACKey string            `json:"eab_hmac_key"`
+	EABCred    string            `json:"eab_cred"` // 已保存 EAB 凭证名；与临时 kid/hmac 二选一
 }
 
 func normalizeDomains(in []string) ([]string, error) {
@@ -586,9 +587,23 @@ func filterEnv(code string, in map[string]string) (map[string]string, error) {
 	return out, nil
 }
 
-// prepareEAB 校验请求里的 EAB 并合入凭证 env；单签发/批量共用。
-func prepareEAB(req issueReq, env map[string]string) (map[string]string, error) {
-	extra, err := eabEnv(req.EABKid, req.EABHMACKey)
+// prepareEAB 解析请求里的 EAB（已保存凭证或临时填写）并合入凭证 env；单签发/批量共用。
+// 已保存凭证按名字从加密存储取出，CA 必须与本次签发一致，避免 Google 的 EAB 用到 ZeroSSL。
+func (s *Server) prepareEAB(req issueReq, env map[string]string, ca string) (map[string]string, error) {
+	kid, hmac := req.EABKid, req.EABHMACKey
+	if req.EABCred != "" {
+		credCA, ck, ch, err := s.store.GetEAB(req.EABCred)
+		if err != nil {
+			return nil, fmt.Errorf("读取 EAB 凭证失败：%v", err)
+		}
+		if credCA != ca {
+			return nil, fmt.Errorf("EAB 凭证「%s」适用于 %s，与本次 CA (%s) 不符", req.EABCred, credCA, ca)
+		}
+		if kid == "" && hmac == "" {
+			kid, hmac = ck, ch
+		}
+	}
+	extra, err := eabEnv(kid, hmac)
 	if err != nil {
 		return nil, err
 	}
@@ -682,7 +697,7 @@ func (s *Server) handleIssue(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// EAB 必须成对出现且合法；合入 env 后随凭证一起加密落盘，绝不进 args / 重选快照。
-	env, err = prepareEAB(req, env)
+	env, err = s.prepareEAB(req, env, ca)
 	if err != nil {
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return
@@ -725,7 +740,7 @@ func (s *Server) handleIssue(w http.ResponseWriter, r *http.Request) {
 		Kind: "issue", Domains: domains, Credential: req.Credential, Code: code,
 		KeyLength: req.KeyLength, CA: ca, Email: req.Email,
 		DNSSleep: req.DNSSleep, Force: req.Force, TempEnv: req.Credential == "",
-		HasEAB: req.EABKid != "",
+		HasEAB: req.EABKid != "" || req.EABCred != "",
 	})
 	s.store.Audit(sess(r).User, clientIP(r, s.cfg.TrustProxy), "issue", strings.Join(domains, ",")+" via "+code)
 	writeJSON(w, http.StatusAccepted, map[string]any{"job": job})
@@ -932,6 +947,55 @@ func (s *Server) handleDeleteProvider(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.store.Audit(sess(r).User, clientIP(r, s.cfg.TrustProxy), "provider_delete", name)
+	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+}
+
+// ---------------- EAB 凭证 ----------------
+
+func (s *Server) handleEABCreds(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, http.StatusOK, map[string]any{"saved": s.store.ListEABs()})
+}
+
+func (s *Server) handleSaveEABCred(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Name string `json:"name"`
+		CA   string `json:"ca"`
+		Kid  string `json:"kid"`
+		HMAC string `json:"hmac"`
+	}
+	if err := readJSON(w, r, &req); err != nil {
+		writeErr(w, http.StatusBadRequest, "请求格式错误")
+		return
+	}
+	if !validCertName(req.Name) {
+		writeErr(w, http.StatusBadRequest, "凭证名称非法")
+		return
+	}
+	ca := strings.TrimSpace(req.CA)
+	if ca != "google" && ca != "zerossl" {
+		writeErr(w, http.StatusBadRequest, "EAB 凭证仅支持 google 或 zerossl")
+		return
+	}
+	norm, err := eabEnv(req.Kid, req.HMAC)
+	if err != nil || norm == nil {
+		writeErr(w, http.StatusBadRequest, "EAB kid / HMAC key 不合法：需成对填写，长度 8～256 字符")
+		return
+	}
+	if err := s.store.PutEAB(req.Name, ca, norm[eabKidEnv], norm[eabHMACEnv]); err != nil {
+		writeErr(w, http.StatusInternalServerError, "保存失败")
+		return
+	}
+	s.store.Audit(sess(r).User, clientIP(r, s.cfg.TrustProxy), "eab_cred_save", req.Name+" / "+ca)
+	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+}
+
+func (s *Server) handleDeleteEABCred(w http.ResponseWriter, r *http.Request) {
+	name := r.PathValue("name")
+	if err := s.store.DeleteEAB(name); err != nil {
+		writeErr(w, http.StatusBadRequest, "删除失败")
+		return
+	}
+	s.store.Audit(sess(r).User, clientIP(r, s.cfg.TrustProxy), "eab_cred_delete", name)
 	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 }
 

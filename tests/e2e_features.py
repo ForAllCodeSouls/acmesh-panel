@@ -250,6 +250,43 @@ def main():
         st, j = c.j("GET", "/api/jobs/does-not-exist/reissue")
         check("不存在任务无重选参数", st == 404, (st, j))
 
+        # ---- EAB 凭证：加密保存、掩码列表、签发时引用 ----
+        st, j = c.j("POST", "/api/eab-creds", {
+            "name": "google-eab", "ca": "google",
+            "kid": "kid12345678", "hmac": "hmac_ABCDEFG123456==",
+        })
+        check("保存 EAB 凭证成功", st == 200 and j.get("ok") is True, (st, j))
+        st, j = c.j("POST", "/api/eab-creds", {
+            "name": "bad-eab", "ca": "google", "kid": "kid12345678", "hmac": "",
+        })
+        check("非法 EAB 凭证被拒绝", st == 400, (st, j))
+        st, j = c.j("POST", "/api/eab-creds", {
+            "name": "zerossl-eab", "ca": "letsencrypt", "kid": "kid12345678", "hmac": "hmac_ABCDEFG123456",
+        })
+        check("EAB 凭证 CA 非法被拒绝", st == 400, (st, j))
+        st, j = c.j("GET", "/api/eab-creds")
+        saved_eab = j.get("saved", [])
+        check("EAB 凭证列表返回掩码", st == 200
+              and any(x.get("name") == "google-eab" and x.get("ca") == "google"
+                      and "hmac_ABCDEFG123456" != x.get("hmac") for x in saved_eab), (st, j))
+        # 标准 base64 的 = padding 在保存时已归一化为 base64url
+        st, j = c.j("POST", "/api/issue", {
+            "domains": ["eab.example.net"], "code": "dns_ali",
+            "env": {"Ali_Key": "test-key", "Ali_Secret": "test-secret"},
+            "keylength": "ec-256", "ca": "google", "eab_cred": "google-eab",
+            "dns_sleep": 0, "force": False,
+        })
+        check("签发任务可引用已保存 EAB 凭证", st == 202 and j.get("job", {}).get("id"), (st, j))
+        st, j = c.j("POST", "/api/issue", {
+            "domains": ["eab2.example.net"], "code": "dns_ali",
+            "env": {"Ali_Key": "test-key", "Ali_Secret": "test-secret"},
+            "keylength": "ec-256", "ca": "zerossl", "eab_cred": "google-eab",
+            "dns_sleep": 0, "force": False,
+        })
+        check("EAB 凭证 CA 不匹配被拒绝", st == 400, (st, j))
+        st, j = c.j("DELETE", "/api/eab-creds/google-eab")
+        check("删除 EAB 凭证成功", st == 200 and j.get("ok") is True, (st, j))
+
         # ---- 证书链校验（签发完成后）----
         for _ in range(80):
             st, j = c.j("GET", "/api/jobs")

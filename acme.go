@@ -318,8 +318,19 @@ func (a *ACME) cmd(ctx context.Context, env map[string]string, args ...string) *
 	return c
 }
 
+// normalizeEABValue 把 EAB 值归一化为 base64url：容忍标准 base64 的 + / =
+// （Google 控制台/部分 API 导出的是标准 base64），自动转换并去掉 padding，
+// acme.sh 期望的正是无 padding 的 base64url。kid 通常也是 base64url 风格，
+// 同一处理不会破坏原本合法的 base64url 值。
+func normalizeEABValue(v string) string {
+	v = strings.TrimSpace(v)
+	v = strings.TrimRight(v, "=")
+	r := strings.NewReplacer("+", "-", "/", "_")
+	return r.Replace(v)
+}
+
 // eabEnv 校验并生成 EAB 的内部 env 项。kid 与 hmac 必须成对出现，
-// 值做长度与字符白名单校验，避免把任意内容塞进命令行参数。
+// 值归一化后做长度与字符白名单校验，避免把任意内容塞进命令行参数。
 func eabEnv(kid, hmac string) (map[string]string, error) {
 	if strings.TrimSpace(kid) == "" && strings.TrimSpace(hmac) == "" {
 		return nil, nil
@@ -327,6 +338,7 @@ func eabEnv(kid, hmac string) (map[string]string, error) {
 	if strings.TrimSpace(kid) == "" || strings.TrimSpace(hmac) == "" {
 		return nil, errors.New("EAB kid 与 HMAC key 必须同时填写")
 	}
+	kid, hmac = normalizeEABValue(kid), normalizeEABValue(hmac)
 	for _, v := range []string{kid, hmac} {
 		if len(v) < 8 || len(v) > 256 {
 			return nil, errors.New("EAB kid / HMAC key 长度需在 8～256 字符之间")
@@ -334,7 +346,7 @@ func eabEnv(kid, hmac string) (map[string]string, error) {
 		if strings.IndexFunc(v, func(r rune) bool {
 			return !(r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' || strings.ContainsRune("-_", r))
 		}) >= 0 {
-			return nil, errors.New("EAB kid / HMAC key 只能包含字母、数字、短横线和下划线")
+			return nil, errors.New("EAB 值格式不合法：仅接受 base64url，标准 base64 的 + / = 会自动转换")
 		}
 	}
 	return map[string]string{eabKidEnv: kid, eabHMACEnv: hmac}, nil
@@ -923,14 +935,31 @@ func permanentFailureHint(rawLines []string, errMsg string) string {
 	case strings.Contains(text, "externalaccountrequired") ||
 		strings.Contains(text, "external account binding is required"):
 		return "CA 要求外部账户绑定（EAB）：请在签发弹窗填写 EAB kid / HMAC key，或改用无需 EAB 的 CA（Let's Encrypt）。重试不会成功，已跳过自动重试。"
-	case strings.Contains(text, "retryafter=") || strings.Contains(text, "rate limited") ||
-		strings.Contains(text, "too many certificates") || strings.Contains(text, "ratelimited"):
+	case longRetryAfter(text):
+		// 只有 CA 明确要求超长等待（acme.sh 因 >600 秒放弃进程内重试）才算永久失败。
+		// 普通的 "too many failed authorizations"（约 1 小时恢复）仍交给退避队列，
+		// 否则会把本可自动恢复的任务误判为 24 小时限流。
 		return "CA 触发限流（Retry-After 过长）：acme.sh 已放弃本次校验，请等待约 24 小时后再试，或改用 Let's Encrypt。重试不会成功，已跳过自动重试。"
 	case strings.Contains(text, "error code: 6") || strings.Contains(text, "could not resolve host") ||
 		strings.Contains(text, "cannot init api"):
 		return "无法解析 CA 的 API 域名（curl error 6）：请检查服务器 DNS / 网络，或改用其它 CA。重试不会成功，已跳过自动重试。"
 	}
 	return ""
+}
+
+// longRetryAfter 仅在日志明确出现超长 Retry-After 时返回 true：
+// 一是 acme.sh 的 "retryafter=N value is too large (> 600)" 提示（N > 600）；
+// 二是 Retry-After HTTP 头给出 > 600 秒的数值。像 Let's Encrypt 的
+// "too many failed authorizations recently" 一般是 1 小时内恢复，不匹配这里，
+// 交由退避队列重试，避免误判成"等 24 小时"。
+func longRetryAfter(text string) bool {
+	re := regexp.MustCompile(`retry-?after\s*[=:]\s*(\d+)`)
+	for _, m := range re.FindAllStringSubmatch(text, -1) {
+		if n, err := strconv.Atoi(m[1]); err == nil && n > 600 {
+			return true
+		}
+	}
+	return strings.Contains(text, "value is too large (> 600)") && strings.Contains(text, "retryafter")
 }
 
 func (m *JobManager) finish(j *Job, status, errMsg string) {

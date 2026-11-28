@@ -890,7 +890,7 @@ func (s *Server) handleIssueBatch(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	// EAB 与单签发共用校验，合入 env 后加密落盘。
-	env, err = prepareEAB(req, env)
+	env, err = s.prepareEAB(req, env, ca)
 	if err != nil {
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return
@@ -925,7 +925,7 @@ func (s *Server) handleIssueBatch(w http.ResponseWriter, r *http.Request) {
 			Kind: "issue", Domains: g, Credential: req.Credential, Code: code,
 			KeyLength: req.KeyLength, CA: ca, Email: req.Email,
 			DNSSleep: req.DNSSleep, Force: req.Force, TempEnv: req.Credential == "",
-			HasEAB: req.EABKid != "",
+			HasEAB: req.EABKid != "" || req.EABCred != "",
 		})
 		jobs = append(jobs, map[string]any{"id": j.ID, "domain": g[0], "domains": g, "cert_name": key})
 	}

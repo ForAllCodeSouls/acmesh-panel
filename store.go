@@ -123,6 +123,7 @@ type State struct {
 	Iter          int                    `json:"iter"`
 	UpdatedAt     time.Time              `json:"updated_at"`
 	Providers     map[string]EncEnv      `json:"providers"`
+	EABCreds      map[string]EncEnv      `json:"eab_creds"` // EAB 凭证（kid/hmac 加密存储，code 为 CA）
 	Notifiers     map[string]EncNotifier `json:"notifiers"`
 	DefaultEmail  string                 `json:"default_email"`
 	CertEmails    map[string]string      `json:"cert_emails"`    // 证书目录名 -> 该域名自定义 ACME 邮箱
@@ -205,6 +206,7 @@ func NewStore(dir string) (*Store, error) {
 	}
 	s := &Store{dir: dir, db: db, aead: gcm}
 	s.state.Providers = map[string]EncEnv{}
+	s.state.EABCreds = map[string]EncEnv{}
 	s.state.Notifiers = map[string]EncNotifier{}
 	s.state.CertEmails = map[string]string{}
 	s.state.NotifySent = map[string]string{}
@@ -234,6 +236,9 @@ func (s *Store) load() {
 	}
 	if st.Providers == nil {
 		st.Providers = map[string]EncEnv{}
+	}
+	if st.EABCreds == nil {
+		st.EABCreds = map[string]EncEnv{}
 	}
 	if st.Notifiers == nil {
 		st.Notifiers = map[string]EncNotifier{}
@@ -377,6 +382,10 @@ func (s *Store) Snapshot() State {
 	for k, v := range s.state.Providers {
 		st.Providers[k] = v
 	}
+	st.EABCreds = make(map[string]EncEnv, len(s.state.EABCreds))
+	for k, v := range s.state.EABCreds {
+		st.EABCreds[k] = v
+	}
 	st.Notifiers = make(map[string]EncNotifier, len(s.state.Notifiers))
 	for k, v := range s.state.Notifiers {
 		st.Notifiers[k] = v
@@ -433,6 +442,9 @@ func (s *Store) Restore(st State) error {
 	st.CredSource = cur.CredSource
 	if st.Providers == nil {
 		st.Providers = map[string]EncEnv{}
+	}
+	if st.EABCreds == nil {
+		st.EABCreds = map[string]EncEnv{}
 	}
 	if st.Notifiers == nil {
 		st.Notifiers = map[string]EncNotifier{}
@@ -678,6 +690,88 @@ func (s *Store) DeleteProvider(name string) error {
 	defer s.mu.Unlock()
 	delete(s.state.Providers, name)
 	return s.saveLocked()
+}
+
+// EAB 凭证与 DNS 凭证分开存储：code 记录适用的 CA，AAD 带 "eab" 前缀，
+// 即使同名也无法用 Provider 的密文解密，避免两类凭证串用。
+const eabAADPrefix = "eab|"
+
+func (s *Store) PutEAB(name, ca string, kid, hmac string) error {
+	if name == "" || ca == "" || kid == "" || hmac == "" {
+		return errors.New("EAB 凭证名称、CA、kid 与 HMAC 均不能为空")
+	}
+	plain, err := json.Marshal(map[string]string{"kid": kid, "hmac": hmac})
+	if err != nil {
+		return err
+	}
+	nonce := make([]byte, s.aead.NonceSize())
+	if _, err := rand.Read(nonce); err != nil {
+		return err
+	}
+	aad := eabAADPrefix + name + "|" + ca
+	ct := s.aead.Seal(nil, nonce, plain, []byte(aad))
+	blob := base64.StdEncoding.EncodeToString(append(nonce, ct...))
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.state.EABCreds == nil {
+		s.state.EABCreds = map[string]EncEnv{}
+	}
+	s.state.EABCreds[name] = EncEnv{Code: ca, Blob: blob}
+	return s.saveLocked()
+}
+
+func (s *Store) GetEAB(name string) (string, string, string, error) {
+	s.mu.RLock()
+	enc, ok := s.state.EABCreds[name]
+	s.mu.RUnlock()
+	if !ok {
+		return "", "", "", errors.New("EAB 凭证不存在")
+	}
+	raw, err := base64.StdEncoding.DecodeString(enc.Blob)
+	if err != nil {
+		return "", "", "", err
+	}
+	ns := s.aead.NonceSize()
+	if len(raw) < ns {
+		return "", "", "", errors.New("EAB 凭证数据损坏")
+	}
+	plain, err := s.aead.Open(nil, raw[:ns], raw[ns:], []byte(eabAADPrefix+name+"|"+enc.Code))
+	if err != nil {
+		return "", "", "", errors.New("EAB 凭证解密失败（secret.key 可能已更换）")
+	}
+	var v map[string]string
+	if err := json.Unmarshal(plain, &v); err != nil {
+		return "", "", "", err
+	}
+	return enc.Code, v["kid"], v["hmac"], nil
+}
+
+func (s *Store) DeleteEAB(name string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	delete(s.state.EABCreds, name)
+	return s.saveLocked()
+}
+
+type EABView struct {
+	Name string `json:"name"`
+	CA   string `json:"ca"`
+	Kid  string `json:"kid"`  // 掩码
+	HMAC string `json:"hmac"` // 掩码
+}
+
+func (s *Store) ListEABs() []EABView {
+	st := s.Snapshot()
+	out := make([]EABView, 0, len(st.EABCreds))
+	for name, enc := range st.EABCreds {
+		v := EABView{Name: name, CA: enc.Code}
+		if _, kid, hmac, err := s.GetEAB(name); err == nil {
+			v.Kid, v.HMAC = mask(kid), mask(hmac)
+		}
+		out = append(out, v)
+	}
+	return out
 }
 
 type ProviderView struct {

@@ -92,3 +92,52 @@ func TestCredSourceLegacyState(t *testing.T) {
 		t.Fatalf("旧 state 其它字段读取异常: user=%q cron=%d", st2.Username(), hour)
 	}
 }
+
+func TestEABCredStorageIsolatedAndEncrypted(t *testing.T) {
+	dir := t.TempDir()
+	st, err := NewStore(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.db.Close()
+
+	if err := st.PutEAB("google-prod", "google", "kid12345678", "hmac_ABCDEF123456"); err != nil {
+		t.Fatal(err)
+	}
+	ca, kid, hmac, err := st.GetEAB("google-prod")
+	if err != nil || ca != "google" || kid != "kid12345678" || hmac != "hmac_ABCDEF123456" {
+		t.Fatalf("EAB 凭证读取不符: ca=%s kid=%s hmac=%s err=%v", ca, kid, hmac, err)
+	}
+
+	// 明文绝不落盘：state.json 里不能出现 kid/hmac。
+	var raw string
+	if err := st.DB().QueryRow(`SELECT value FROM state WHERE key='main'`).Scan(&raw); err != nil {
+		t.Fatal(err)
+	}
+	if contains(raw, "hmac_ABCDEF123456") || contains(raw, "kid12345678") {
+		t.Fatal("EAB 明文落盘")
+	}
+
+	// AAD 隔离：同名 Provider 的密文不能当 EAB 解密，反之亦然。
+	if err := st.PutProvider("google-prod", "dns_test", map[string]string{"token": "abc"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, _, err := st.GetEAB("same-name-check"); err == nil {
+		t.Fatal("不存在的 EAB 应报错")
+	}
+	views := st.ListEABs()
+	if len(views) != 1 || views[0].Name != "google-prod" || views[0].CA != "google" {
+		t.Fatalf("EAB 列表不符: %+v", views)
+	}
+	if views[0].Kid == "kid12345678" || views[0].HMAC == "hmac_ABCDEF123456" {
+		t.Fatal("EAB 列表返回了明文")
+	}
+
+	// 删除后不可读。
+	if err := st.DeleteEAB("google-prod"); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, _, err := st.GetEAB("google-prod"); err == nil {
+		t.Fatal("删除后仍可读")
+	}
+}

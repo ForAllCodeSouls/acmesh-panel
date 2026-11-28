@@ -9,6 +9,7 @@
     certs: [],
     catalog: null,
     saved: [],
+    eabSaved: [],
     jobs: [],
     filter: '',
     logES: null,
@@ -894,17 +895,24 @@
         </div>
       </div>
       <p class="hint" id="iss-ca-hint"></p>
-      <div class="grid2 hidden" id="iss-eab">
+      <div id="iss-eab" class="hidden">
         <div class="field">
-          <label for="iss-eab-kid">EAB kid</label>
-          <input id="iss-eab-kid" spellcheck="false" autocomplete="off" placeholder="Google Cloud / ZeroSSL 的 EAB KID">
+          <label for="iss-eab-cred">已保存的 EAB 凭证（可选）</label>
+          <select id="iss-eab-cred"><option value="">临时填写 kid / HMAC</option>${(state.eabSaved || []).map((c) => `<option value="${esc(c.name)}">${esc(c.name)}（${esc(c.ca)}）</option>`).join('')}</select>
         </div>
-        <div class="field">
-          <label for="iss-eab-hmac">EAB HMAC key</label>
-          <input id="iss-eab-hmac" type="password" spellcheck="false" autocomplete="new-password" placeholder="base64url 格式的 HMAC key">
+        <div class="grid2" id="iss-eab-manual">
+          <div class="field">
+            <label for="iss-eab-kid">EAB kid</label>
+            <input id="iss-eab-kid" spellcheck="false" autocomplete="off" placeholder="Google Cloud / ZeroSSL 的 EAB KID">
+          </div>
+          <div class="field">
+            <label for="iss-eab-hmac">EAB HMAC key</label>
+            <input id="iss-eab-hmac" type="password" spellcheck="false" autocomplete="new-password" placeholder="base64url 格式的 HMAC key（标准 base64 会自动转换）">
+          </div>
         </div>
+        <div id="iss-eab-guide">${eabGuideHTML('google')}</div>
       </div>
-      ${reissued && preset.has_eab ? '<p class="hint">原任务使用了 EAB，密钥不会回显；如仍需该 CA，请重新填写 kid / HMAC key。</p>' : ''}
+      ${reissued && preset.has_eab ? '<p class="hint">原任务使用了 EAB，密钥不会回显；如仍需该 CA，请选择已保存凭证或重新填写 kid / HMAC key。</p>' : ''}
       <div class="callout info">签发前请确认域名的 DNS 解析已托管在你选择的服务商，且 API 凭证具备解析记录编辑权限。</div>
     `, `
       <button class="btn ghost" id="iss-cancel">取消</button>
@@ -928,9 +936,23 @@
       const showEAB = !!c.supports_eab;
       eabBox.classList.toggle('hidden', !showEAB);
       caHint.textContent = c.hint || (c.requires_eab
-        ? '该 CA 要求 EAB，请填写下方 kid / HMAC key。' : '');
+        ? '该 CA 要求 EAB，请选择已保存凭证或填写 kid / HMAC key。' : '');
       caHint.classList.toggle('hidden', !caHint.textContent);
+      const credSelEAB = $('#iss-eab-cred');
+      const caVal = caSel.value;
+      const savedEAB = (state.eabSaved || []).filter((x) => x.ca === caVal);
+      credSelEAB.innerHTML = '<option value="">临时填写 kid / HMAC</option>'
+        + savedEAB.map((x) => `<option value="${esc(x.name)}">${esc(x.name)}</option>`).join('');
+      const hasSaved = savedEAB.length > 0;
+      $('#iss-eab-manual').classList.toggle('hidden', hasSaved);
+      $('#iss-eab-guide').innerHTML = eabGuideHTML(caVal);
+      syncEABManual();
     };
+    const syncEABManual = () => {
+      const chosen = $('#iss-eab-cred').value;
+      $('#iss-eab-manual').classList.toggle('hidden', !!chosen);
+    };
+    $('#iss-eab-cred').addEventListener('change', syncEABManual);
     const syncDNS = () => {
       const code = $('#iss-code').value;
       dnsHint.textContent = code === 'dns_duckdns'
@@ -966,12 +988,16 @@
       const certEmail = $('#iss-email').value.trim();
       if (certEmail) body.email = certEmail;
       if (!eabBox.classList.contains('hidden')) {
-        const kid = $('#iss-eab-kid').value.trim();
-        const hmac = $('#iss-eab-hmac').value.trim();
-        if (kid || hmac) {
-          if (!kid || !hmac) { toast('EAB kid 与 HMAC key 必须同时填写', 'err'); return; }
-          body.eab_kid = kid;
-          body.eab_hmac_key = hmac;
+        const chosenEAB = $('#iss-eab-cred').value;
+        if (chosenEAB) body.eab_cred = chosenEAB;
+        else {
+          const kid = $('#iss-eab-kid').value.trim();
+          const hmac = $('#iss-eab-hmac').value.trim();
+          if (kid || hmac) {
+            if (!kid || !hmac) { toast('EAB kid 与 HMAC key 必须同时填写', 'err'); return; }
+            body.eab_kid = kid;
+            body.eab_hmac_key = hmac;
+          }
         }
       }
       if (!credSel.value) {
@@ -1451,7 +1477,54 @@
       state.saved = r.saved || [];
       $('#cred-path').textContent = r.output_dir ? r.output_dir.replace(/\/output$/, '') + '/secret.key 与 panel.db' : '/data';
       renderCreds();
+      await loadEABCreds();
     } catch (e) { toast(e.message, 'err'); }
+  }
+
+  async function loadEABCreds() {
+    try {
+      const r = await api('/api/eab-creds');
+      state.eabSaved = r.saved || [];
+      const box = $('#eab-list');
+      if (!box) return;
+      if (!state.eabSaved.length) {
+        box.innerHTML = '<div class="empty"><p>还没有保存的 EAB 凭证</p><p class="tiny muted">签发 Google / ZeroSSL 证书时填写的 kid / HMAC 可加密保存到这里</p></div>';
+        return;
+      }
+      box.innerHTML = '';
+      for (const c of state.eabSaved) {
+        const row = document.createElement('div');
+        row.className = 'row';
+        row.innerHTML = `
+          <div class="row-main">
+            <div class="row-title">${esc(c.name)} <span class="chip">${esc(c.ca)}</span></div>
+            <div class="tiny muted mono mt3">kid=${esc(c.kid || '—')} hmac=${esc(c.hmac || '—')}</div>
+          </div>
+          <button class="btn small danger" data-del-eab="${esc(c.name)}">删除</button>`;
+        row.querySelector('[data-del-eab]').addEventListener('click', async () => {
+          if (!confirm(`确定删除 EAB 凭证「${c.name}」？已签发的证书不受影响。`)) return;
+          try {
+            await api(`/api/eab-creds/${encodeURIComponent(c.name)}`, { method: 'DELETE' });
+            toast('已删除');
+            await loadEABCreds();
+          } catch (e) { toast(e.message, 'err'); }
+        });
+        box.appendChild(row);
+      }
+    } catch (e) { toast(e.message, 'err'); }
+  }
+
+  function eabGuideHTML(kind) {
+    if (kind === 'google') {
+      return `<div class="callout info"><strong>如何获取 Google EAB 凭证</strong><br>
+        1. 登录 Google Cloud 控制台，进入「证书管理器 → 外部账户绑定」（Certificate Manager → External Account Bindings）；<br>
+        2. 点击创建，选择 ACME 目录服务 <code>https://dv.acme-v02.api.pki.goog/directory</code>，保存后复制生成的 <code>Key ID</code> 与 <code>HMAC</code>；<br>
+        3. 也可用 gcloud 命令：<code>gcloud certificate-manager external-account-bindings create</code>；<br>
+        4. HMAC 若显示为标准 base64（含 + / =），粘贴后会自动转换为 acme.sh 需要的 base64url。</div>`;
+    }
+    return `<div class="callout info"><strong>如何获取 ZeroSSL EAB 凭证</strong><br>
+      登录 <a href="https://app.zerossl.com/developer" target="_blank" rel="noopener noreferrer">ZeroSSL 开发者页面 ↗</a>，在 Developer 区域点击 Generate 生成 EAB Credentials，复制 <code>EAB KID</code> 与 <code>EAB HMAC Key</code>。<br>
+      ZeroSSL 也可只用邮箱自动注册账户，EAB 为可选项；若要用自己的 ZeroSSL 账户管理证书，建议填写。</div>`;
   }
 
   function renderCreds() {
@@ -1508,6 +1581,41 @@
         closeModal();
         toast('凭证已加密保存');
         await loadProviders();
+      } catch (e) { toast(e.message, 'err'); }
+    });
+  });
+
+  $('#add-eab-btn').addEventListener('click', () => {
+    openModal('添加 EAB 凭证', `
+      <div class="field">
+        <label for="eab-name">凭证名称</label>
+        <input id="eab-name" placeholder="例如 google-prod" spellcheck="false">
+      </div>
+      <div class="field">
+        <label for="eab-ca">适用 CA</label>
+        <select id="eab-ca"><option value="google">Google Trust Services</option><option value="zerossl">ZeroSSL</option></select>
+      </div>
+      <div class="grid2">
+        <div class="field"><label for="eab-kid">EAB kid / Key ID</label><input id="eab-kid" spellcheck="false" autocomplete="off"></div>
+        <div class="field"><label for="eab-hmac">EAB HMAC key</label><input id="eab-hmac" type="password" autocomplete="new-password"></div>
+      </div>
+      <div id="eab-guide">${eabGuideHTML('google')}</div>
+      <p class="hint">保存后以 AES-256-GCM 加密写入数据卷，明文永不落盘，接口只返回掩码。</p>
+    `, `<button class="btn ghost" id="eab-cancel">取消</button><button class="btn primary" id="eab-go">保存</button>`);
+    const syncGuide = () => { $('#eab-guide').innerHTML = eabGuideHTML($('#eab-ca').value); };
+    $('#eab-ca').addEventListener('change', syncGuide);
+    $('#eab-cancel').addEventListener('click', closeModal);
+    $('#eab-go').addEventListener('click', async () => {
+      const name = $('#eab-name').value.trim();
+      const kid = $('#eab-kid').value.trim();
+      const hmac = $('#eab-hmac').value.trim();
+      if (!name) { toast('请填写凭证名称', 'err'); return; }
+      if (!kid || !hmac) { toast('EAB kid 与 HMAC key 必须同时填写', 'err'); return; }
+      try {
+        await api('/api/eab-creds', { method: 'POST', body: { name, ca: $('#eab-ca').value, kid, hmac } });
+        closeModal();
+        toast('EAB 凭证已加密保存');
+        await loadEABCreds();
       } catch (e) { toast(e.message, 'err'); }
     });
   });
@@ -2598,6 +2706,8 @@
       const saved = await api('/api/providers');
       const providers = (saved.saved || []).map((p) => `<option value="${esc(p.name)}">${esc(p.name)}</option>`).join('');
       cred.innerHTML = `<option value="">（临时填写凭证）</option>${providers}`;
+      const eabSaved = await api('/api/eab-creds');
+      state.eabSaved = eabSaved.saved || [];
       $('#batch-keylength').innerHTML = (cat.keylengths || []).map((k) =>
         `<option value="${esc(k)}">${esc(k)}</option>`).join('');
       $('#batch-ca').innerHTML = (cat.cas || []).map((c) =>
@@ -2673,12 +2783,22 @@
     });
   });
 
+  const syncBatchEABManual = () => {
+    $('#batch-eab-manual').classList.toggle('hidden', !!$('#batch-eab-cred').value);
+  };
   const syncBatchCA = () => {
-    const c = (state.catalog?.cas || []).find((x) => x.code === $('#batch-ca').value) || {};
+    const caVal = $('#batch-ca').value;
+    const c = (state.catalog?.cas || []).find((x) => x.code === caVal) || {};
     $('#batch-eab').classList.toggle('hidden', !c.supports_eab);
     $('#batch-ca-hint').textContent = c.hint || '';
+    const saved = (state.eabSaved || []).filter((x) => x.ca === caVal);
+    $('#batch-eab-cred').innerHTML = '<option value="">临时填写 kid / HMAC</option>'
+      + saved.map((x) => `<option value="${esc(x.name)}">${esc(x.name)}</option>`).join('');
+    $('#batch-eab-guide').innerHTML = eabGuideHTML(caVal);
+    syncBatchEABManual();
   };
   $('#batch-ca').addEventListener('change', syncBatchCA);
+  $('#batch-eab-cred').addEventListener('change', syncBatchEABManual);
 
   $('#batch-run').addEventListener('click', async () => {
     const domains = $('#batch-domains').value.split('\n').map((s) => s.trim()).filter(Boolean);
@@ -2693,12 +2813,16 @@
         force: $('#batch-force').checked,
       };
       if (!$('#batch-eab').classList.contains('hidden')) {
-        const kid = $('#batch-eab-kid').value.trim();
-        const hmac = $('#batch-eab-hmac').value.trim();
-        if (kid || hmac) {
-          if (!kid || !hmac) { toast('EAB kid 与 HMAC key 必须同时填写', 'err'); btn(); return; }
-          body.eab_kid = kid;
-          body.eab_hmac_key = hmac;
+        const chosenEAB = $('#batch-eab-cred').value;
+        if (chosenEAB) body.eab_cred = chosenEAB;
+        else {
+          const kid = $('#batch-eab-kid').value.trim();
+          const hmac = $('#batch-eab-hmac').value.trim();
+          if (kid || hmac) {
+            if (!kid || !hmac) { toast('EAB kid 与 HMAC key 必须同时填写', 'err'); btn(); return; }
+            body.eab_kid = kid;
+            body.eab_hmac_key = hmac;
+          }
         }
       }
       const r = await api('/api/issue/batch', { method: 'POST', body });

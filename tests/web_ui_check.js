@@ -530,6 +530,18 @@ check('DuckDNS 单 TXT 多域名风险提示', app.includes('id="iss-duckdns-hin
 check('永久错误阻止自动重试', goAcme.includes('func permanentFailureHint(')
   && goAcme.includes('!j.noAutoRetry && m.retryScheduler != nil')
   && goAcme.includes('externalaccountrequired')
-  && goAcme.includes('retryafter=') && goAcme.includes('error code: 6'));
+  && goAcme.includes('func longRetryAfter(') && goAcme.includes('error code: 6'));
+check('限流分类只拦截超长 Retry-After', goAcme.includes('n > 600')
+  && !goAcme.includes('strings.Contains(text, "rate limited")')
+  && !goAcme.includes('strings.Contains(text, "retryafter=")'));
+check('EAB 值兼容标准 base64 自动转 base64url', goAcme.includes('func normalizeEABValue(')
+  && goAcme.includes('strings.NewReplacer("+", "-", "/", "_")')
+  && goAcme.includes('strings.TrimRight(v, "=")'));
+check('EAB 凭证可加密保存并在签发/批量中选用', html.includes('id="add-eab-btn"')
+  && html.includes('id="eab-list"') && html.includes('id="batch-eab-cred"')
+  && app.includes('id="iss-eab-cred"') && app.includes('body.eab_cred = chosenEAB')
+  && app.includes('function eabGuideHTML(') && app.includes('Certificate Manager')
+  && goApi.includes('handleSaveEABCred') && goMain.includes('POST /api/eab-creds')
+  && goStore.includes('func (s *Store) PutEAB'));
 
 console.log(`web UI checks: ${passed} passed`);

@@ -220,6 +220,9 @@ func TestPermanentFailureHint(t *testing.T) {
 	}{
 		{"eab", []string{"Account registration error:{\"type\":\"urn:ietf:params:acme:error:externalAccountRequired\"}"}, "EAB"},
 		{"rate limit", []string{"The retryafter=86400 value is too large (> 600), will not retry anymore."}, "限流"},
+		{"rate limit header", []string{"Retry-After: 86400"}, "限流"},
+		{"short rate limit (Let's Encrypt)", []string{"too many failed authorizations recently: see https://letsencrypt.org/docs/failed-validation-limit/"}, ""},
+		{"short retryafter", []string{"retryafter=30"}, ""},
 		{"dns", []string{"curl error code: 6", "Cannot init API for: buypass."}, "DNS"},
 		{"transient", []string{"Processing. The CA is processing your order, please wait."}, ""},
 	}
@@ -261,6 +264,37 @@ func TestEABEnvNeverInArgs(t *testing.T) {
 	for _, e := range cmd.Env {
 		if strings.HasPrefix(e, eabKidEnv+"=") || strings.HasPrefix(e, eabHMACEnv+"=") {
 			t.Fatalf("EAB 敏感变量泄漏到子进程环境: %s", e)
+		}
+	}
+}
+
+func TestEABStandardBase64Normalization(t *testing.T) {
+	cases := []struct {
+		name     string
+		kid      string
+		hmac     string
+		wantKid  string
+		wantHMAC string
+		wantErr  bool
+	}{
+		{"base64url 原样", "kid12345678", "SGVsbG9Xb3JsZEFiY2RlZjEyMzQ1Njc4OTBfLQ", "kid12345678", "SGVsbG9Xb3JsZEFiY2RlZjEyMzQ1Njc4OTBfLQ", false},
+		{"标准 base64 带 padding", "kid12345678", "abcdefgh=", "kid12345678", "abcdefgh", false},
+		{"标准 base64 含 +/", "kid12345678", "abc+def/ghi12345", "kid12345678", "abc-def_ghi12345", false},
+		{"前后空格", "  kid12345678  ", "  hmac_ABCDEF123456  ", "kid12345678", "hmac_ABCDEF123456", false},
+	}
+	for _, c := range cases {
+		got, err := eabEnv(c.kid, c.hmac)
+		if c.wantErr {
+			if err == nil {
+				t.Fatalf("%s: 期望拒绝但通过: %+v", c.name, got)
+			}
+			continue
+		}
+		if err != nil {
+			t.Fatalf("%s: 不应报错: %v", c.name, err)
+		}
+		if got[eabKidEnv] != c.wantKid || got[eabHMACEnv] != c.wantHMAC {
+			t.Fatalf("%s: 归一化结果不符: kid=%q hmac=%q", c.name, got[eabKidEnv], got[eabHMACEnv])
 		}
 	}
 }
