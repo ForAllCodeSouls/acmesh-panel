@@ -915,7 +915,7 @@ func (s *Server) handleCatalog(w http.ResponseWriter, r *http.Request) {
 	cas := []caItem{
 		{"letsencrypt", "Let's Encrypt", false, false, ""},
 		{"letsencrypt_test", "Let's Encrypt (测试环境)", false, false, ""},
-		{"zerossl", "ZeroSSL", false, true, "频繁重试可能触发 CA 限流（Retry-After 86400 秒），失败后请等待 24 小时再试。"},
+		{"zerossl", "ZeroSSL", false, true, "EAB 可留空，acme.sh 会用 ACME 邮箱自动获取；频繁重试可能触发 CA 限流（Retry-After 86400 秒），失败后请等待 24 小时再试。"},
 		{"buypass", "Buypass", false, false, "部分网络无法解析其 API 域名；若初始化失败请更换 CA。"},
 		{"google", "Google Trust Services", true, true, "必须先启用 Google Cloud 的 Public CA API 并申请 EAB kid / HMAC key，否则新账户注册会被拒绝；签发弹窗内附直达链接。"},
 	}

@@ -2,6 +2,11 @@
 
 本文件遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)。
 
+## [0.1.81] - 2026-11-28
+
+### 改进
+- **ZeroSSL 的 EAB 可留空说明前置**：CA 下拉框下方直接提示「EAB 可留空，acme.sh 会用 ACME 邮箱自动获取」；签发弹窗与批量向导都能看到，避免误以为是必填。ZeroSSL 的 `requires_eab` 仍为 `false`，留空时行为与旧版一致；只有 Google 必须填 EAB。`docs/API.md` 同步说明。
+
 ## [0.1.80] - 2026-11-28
 
 ### 修复

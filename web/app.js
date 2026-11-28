@@ -1610,7 +1610,7 @@
     }
     return `<div class="callout info"><strong>如何获取 ZeroSSL EAB 凭证</strong><br>
       登录 <a href="https://app.zerossl.com/developer" target="_blank" rel="noopener noreferrer">ZeroSSL 开发者页面 ↗</a>，在 Developer 区域点击 Generate 生成 EAB Credentials，复制 <code>EAB KID</code> 与 <code>EAB HMAC Key</code>。<br>
-      ZeroSSL 也可只用邮箱自动注册账户，EAB 为可选项；若要用自己的 ZeroSSL 账户管理证书，建议填写。</div>`;
+      ZeroSSL 的 EAB 可留空：acme.sh 会用你填写的 ACME 邮箱自动获取并注册账户；若要用自己的 ZeroSSL 账户管理证书，建议填写。</div>`;
   }
 
   function renderCreds() {

@@ -606,4 +606,11 @@ check('Google EAB 指引给出可点击链接与正确命令',
   && apiDoc.includes('gcloud publicca external-account-keys create')
   && goApi.includes('启用 Google Cloud 的 Public CA API'));
 
+// v0.1.81：ZeroSSL 的 EAB 必须明确标注可留空。
+check('ZeroSSL 的 EAB 明确标注可留空且仍为可选',
+  goApi.includes('EAB 可留空，acme.sh 会用 ACME 邮箱自动获取')
+  && goApi.includes('"zerossl", "ZeroSSL", false, true')
+  && app.includes('ZeroSSL 的 EAB 可留空')
+  && apiDoc.includes('留空时 acme.sh 会用请求里的 ACME 邮箱自动向 ZeroSSL 获取 EAB'));
+
 console.log(`web UI checks: ${passed} passed`);

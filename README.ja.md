@@ -65,8 +65,9 @@
 | **v0.1.78** | ARI 更新推奨期間（RFC 9773）、既存証明書と秘密鍵のインポート、通知失敗キューのバックオフ再送、DNS CNAME 委譲（`--challenge-alias`）、Prometheus `/api/metrics`、フィルタ付き監査 CSV、HMAC 署名付き汎用 Webhook |
 | **v0.1.79** | バックアップ復元時に EAB 認証情報も検証（鍵不一致時はファイル全体を拒否し `secret.key` 移行を案内、プレビューに EAB 件数を追加）；通知失敗のバックオフが再失敗でリセットされないように修正；バックアップ対象外データの範囲を明記 |
 | **v0.1.80** | Google EAB 取得ガイドを修正：Public CA API の有効化ページ、Cloud Shell、公式チュートリアルへの直リンクを追加。正しいコマンドは `gcloud publicca external-account-keys create`（従来の記載は存在しないコマンド） |
+| **v0.1.81** | ZeroSSL の EAB が任意であることを CA 選択欄の直下に明記。空欄なら従来どおり acme.sh が ACME メールアドレスで EAB を自動取得。EAB 必須は Google のみ |
 
-詳細は [README.md §5.10～5.19](README.md) を参照（中国語）。HTTP API の全エンドポイント・認証・トークンスコープ・curl 例は [docs/API.md](docs/API.md) に記載されています。
+詳細は [README.md §5.10～5.20](README.md) を参照（中国語）。HTTP API の全エンドポイント・認証・トークンスコープ・curl 例は [docs/API.md](docs/API.md) に記載されています。
 
 ---
 

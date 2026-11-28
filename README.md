@@ -393,7 +393,7 @@ docker compose up -d
 docker compose ps
 ```
 
-固定版本：把 `.env` 的 `ACMESH_IMAGE_TAG` 改成具体 tag（如 `0.1.80`）。升级不会动数据卷。
+固定版本：把 `.env` 的 `ACMESH_IMAGE_TAG` 改成具体 tag（如 `0.1.81`）。升级不会动数据卷。
 
 「设置 → 面板版本」会自动查询 GitHub 最新 Release：有新版本时版本号后会出现「可更新 vX」按钮，点击跳转到项目主页；网络不通或检测失败时只显示提示，不影响面板使用。
 
@@ -809,6 +809,10 @@ curl -H 'X-API-Token: acmp_你的令牌' https://acme.example.com/api/expiry
 ### 5.19 EAB 获取指引修正（v0.1.80）
 
 修正签发弹窗与凭证页的 Google EAB 指引：原文案写「证书管理器 → 外部账户绑定」且未给网址，命令也写成了不存在的 `gcloud certificate-manager external-account-bindings create`。现在直接链接到 [Public CA API 启用页](https://console.cloud.google.com/apis/library/publicca.googleapis.com)、[Cloud Shell](https://console.cloud.google.com/?cloudshell=true) 与[官方教程](https://cloud.google.com/certificate-manager/docs/public-ca-tutorial?hl=zh-cn)；步骤为启用 API → 在 Cloud Shell 执行 `gcloud publicca external-account-keys create` → 把 `keyId` 填 KID、`b64MacKey` 填 HMAC（7 天有效，标准 base64 自动转换）。`docs/API.md` 同步给出可点击链接，CA 目录提示也改为指向 Public CA API。
+
+### 5.20 ZeroSSL 的 EAB 可留空（v0.1.81）
+
+选择 ZeroSSL 时，CA 下拉框下方会直接显示「EAB 可留空，acme.sh 会用 ACME 邮箱自动获取」，签发弹窗和批量向导里都能看到。留空时仍按旧版行为：acme.sh 用邮箱向 ZeroSSL 自动获取 EAB 并注册账户；只有要把证书归到自己的 ZeroSSL 账户下管理时才需要填开发者页面生成的 KID / HMAC。Google Trust Services 则必须填 EAB。
 
 ---
 
