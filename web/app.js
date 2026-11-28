@@ -1603,10 +1603,10 @@
   function eabGuideHTML(kind) {
     if (kind === 'google') {
       return `<div class="callout info"><strong>如何获取 Google EAB 凭证</strong><br>
-        1. 登录 Google Cloud 控制台，进入「证书管理器 → 外部账户绑定」（Certificate Manager → External Account Bindings）；<br>
-        2. 点击创建，选择 ACME 目录服务 <code>https://dv.acme-v02.api.pki.goog/directory</code>，保存后复制生成的 <code>Key ID</code> 与 <code>HMAC</code>；<br>
-        3. 也可用 gcloud 命令：<code>gcloud certificate-manager external-account-bindings create</code>；<br>
-        4. HMAC 若显示为标准 base64（含 + / =），粘贴后会自动转换为 acme.sh 需要的 base64url。</div>`;
+        1. 在 Google Cloud 控制台<a href="https://console.cloud.google.com/apis/library/publicca.googleapis.com" target="_blank" rel="noopener noreferrer">启用 Public CA API ↗</a>（选中要用于签发的项目；也可执行 <code>gcloud services enable publicca.googleapis.com</code>）；<br>
+        2. 打开控制台右上角的 <a href="https://console.cloud.google.com/?cloudshell=true" target="_blank" rel="noopener noreferrer">Cloud Shell ↗</a>，执行 <code>gcloud publicca external-account-keys create</code>；<br>
+        3. 返回的 <code>keyId</code> 填到 KID，<code>b64MacKey</code> 填到 HMAC key；EAB 有效期 7 天，过期需重新生成。标准 base64（含 + / =）会自动转换为 acme.sh 需要的 base64url；<br>
+        4. 若提示无权限，请让项目管理员授予 <code>roles/publicca.externalAccountKeyCreator</code>。完整步骤见<a href="https://cloud.google.com/certificate-manager/docs/public-ca-tutorial?hl=zh-cn" target="_blank" rel="noopener noreferrer">官方文档 ↗</a>。</div>`;
     }
     return `<div class="callout info"><strong>如何获取 ZeroSSL EAB 凭证</strong><br>
       登录 <a href="https://app.zerossl.com/developer" target="_blank" rel="noopener noreferrer">ZeroSSL 开发者页面 ↗</a>，在 Developer 区域点击 Generate 生成 EAB Credentials，复制 <code>EAB KID</code> 与 <code>EAB HMAC Key</code>。<br>

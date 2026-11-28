@@ -393,7 +393,7 @@ docker compose up -d
 docker compose ps
 ```
 
-固定版本：把 `.env` 的 `ACMESH_IMAGE_TAG` 改成具体 tag（如 `0.1.79`）。升级不会动数据卷。
+固定版本：把 `.env` 的 `ACMESH_IMAGE_TAG` 改成具体 tag（如 `0.1.80`）。升级不会动数据卷。
 
 「设置 → 面板版本」会自动查询 GitHub 最新 Release：有新版本时版本号后会出现「可更新 vX」按钮，点击跳转到项目主页；网络不通或检测失败时只显示提示，不影响面板使用。
 
@@ -805,6 +805,10 @@ curl -H 'X-API-Token: acmp_你的令牌' https://acme.example.com/api/expiry
 **通知失败退避**：同一渠道/事件/标题再次失败时按累计次数执行 1 / 2 / 4 / 8 分钟退避，不再因新失败重置为立即重试；累计 5 次自动标为耗尽，仍可在通知页手动重发。
 
 **备份数据边界**：备份页明确说明不包含登录凭据、审计日志、任务记录、通知失败队列、自动备份文件、ARI 缓存与证书文件本身。
+
+### 5.19 EAB 获取指引修正（v0.1.80）
+
+修正签发弹窗与凭证页的 Google EAB 指引：原文案写「证书管理器 → 外部账户绑定」且未给网址，命令也写成了不存在的 `gcloud certificate-manager external-account-bindings create`。现在直接链接到 [Public CA API 启用页](https://console.cloud.google.com/apis/library/publicca.googleapis.com)、[Cloud Shell](https://console.cloud.google.com/?cloudshell=true) 与[官方教程](https://cloud.google.com/certificate-manager/docs/public-ca-tutorial?hl=zh-cn)；步骤为启用 API → 在 Cloud Shell 执行 `gcloud publicca external-account-keys create` → 把 `keyId` 填 KID、`b64MacKey` 填 HMAC（7 天有效，标准 base64 自动转换）。`docs/API.md` 同步给出可点击链接，CA 目录提示也改为指向 Public CA API。
 
 ---
 

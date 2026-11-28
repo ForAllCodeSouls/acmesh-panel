@@ -917,7 +917,7 @@ func (s *Server) handleCatalog(w http.ResponseWriter, r *http.Request) {
 		{"letsencrypt_test", "Let's Encrypt (测试环境)", false, false, ""},
 		{"zerossl", "ZeroSSL", false, true, "频繁重试可能触发 CA 限流（Retry-After 86400 秒），失败后请等待 24 小时再试。"},
 		{"buypass", "Buypass", false, false, "部分网络无法解析其 API 域名；若初始化失败请更换 CA。"},
-		{"google", "Google Trust Services", true, true, "必须在 Google Cloud 申请 EAB kid / HMAC key，否则新账户注册会被拒绝。"},
+		{"google", "Google Trust Services", true, true, "必须先启用 Google Cloud 的 Public CA API 并申请 EAB kid / HMAC key，否则新账户注册会被拒绝；签发弹窗内附直达链接。"},
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"providers":  providerCatalog,

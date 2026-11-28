@@ -540,7 +540,7 @@ check('EAB 值兼容标准 base64 自动转 base64url', goAcme.includes('func no
 check('EAB 凭证可加密保存并在签发/批量中选用', html.includes('id="add-eab-btn"')
   && html.includes('id="eab-list"') && html.includes('id="batch-eab-cred"')
   && app.includes('id="iss-eab-cred"') && app.includes('body.eab_cred = chosenEAB')
-  && app.includes('function eabGuideHTML(') && app.includes('Certificate Manager')
+  && app.includes('function eabGuideHTML(') && app.includes('Public CA API')
   && goApi.includes('handleSaveEABCred') && goMain.includes('POST /api/eab-creds')
   && goStore.includes('func (s *Store) PutEAB'));
 
@@ -592,5 +592,18 @@ check('通知失败退避不再被新失败重置为 now', goNotifyFail.includes
 check('备份页说明数据边界并预览 EAB 计数', html.includes('通知失败重试队列')
   && html.includes('ARI 续期建议缓存') && html.includes('不会出现「恢复成功但凭证不可用」')
   && app.includes("['EAB 凭证', count(st.eab_creds)]"));
+
+// v0.1.80：所有「去某平台获取凭证」的指引都要有直达链接，Google 命令按官方文档修正。
+const apiDoc = fs.readFileSync(path.join(root, 'docs', 'API.md'), 'utf8');
+check('Google EAB 指引给出可点击链接与正确命令',
+  app.includes('https://console.cloud.google.com/apis/library/publicca.googleapis.com')
+  && app.includes('https://console.cloud.google.com/?cloudshell=true')
+  && app.includes('https://cloud.google.com/certificate-manager/docs/public-ca-tutorial')
+  && app.includes('gcloud publicca external-account-keys create')
+  && !app.includes('gcloud certificate-manager external-account-bindings create')
+  && !app.includes('登录 Google Cloud 控制台')
+  && apiDoc.includes('[启用 Public CA API](https://console.cloud.google.com/apis/library/publicca.googleapis.com)')
+  && apiDoc.includes('gcloud publicca external-account-keys create')
+  && goApi.includes('启用 Google Cloud 的 Public CA API'));
 
 console.log(`web UI checks: ${passed} passed`);

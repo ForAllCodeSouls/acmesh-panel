@@ -2,6 +2,11 @@
 
 本文件遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)。
 
+## [0.1.80] - 2026-11-28
+
+### 修复
+- **Google EAB 指引缺少网址且步骤有误**：签发弹窗与凭证页原文只写「登录 Google Cloud 控制台」没有链接，并使用了不存在的 `gcloud certificate-manager external-account-bindings create` 与「证书管理器 → 外部账户绑定」路径。按官方文档改为直达 [Public CA API 启用页](https://console.cloud.google.com/apis/library/publicca.googleapis.com)、[Cloud Shell](https://console.cloud.google.com/?cloudshell=true) 和[教程](https://cloud.google.com/certificate-manager/docs/public-ca-tutorial?hl=zh-cn)，命令改为 `gcloud publicca external-account-keys create`，并补充 `keyId` / `b64MacKey` 字段对应、7 天有效期与权限角色说明。`docs/API.md`、CA 目录提示与多语 README 同步修正。
+
 ## [0.1.79] - 2026-11-28
 
 ### 修复

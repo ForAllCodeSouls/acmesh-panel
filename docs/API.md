@@ -1,6 +1,6 @@
 # acmesh-panel HTTP API 参考
 
-本文描述 acmesh-panel v0.1.79 的全部 HTTP 接口。面板是单二进制服务，默认监听容器内 `0.0.0.0:8080`，通常由 nginx / Caddy 反向代理对外提供 HTTPS。所有路径均以 `/api` 开头。
+本文描述 acmesh-panel v0.1.80 的全部 HTTP 接口。面板是单二进制服务，默认监听容器内 `0.0.0.0:8080`，通常由 nginx / Caddy 反向代理对外提供 HTTPS。所有路径均以 `/api` 开头。
 
 > 仅限管理你拥有或已获明确授权的域名与服务器。详见 [DISCLAIMER.md](../DISCLAIMER.md)。
 
@@ -161,7 +161,12 @@ Content-Type: application/json
 | POST | `/api/eab-creds` | 会话 | 保存 EAB 凭证；body `{"name", "ca": "google"|"zerossl", "kid", "hmac"}` |
 | DELETE | `/api/eab-creds/{name}` | 会话 | 删除 EAB 凭证 |
 
-EAB 凭证同样以 AES-256-GCM 加密落盘，明文不出现在接口响应中；`ca` 仅支持 `google` 与 `zerossl`，kid/hmac 必须成对且长度 8～256 字符。获取方式：Google Cloud 控制台「证书管理器 → 外部账户绑定」创建后复制 Key ID 与 HMAC，或用 `gcloud certificate-manager external-account-bindings create`；ZeroSSL 在开发者页面（https://app.zerossl.com/developer）点击 Generate EAB Credentials。面板签发弹窗与凭证页均内置这些指引。
+EAB 凭证同样以 AES-256-GCM 加密落盘，明文不出现在接口响应中；`ca` 仅支持 `google` 与 `zerossl`，kid/hmac 必须成对且长度 8～256 字符。获取方式：
+
+- **Google Trust Services**：在 Google Cloud 控制台[启用 Public CA API](https://console.cloud.google.com/apis/library/publicca.googleapis.com)，再用[Cloud Shell](https://console.cloud.google.com/?cloudshell=true) 执行 `gcloud publicca external-account-keys create`，将返回的 `keyId` 填 KID、`b64MacKey` 填 HMAC（7 天内有效，标准 base64 会自动转 base64url）。详见[官方文档](https://cloud.google.com/certificate-manager/docs/public-ca-tutorial?hl=zh-cn)。
+- **ZeroSSL**：在[开发者页面](https://app.zerossl.com/developer)点击 Generate EAB Credentials，复制 EAB KID 与 EAB HMAC Key。
+
+面板签发弹窗与凭证页均内置这些直达链接。
 | GET | `/api/catalog` | 会话 | CA、密钥类型、DNS provider 目录；含 `default_ca`、`ca_locked`、`ca_options` |
 | GET | `/api/acme/accounts` | 会话 | acme.sh 账户摘要，不回显账户私钥 |
 | POST | `/api/acme/accounts/default` | 会话 | 切换面板默认 CA；body `{"ca": "zerossl"}`。环境变量 `ACME_PANEL_CA` 锁定时返回 `409` |
