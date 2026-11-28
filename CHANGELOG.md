@@ -2,6 +2,16 @@
 
 本文件遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)。
 
+## [0.1.76] - 2026-11-28
+
+### Added
+- **ACME EAB 支持**：签发弹窗与批量签发向导按 CA 能力显示 EAB kid / HMAC key 输入（Google 必填、ZeroSSL 可选）。EAB 只经加密 env 在 exec 前转成 `--eab-kid` / `--eab-hmac-key`，不进入任务 args、日志首行与重选快照；重选时只提示「原任务使用 EAB」，密钥不回显。
+- CA 目录新增 `requires_eab` / `supports_eab` / `hint` 字段，前端按 CA 给出 EAB 与限流提示。
+
+### Fixed
+- **失败任务不再无限自动重试**：识别 EAB 缺失、CA 限流（`retryafter` 过长）、DNS 解析失败（curl error 6）三类永久错误，日志给出中文处置建议并跳过自动重试队列。
+- **DuckDNS 单 TXT 风险提示**：选择 DuckDNS 且同一域名签多个条目（裸域+泛域等）时，签发弹窗明确提示无法同时校验，建议单域名或换支持多条 TXT 的服务商。
+
 ## [0.1.75] - 2026-11-28
 
 ### Fixed

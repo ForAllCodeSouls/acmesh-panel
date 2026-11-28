@@ -833,11 +833,15 @@
     const presetCode = preset.code || 'dns_ali';
     const presetKey = ['ec-256', 'ec-384', '2048', '4096'].includes(preset.keylength) ? preset.keylength : 'ec-256';
     const presetCred = preset.credential || '';
+    const caList = state.catalog?.cas || [];
+    const caOf = (code) => caList.find((c) => c.code === code) || {};
+    const presetCA = preset.ca || state.catalog?.default_ca || 'letsencrypt';
     openModal(reissued ? '重选参数并重新签发' : '签发证书', `
       <div class="field">
         <label for="iss-domains">域名（每行一个，首个为主域名）</label>
         <textarea id="iss-domains" placeholder="example.com&#10;*.example.com">${esc(Array.isArray(preset.domains) ? preset.domains.join('\n') : (preset.domains || ''))}</textarea>
         <p class="hint">支持泛域名 *.example.com（必须用 DNS API 验证）${preset.merge ? '<br>已预填当前证书的全部域名：保持首行主域名不变，在新行追加要合并的域名（如裸域），并勾选「强制重新签发」。签发成功后会覆盖原证书为一张包含全部域名的证书。' : ''}${reissued ? '<br>已恢复原任务参数，可在此修改域名与下面的全部选项后再签发；原任务不会被改动。' : ''}</p>
+        <p class="hint hidden" id="iss-duckdns-hint">⚠ DuckDNS 每个域名只有一条 TXT 记录，"裸域 + 泛域"或同一域名的多个条目无法同时校验；请只签发单个域名，或改用支持多条 TXT 的 DNS 服务商。</p>
       </div>
       <div class="grid2">
         <div class="field">
@@ -859,6 +863,7 @@
         <div class="field">
           <label for="iss-code">DNS 服务商</label>
           <select id="iss-code">${providerOptions(presetCode)}</select>
+          <p class="hint" id="iss-dns-hint"></p>
         </div>
         <div id="iss-env">${envFieldsHTML(presetCode)}</div>
         <div class="field">
@@ -881,13 +886,25 @@
         <div class="field">
           <label for="iss-ca">CA</label>
           <select id="iss-ca">
-            ${(state.catalog?.cas || []).map((c) => `<option value="${esc(c.code)}"${c.code === (preset.ca || state.catalog?.default_ca || 'letsencrypt') ? ' selected' : ''}>${esc(c.name)}</option>`).join('')}
+            ${caList.map((c) => `<option value="${esc(c.code)}"${c.code === presetCA ? ' selected' : ''}>${esc(c.name)}</option>`).join('')}
           </select>
         </div>
         <div class="field field-end">
           <label class="check mt8"><input type="checkbox" id="iss-force"${preset.force ? ' checked' : ''}> 强制重新签发</label>
         </div>
       </div>
+      <p class="hint" id="iss-ca-hint"></p>
+      <div class="grid2 hidden" id="iss-eab">
+        <div class="field">
+          <label for="iss-eab-kid">EAB kid</label>
+          <input id="iss-eab-kid" spellcheck="false" autocomplete="off" placeholder="Google Cloud / ZeroSSL 的 EAB KID">
+        </div>
+        <div class="field">
+          <label for="iss-eab-hmac">EAB HMAC key</label>
+          <input id="iss-eab-hmac" type="password" spellcheck="false" autocomplete="new-password" placeholder="base64url 格式的 HMAC key">
+        </div>
+      </div>
+      ${reissued && preset.has_eab ? '<p class="hint">原任务使用了 EAB，密钥不会回显；如仍需该 CA，请重新填写 kid / HMAC key。</p>' : ''}
       <div class="callout info">签发前请确认域名的 DNS 解析已托管在你选择的服务商，且 API 凭证具备解析记录编辑权限。</div>
     `, `
       <button class="btn ghost" id="iss-cancel">取消</button>
@@ -900,9 +917,39 @@
     credSel.addEventListener('change', syncCred);
     syncCred();
 
+    // CA 能力提示：Google 必须 EAB，ZeroSSL 支持 EAB 且有 24h 限流；DuckDNS 单 TXT 不支持同域多条目。
+    const caSel = $('#iss-ca');
+    const eabBox = $('#iss-eab');
+    const caHint = $('#iss-ca-hint');
+    const dnsHint = $('#iss-dns-hint');
+    const duckHint = $('#iss-duckdns-hint');
+    const syncCA = () => {
+      const c = caOf(caSel.value);
+      const showEAB = !!c.supports_eab;
+      eabBox.classList.toggle('hidden', !showEAB);
+      caHint.textContent = c.hint || (c.requires_eab
+        ? '该 CA 要求 EAB，请填写下方 kid / HMAC key。' : '');
+      caHint.classList.toggle('hidden', !caHint.textContent);
+    };
+    const syncDNS = () => {
+      const code = $('#iss-code').value;
+      dnsHint.textContent = code === 'dns_duckdns'
+        ? 'DuckDNS 的 TXT 记录对该域名下所有子域共享，同一域名只能有一个验证值。'
+        : '';
+      dnsHint.classList.toggle('hidden', !dnsHint.textContent);
+      const vals = $('#iss-domains').value.split(/[\s,，]+/).map((s) => s.trim()).filter(Boolean);
+      const bases = vals.map((d) => d.replace(/^\*\./, ''));
+      const conflict = code === 'dns_duckdns' && (vals.length > 1 || bases.some((b) => b.endsWith('.duckdns.org') && b.split('.').length > 3));
+      duckHint.classList.toggle('hidden', !conflict);
+    };
+    caSel.addEventListener('change', syncCA);
     $('#iss-code').addEventListener('change', (e) => {
       $('#iss-env').innerHTML = envFieldsHTML(e.target.value);
+      syncDNS();
     });
+    $('#iss-domains').addEventListener('input', syncDNS);
+    syncCA();
+    syncDNS();
 
     $('#iss-cancel').addEventListener('click', closeModal);
     $('#iss-go').addEventListener('click', async () => {
@@ -918,6 +965,15 @@
       };
       const certEmail = $('#iss-email').value.trim();
       if (certEmail) body.email = certEmail;
+      if (!eabBox.classList.contains('hidden')) {
+        const kid = $('#iss-eab-kid').value.trim();
+        const hmac = $('#iss-eab-hmac').value.trim();
+        if (kid || hmac) {
+          if (!kid || !hmac) { toast('EAB kid 与 HMAC key 必须同时填写', 'err'); return; }
+          body.eab_kid = kid;
+          body.eab_hmac_key = hmac;
+        }
+      }
       if (!credSel.value) {
         body.code = $('#iss-code').value;
         body.env = {};
@@ -2546,6 +2602,7 @@
         `<option value="${esc(k)}">${esc(k)}</option>`).join('');
       $('#batch-ca').innerHTML = (cat.cas || []).map((c) =>
         `<option value="${esc(c.code)}" ${c.code === cat.default_ca ? 'selected' : ''}>${esc(c.name)}</option>`).join('');
+      syncBatchCA();
       const certs = state.certs && state.certs.length ? state.certs : (await api('/api/certs')).certs || [];
       $('#verify-cert').innerHTML = certs.map((c) =>
         `<option value="${esc(c.name)}">${esc(c.domain)}</option>`).join('');
@@ -2616,6 +2673,13 @@
     });
   });
 
+  const syncBatchCA = () => {
+    const c = (state.catalog?.cas || []).find((x) => x.code === $('#batch-ca').value) || {};
+    $('#batch-eab').classList.toggle('hidden', !c.supports_eab);
+    $('#batch-ca-hint').textContent = c.hint || '';
+  };
+  $('#batch-ca').addEventListener('change', syncBatchCA);
+
   $('#batch-run').addEventListener('click', async () => {
     const domains = $('#batch-domains').value.split('\n').map((s) => s.trim()).filter(Boolean);
     if (!domains.length) { toast('请先填写域名，每行一个', 'warn'); return; }
@@ -2628,6 +2692,15 @@
         dns_sleep: parseInt($('#batch-dnssleep').value || '0', 10),
         force: $('#batch-force').checked,
       };
+      if (!$('#batch-eab').classList.contains('hidden')) {
+        const kid = $('#batch-eab-kid').value.trim();
+        const hmac = $('#batch-eab-hmac').value.trim();
+        if (kid || hmac) {
+          if (!kid || !hmac) { toast('EAB kid 与 HMAC key 必须同时填写', 'err'); btn(); return; }
+          body.eab_kid = kid;
+          body.eab_hmac_key = hmac;
+        }
+      }
       const r = await api('/api/issue/batch', { method: 'POST', body });
       $('#batch-result').innerHTML = `<div class="notice">已排队 ${r.count} 个任务。请到「任务」页查看进度。</div>` +
         (r.jobs || []).map((j) => `<div class="row"><span class="chip">${esc(j.domain)}</span><span class="tiny muted">${esc(j.id)}</span></div>`).join('');

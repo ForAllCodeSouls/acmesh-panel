@@ -1,7 +1,9 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
+	"strings"
 	"testing"
 	"time"
 )
@@ -207,5 +209,58 @@ func TestReissueParamsPersistWithoutSecrets(t *testing.T) {
 	restored := m2.Get(j.ID)
 	if restored == nil || restored.retryEnv["Ali_Secret"] != "SUPERSECRET-VALUE" {
 		t.Fatal("原任务的凭证未恢复，影响原样重试")
+	}
+}
+
+func TestPermanentFailureHint(t *testing.T) {
+	cases := []struct {
+		name  string
+		lines []string
+		want  string
+	}{
+		{"eab", []string{"Account registration error:{\"type\":\"urn:ietf:params:acme:error:externalAccountRequired\"}"}, "EAB"},
+		{"rate limit", []string{"The retryafter=86400 value is too large (> 600), will not retry anymore."}, "限流"},
+		{"dns", []string{"curl error code: 6", "Cannot init API for: buypass."}, "DNS"},
+		{"transient", []string{"Processing. The CA is processing your order, please wait."}, ""},
+	}
+	for _, c := range cases {
+		got := permanentFailureHint(c.lines, "exit status 1")
+		if c.want == "" && got != "" {
+			t.Fatalf("%s: 不应识别为永久失败: %s", c.name, got)
+		}
+		if c.want != "" && !strings.Contains(got, c.want) {
+			t.Fatalf("%s: 期望提示含 %q，得到 %q", c.name, c.want, got)
+		}
+	}
+}
+
+func TestEABEnvNeverInArgs(t *testing.T) {
+	extra, err := eabEnv("kid12345", "hmac_ABCDEF123456")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if extra[eabKidEnv] != "kid12345" || extra[eabHMACEnv] != "hmac_ABCDEF123456" {
+		t.Fatal("EAB env 未正确生成")
+	}
+	if _, err := eabEnv("kid12345", ""); err == nil {
+		t.Fatal("缺少 HMAC 时应拒绝")
+	}
+	// EAB 只存在 env，args 由 buildIssueArgs 构造，绝不含 kid/hmac。
+	args := buildIssueArgs("dns_duckdns", 30, "a@example.net", "ec-256", "google", false, []string{"x.example.net"})
+	for _, a := range args {
+		if strings.Contains(a, "kid12345") || strings.Contains(a, "hmac_ABCDEF123456") {
+			t.Fatalf("args 泄漏 EAB: %v", args)
+		}
+	}
+	// acme.sh 在执行前才把 env 转成命令行参数；子进程环境不应残留这两个变量。
+	cmd := (&ACME{Home: t.TempDir(), Bin: "/bin/true", Log: "/tmp/acme.log"}).cmd(context.Background(), extra, "--version")
+	joined := strings.Join(cmd.Args, " ")
+	if !strings.Contains(joined, "--eab-kid kid12345") || !strings.Contains(joined, "--eab-hmac-key hmac_ABCDEF123456") {
+		t.Fatalf("acme.sh 未收到 EAB 参数: %s", joined)
+	}
+	for _, e := range cmd.Env {
+		if strings.HasPrefix(e, eabKidEnv+"=") || strings.HasPrefix(e, eabHMACEnv+"=") {
+			t.Fatalf("EAB 敏感变量泄漏到子进程环境: %s", e)
+		}
 	}
 }

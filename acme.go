@@ -290,14 +290,70 @@ type ACME struct {
 
 var errAcmeMissing = errors.New("未找到 acme.sh，请检查镜像或 ACME_HOME 挂载")
 
+// EAB 凭据通过 env 传入（不进 args）：args 会被明文持久化到重试快照与日志首行，
+// 而 env 经 AEAD 加密落盘、输出日志也会按值脱敏。acme.sh 只认命令行参数，
+// 因此在真正 exec 前把 env 里的 EAB 转成 --eab-kid/--eab-hmac-key。
+const (
+	eabKidEnv  = "ACMESH_EAB_KID"
+	eabHMACEnv = "ACMESH_EAB_HMAC_KEY"
+)
+
 func (a *ACME) cmd(ctx context.Context, env map[string]string, args ...string) *exec.Cmd {
 	full := append([]string{"--home", a.Home, "--log", a.Log}, args...)
+	if kid, ok := env[eabKidEnv]; ok && kid != "" {
+		full = append(full, "--eab-kid", kid)
+	}
+	if hmac, ok := env[eabHMACEnv]; ok && hmac != "" {
+		full = append(full, "--eab-hmac-key", hmac)
+	}
 	c := exec.CommandContext(ctx, a.Bin, full...)
 	c.Env = append(os.Environ(), "HOME="+a.Home, "LE_WORKING_DIR="+a.Home)
 	for k, v := range env {
+		if k == eabKidEnv || k == eabHMACEnv {
+			// 子进程不需要这两个变量；仅作为内部传递通道，避免污染 le_env。
+			continue
+		}
 		c.Env = append(c.Env, k+"="+v)
 	}
 	return c
+}
+
+// eabEnv 校验并生成 EAB 的内部 env 项。kid 与 hmac 必须成对出现，
+// 值做长度与字符白名单校验，避免把任意内容塞进命令行参数。
+func eabEnv(kid, hmac string) (map[string]string, error) {
+	if strings.TrimSpace(kid) == "" && strings.TrimSpace(hmac) == "" {
+		return nil, nil
+	}
+	if strings.TrimSpace(kid) == "" || strings.TrimSpace(hmac) == "" {
+		return nil, errors.New("EAB kid 与 HMAC key 必须同时填写")
+	}
+	for _, v := range []string{kid, hmac} {
+		if len(v) < 8 || len(v) > 256 {
+			return nil, errors.New("EAB kid / HMAC key 长度需在 8～256 字符之间")
+		}
+		if strings.IndexFunc(v, func(r rune) bool {
+			return !(r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' || strings.ContainsRune("-_", r))
+		}) >= 0 {
+			return nil, errors.New("EAB kid / HMAC key 只能包含字母、数字、短横线和下划线")
+		}
+	}
+	return map[string]string{eabKidEnv: kid, eabHMACEnv: hmac}, nil
+}
+
+// mergeEAB 把 EAB 内部 env 合入凭证 env；已保存凭证不携带 EAB，
+// 因此 EAB 每次签发都需显式提供（且不随凭证保存，避免明文扩散）。
+func mergeEAB(base map[string]string, extra map[string]string) map[string]string {
+	if len(extra) == 0 {
+		return base
+	}
+	out := make(map[string]string, len(base)+len(extra))
+	for k, v := range base {
+		out[k] = v
+	}
+	for k, v := range extra {
+		out[k] = v
+	}
+	return out
 }
 
 func (a *ACME) Version(ctx context.Context) string {
@@ -331,10 +387,11 @@ type Job struct {
 	Manual bool `json:"manual"` // 手动触发的任务才会展示"未到续签时间"提示
 
 	// 重试所需的原始执行参数。env 含凭证，绝不序列化给前端；args 也不直接暴露。
-	retryArgs []string
-	retryEnv  map[string]string
-	attempt   int  // 自动重试累计次数（不含首次执行），仅用于退避策略
-	retried   bool // 该任务是否已被认领重试（手动或自动），防止同一任务重复执行
+	retryArgs   []string
+	retryEnv    map[string]string
+	attempt     int  // 自动重试累计次数（不含首次执行），仅用于退避策略
+	retried     bool // 该任务是否已被认领重试（手动或自动），防止同一任务重复执行
+	noAutoRetry bool // 永久性错误：不排入自动重试队列（由失败日志识别）
 
 	// 重选签发所需的非敏感参数。env 含凭证明文，绝不放进这里。
 	reissue *ReissueInfo
@@ -353,6 +410,7 @@ type ReissueInfo struct {
 	DNSSleep   int      `json:"dns_sleep"`
 	Force      bool     `json:"force"`
 	TempEnv    bool     `json:"temp_env"` // 原任务使用临时凭证：密钥不回显
+	HasEAB     bool     `json:"has_eab"`  // 原任务使用 EAB：kid/hmac 不回显
 }
 
 type JobManager struct {
@@ -788,6 +846,11 @@ func (m *JobManager) run(j *Job, env map[string]string, args []string) {
 		m.push(j, "✗ 已取消")
 		m.finish(j, "canceled", "已取消")
 	} else {
+		// 永久性错误给出中文处置建议，并阻止自动重试队列空转。
+		if hint := permanentFailureHint(rawLines, err.Error()); hint != "" {
+			j.noAutoRetry = true
+			m.push(j, "ℹ "+hint)
+		}
 		m.push(j, "✗ "+err.Error())
 		m.finish(j, "failed", err.Error())
 	}
@@ -852,10 +915,29 @@ func humanDuration(d time.Duration) string {
 	return fmt.Sprintf("%d 分钟", int(d.Minutes()))
 }
 
+// permanentFailureHint 从 acme.sh 日志识别"重试也不会成功"的失败，返回中文处置建议；
+// 返回空串表示属于可重试的瞬时错误。只匹配明确特征，避免误伤普通网络抖动。
+func permanentFailureHint(rawLines []string, errMsg string) string {
+	text := strings.ToLower(errMsg + "\n" + strings.Join(rawLines, "\n"))
+	switch {
+	case strings.Contains(text, "externalaccountrequired") ||
+		strings.Contains(text, "external account binding is required"):
+		return "CA 要求外部账户绑定（EAB）：请在签发弹窗填写 EAB kid / HMAC key，或改用无需 EAB 的 CA（Let's Encrypt）。重试不会成功，已跳过自动重试。"
+	case strings.Contains(text, "retryafter=") || strings.Contains(text, "rate limited") ||
+		strings.Contains(text, "too many certificates") || strings.Contains(text, "ratelimited"):
+		return "CA 触发限流（Retry-After 过长）：acme.sh 已放弃本次校验，请等待约 24 小时后再试，或改用 Let's Encrypt。重试不会成功，已跳过自动重试。"
+	case strings.Contains(text, "error code: 6") || strings.Contains(text, "could not resolve host") ||
+		strings.Contains(text, "cannot init api"):
+		return "无法解析 CA 的 API 域名（curl error 6）：请检查服务器 DNS / 网络，或改用其它 CA。重试不会成功，已跳过自动重试。"
+	}
+	return ""
+}
+
 func (m *JobManager) finish(j *Job, status, errMsg string) {
 	// 失败任务按指数退避自动重试。排期日志必须写在 __done__ 之前，
 	// 否则前端收到结束事件后会忽略后续 SSE 消息。
-	if status == "failed" && m.retryScheduler != nil {
+	// 永久性错误（EAB 缺失 / CA 限流 / DNS 解析失败）不排入队列，避免无效重试。
+	if status == "failed" && !j.noAutoRetry && m.retryScheduler != nil {
 		m.mu.Lock()
 		attempt := j.attempt
 		m.mu.Unlock()

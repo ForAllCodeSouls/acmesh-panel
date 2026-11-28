@@ -516,4 +516,20 @@ check('重选弹窗预填非敏感参数', app.includes('reissued ? \'重选参�
 check('重选接口不序列化凭证', goAcme.includes('TempEnv    bool')
   && !goAcme.includes('Env        map[string]string `json:"env"`'));
 
+// EAB：签发弹窗/批量向导按 CA 能力显示输入，凭证明文只走加密 env。
+check('签发弹窗与批量向导支持 EAB', app.includes('id="iss-eab"')
+  && app.includes('body.eab_kid = kid') && app.includes('body.eab_hmac_key = hmac')
+  && html.includes('id="batch-eab"') && html.includes('id="batch-eab-kid"')
+  && goApi.includes('EABKid     string') && goAcme.includes('eabKidEnv'));
+check('EAB 不进入任务参数与重选快照', goAcme.includes('full = append(full, "--eab-kid", kid)')
+  && !goApi.includes('--eab-kid")') && goAcme.includes('HasEAB     bool'));
+check('CA 目录携带 EAB 能力标注', goApi.includes('RequiresEAB bool')
+  && goApi.includes('SupportsEAB bool') && app.includes('c.supports_eab'));
+check('DuckDNS 单 TXT 多域名风险提示', app.includes('id="iss-duckdns-hint"')
+  && app.includes("code === 'dns_duckdns'") && html.includes('合并为一张证书'));
+check('永久错误阻止自动重试', goAcme.includes('func permanentFailureHint(')
+  && goAcme.includes('!j.noAutoRetry && m.retryScheduler != nil')
+  && goAcme.includes('externalaccountrequired')
+  && goAcme.includes('retryafter=') && goAcme.includes('error code: 6'));
+
 console.log(`web UI checks: ${passed} passed`);

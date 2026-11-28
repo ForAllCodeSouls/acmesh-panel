@@ -302,6 +302,11 @@
             <label class="field"><span>DNS 等待（秒，0=自动）</span><input id="batch-dnssleep" type="number" min="0" max="600" value="0" aria-label="批量签发 DNS 等待秒数"></label>
             <label class="check"><input id="batch-force" type="checkbox"><span>强制签发</span></label>
           </div>
+          <div class="grid2 hidden" id="batch-eab">
+            <label class="field"><span>EAB kid（Google 必填）</span><input id="batch-eab-kid" spellcheck="false" autocomplete="off" aria-label="EAB kid"></label>
+            <label class="field"><span>EAB HMAC key</span><input id="batch-eab-hmac" type="password" autocomplete="new-password" aria-label="EAB HMAC key"></label>
+          </div>
+          <p class="hint" id="batch-ca-hint"></p>
           <div class="row-actions"><button class="btn primary" id="batch-run" type="button">排队签发</button></div>
           <div id="batch-result" class="list"></div>
         </div>

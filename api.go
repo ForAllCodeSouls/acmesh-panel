@@ -524,6 +524,8 @@ type issueReq struct {
 	Force      bool              `json:"force"`
 	Email      string            `json:"email"`     // 该域名专用的 ACME 通知邮箱；留空用默认
 	DNSSleep   int               `json:"dns_sleep"` // 跳过 acme.sh 公共 DNS 轮询的固定等待秒数；0 表示沿用 acme.sh 默认
+	EABKid     string            `json:"eab_kid"`   // ACME 外部账户绑定（Google / ZeroSSL 注册账户用），不回显、不落 args
+	EABHMACKey string            `json:"eab_hmac_key"`
 }
 
 func normalizeDomains(in []string) ([]string, error) {
@@ -582,6 +584,15 @@ func filterEnv(code string, in map[string]string) (map[string]string, error) {
 		out[f.Name] = v
 	}
 	return out, nil
+}
+
+// prepareEAB 校验请求里的 EAB 并合入凭证 env；单签发/批量共用。
+func prepareEAB(req issueReq, env map[string]string) (map[string]string, error) {
+	extra, err := eabEnv(req.EABKid, req.EABHMACKey)
+	if err != nil {
+		return nil, err
+	}
+	return mergeEAB(env, extra), nil
 }
 
 // buildIssueArgs 组装 acme.sh 签发参数；单个签发与批量签发共用，避免两处漂移。
@@ -670,6 +681,12 @@ func (s *Server) handleIssue(w http.ResponseWriter, r *http.Request) {
 		s.store.Audit(sess(r).User, clientIP(r, s.cfg.TrustProxy), "provider_save", req.SaveAs+" / "+code)
 	}
 
+	// EAB 必须成对出现且合法；合入 env 后随凭证一起加密落盘，绝不进 args / 重选快照。
+	env, err = prepareEAB(req, env)
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
 	// 邮箱优先级：本次签发指定 > 该域名已保存的邮箱 > 全局默认邮箱。
 	email := strings.TrimSpace(req.Email)
 	if email == "" {
@@ -708,6 +725,7 @@ func (s *Server) handleIssue(w http.ResponseWriter, r *http.Request) {
 		Kind: "issue", Domains: domains, Credential: req.Credential, Code: code,
 		KeyLength: req.KeyLength, CA: ca, Email: req.Email,
 		DNSSleep: req.DNSSleep, Force: req.Force, TempEnv: req.Credential == "",
+		HasEAB: req.EABKid != "",
 	})
 	s.store.Audit(sess(r).User, clientIP(r, s.cfg.TrustProxy), "issue", strings.Join(domains, ",")+" via "+code)
 	writeJSON(w, http.StatusAccepted, map[string]any{"job": job})
@@ -844,15 +862,18 @@ func (s *Server) handleInstall(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleCatalog(w http.ResponseWriter, r *http.Request) {
 	type caItem struct {
-		Code string `json:"code"`
-		Name string `json:"name"`
+		Code        string `json:"code"`
+		Name        string `json:"name"`
+		RequiresEAB bool   `json:"requires_eab"` // 注册新账户必须提供 EAB（Google）
+		SupportsEAB bool   `json:"supports_eab"` // 接受可选 EAB（Google / ZeroSSL）
+		Hint        string `json:"hint,omitempty"`
 	}
 	cas := []caItem{
-		{"letsencrypt", "Let's Encrypt"},
-		{"letsencrypt_test", "Let's Encrypt (测试环境)"},
-		{"zerossl", "ZeroSSL"},
-		{"buypass", "Buypass"},
-		{"google", "Google Trust Services"},
+		{"letsencrypt", "Let's Encrypt", false, false, ""},
+		{"letsencrypt_test", "Let's Encrypt (测试环境)", false, false, ""},
+		{"zerossl", "ZeroSSL", false, true, "频繁重试可能触发 CA 限流（Retry-After 86400 秒），失败后请等待 24 小时再试。"},
+		{"buypass", "Buypass", false, false, "部分网络无法解析其 API 域名；若初始化失败请更换 CA。"},
+		{"google", "Google Trust Services", true, true, "必须在 Google Cloud 申请 EAB kid / HMAC key，否则新账户注册会被拒绝。"},
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"providers":  providerCatalog,

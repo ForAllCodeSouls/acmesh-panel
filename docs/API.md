@@ -1,6 +1,6 @@
 # acmesh-panel HTTP API 参考
 
-本文描述 acmesh-panel v0.1.75 的全部 HTTP 接口。面板是单二进制服务，默认监听容器内 `0.0.0.0:8080`，通常由 nginx / Caddy 反向代理对外提供 HTTPS。所有路径均以 `/api` 开头。
+本文描述 acmesh-panel v0.1.76 的全部 HTTP 接口。面板是单二进制服务，默认监听容器内 `0.0.0.0:8080`，通常由 nginx / Caddy 反向代理对外提供 HTTPS。所有路径均以 `/api` 开头。
 
 > 仅限管理你拥有或已获明确授权的域名与服务器。详见 [DISCLAIMER.md](../DISCLAIMER.md)。
 
@@ -95,6 +95,10 @@ Content-Type: application/json
 ```
 
 `credential` 为已保存的凭证名；留空时用 `code` + `env` 临时填写。`keylength` 支持 `ec-256`、`ec-384`、`2048`、`4096`。同一主域的裸域与泛域（如 `example.com` 与 `*.example.com`，去掉 `*.` 前缀后相同）会合并为一张证书、一个任务——它们共用同一条 `_acme-challenge` TXT 记录，并行签发在 DuckDNS 等服务商上会互相覆盖；其余域名各自独立排队。返回 `{"jobs": [{"id", "domain", "domains", "cert_name"}], "count": 任务数, "queued": true}`，`domains` 为该任务覆盖的完整域名列表。
+
+**EAB（外部账户绑定）**：`POST /api/issue` 与 `/api/issue/batch` 均可附 `eab_kid` + `eab_hmac_key`（必须成对）。Google Trust Services 注册新账户必填，ZeroSSL 可选；凭据经加密后随任务存储，仅在调用 acme.sh 前转为命令行参数，不出现在任务预览、日志或重选接口中。DuckDNS 每个域名只有一条共享 TXT，不能同时为同一域名签多个条目，请在签发前确认。
+
+`GET /api/catalog` 的 `cas` 项带 `requires_eab`、`supports_eab`、`hint` 字段，前端据此显示 EAB 输入框和 CA 提示。
 
 ### 2.2 批量续期
 
