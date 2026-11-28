@@ -498,7 +498,10 @@ check('批量签发合并同一主域的裸域与泛域', goFeaturesApi.includes
 // 证书抽屉提供「合并签发」入口：预填现有域名，主域名保持首行。
 check('证书抽屉提供合并签发入口', app.includes('id="drawer-merge"')
   && app.includes('openIssueModal({ domains, merge: true })')
-  && app.includes('保持首行主域名不变') && app.includes("[...new Set([cert.domain, ...(cert.sans || [])])"));
+  && app.includes('保持首行主域名不变')
+  // 回归：domains 必须是数组，字符串会让弹窗里的 .join 抛异常，点了没反应。
+  && app.includes("const domains = [...new Set([cert.domain, ...(cert.sans || [])])]")
+  && !app.includes("const domains = [...new Set([cert.domain, ...(cert.sans || [])])].join('\\n')"));
 check('任务日志有复制按钮', app.includes('id="job-copy"')
   && app.includes("copyText(text, '日志已复制')"));
 
@@ -507,7 +510,8 @@ check('任务列表与日志提供重选入口', app.includes('job-reissue-btn')
   && app.includes('id="job-reissue"') && app.includes('async function reissueJob(id)')
   && goMain.includes('"GET /api/jobs/{id}/reissue"'));
 check('重选弹窗预填非敏感参数', app.includes('reissued ? \'重选参数并重新签发\' : \'签发证书\'')
-  && app.includes('preset.temp_env') && app.includes('esc((preset.domains || []).join(\'\\n\'))')
+  && app.includes('preset.temp_env')
+  && app.includes("esc(Array.isArray(preset.domains) ? preset.domains.join('\\n') : (preset.domains || ''))")
   && app.includes('preset.dns_sleep'));
 check('重选接口不序列化凭证', goAcme.includes('TempEnv    bool')
   && !goAcme.includes('Env        map[string]string `json:"env"`'));

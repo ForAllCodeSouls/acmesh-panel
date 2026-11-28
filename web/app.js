@@ -619,9 +619,10 @@
     $('#drawer-email').addEventListener('click', () => openCertEmailModal(cert));
     $('#drawer-renew').addEventListener('click', () => doRenew(cert));
     // 合并签发：预填证书现有域名（主域名保持首行，目录名不变，重签后覆盖为一张含全部域名的证书）
+    // domains 必须传数组：openIssueModal 内部按数组 join，传字符串会抛 TypeError 导致弹窗打不开。
     $('#drawer-merge').addEventListener('click', () => {
       closeDrawer();
-      const domains = [...new Set([cert.domain, ...(cert.sans || [])])].join('\n');
+      const domains = [...new Set([cert.domain, ...(cert.sans || [])])];
       openIssueModal({ domains, merge: true });
     });
     $('#drawer-install').addEventListener('click', () => doInstall(cert));
@@ -835,7 +836,7 @@
     openModal(reissued ? '重选参数并重新签发' : '签发证书', `
       <div class="field">
         <label for="iss-domains">域名（每行一个，首个为主域名）</label>
-        <textarea id="iss-domains" placeholder="example.com&#10;*.example.com">${esc((preset.domains || []).join('\n'))}</textarea>
+        <textarea id="iss-domains" placeholder="example.com&#10;*.example.com">${esc(Array.isArray(preset.domains) ? preset.domains.join('\n') : (preset.domains || ''))}</textarea>
         <p class="hint">支持泛域名 *.example.com（必须用 DNS API 验证）${preset.merge ? '<br>已预填当前证书的全部域名：保持首行主域名不变，在新行追加要合并的域名（如裸域），并勾选「强制重新签发」。签发成功后会覆盖原证书为一张包含全部域名的证书。' : ''}${reissued ? '<br>已恢复原任务参数，可在此修改域名与下面的全部选项后再签发；原任务不会被改动。' : ''}</p>
       </div>
       <div class="grid2">

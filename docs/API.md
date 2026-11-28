@@ -1,6 +1,6 @@
 # acmesh-panel HTTP API 参考
 
-本文描述 acmesh-panel v0.1.74 的全部 HTTP 接口。面板是单二进制服务，默认监听容器内 `0.0.0.0:8080`，通常由 nginx / Caddy 反向代理对外提供 HTTPS。所有路径均以 `/api` 开头。
+本文描述 acmesh-panel v0.1.75 的全部 HTTP 接口。面板是单二进制服务，默认监听容器内 `0.0.0.0:8080`，通常由 nginx / Caddy 反向代理对外提供 HTTPS。所有路径均以 `/api` 开头。
 
 > 仅限管理你拥有或已获明确授权的域名与服务器。详见 [DISCLAIMER.md](../DISCLAIMER.md)。
 
