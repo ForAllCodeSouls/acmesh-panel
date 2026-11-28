@@ -2681,6 +2681,7 @@
         ['DNS 凭证', count(st.providers)], ['通知渠道', count(st.notifiers)],
         ['远程主机', count(st.remote_hosts)], ['同步规则', count(st.sync_rules)],
         ['同步记录', count(st.sync_events)], ['证书邮箱', count(st.cert_emails)],
+        ['EAB 凭证', count(st.eab_creds)],
       ];
       box.innerHTML = `<div class="backup-summary">
         <div><strong>${esc(f.name)}</strong> · ${fmtSize(f.size)}</div>

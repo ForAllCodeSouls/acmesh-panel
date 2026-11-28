@@ -393,7 +393,7 @@ docker compose up -d
 docker compose ps
 ```
 
-固定版本：把 `.env` 的 `ACMESH_IMAGE_TAG` 改成具体 tag（如 `0.1.78`）。升级不会动数据卷。
+固定版本：把 `.env` 的 `ACMESH_IMAGE_TAG` 改成具体 tag（如 `0.1.79`）。升级不会动数据卷。
 
 「设置 → 面板版本」会自动查询 GitHub 最新 Release：有新版本时版本号后会出现「可更新 vX」按钮，点击跳转到项目主页；网络不通或检测失败时只显示提示，不影响面板使用。
 
@@ -797,6 +797,14 @@ curl -H 'X-API-Token: acmp_你的令牌' https://acme.example.com/api/expiry
 **Prometheus 指标**：`GET /api/metrics` 输出 `text/plain; version=0.0.4`，含证书数量/状态、最小剩余天数、任务状态、近期同步失败与待重试通知数；只含聚合指标，不含域名、IP 或私钥。需带只读令牌（「概览」scope），支持 `X-API-Token` 或 Prometheus 的 `Authorization: Bearer`；仍受 IP 白名单与 HTTPS 开关约束。
 
 **审计导出与验签**：审计日志「导出当前筛选 CSV」会把关键词、动作、用户、日期筛选一并带到导出（上限 5000 条，突破原分页 50 条限制）。新增「通用 Webhook（HMAC 签名）」渠道：对原始 JSON body 计算 `HMAC-SHA256(timestamp + "." + body)`，接收方可用同一密钥复算 `X-ACMESH-Panel-Signature` 与 `X-ACMESH-Panel-Timestamp` 验签。
+
+### 5.18 备份与通知的可靠性修复（v0.1.79）
+
+**备份恢复校验 EAB 凭证**：配置备份含加密后的 DNS 凭证、通知渠道、远程主机与 EAB 凭证。恢复前会逐项验证密文能否用当前 `secret.key` 解开，任一不匹配（包括 EAB）即整份拒绝，避免"恢复成功但凭证不可用"。跨机器迁移请一并复制数据目录下的 `secret.key`；备份预览新增 EAB 凭证计数。
+
+**通知失败退避**：同一渠道/事件/标题再次失败时按累计次数执行 1 / 2 / 4 / 8 分钟退避，不再因新失败重置为立即重试；累计 5 次自动标为耗尽，仍可在通知页手动重发。
+
+**备份数据边界**：备份页明确说明不包含登录凭据、审计日志、任务记录、通知失败队列、自动备份文件、ARI 缓存与证书文件本身。
 
 ---
 

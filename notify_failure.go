@@ -49,22 +49,38 @@ func scanNotifyFailure(rows interface{ Scan(...any) error }) (NotifyFailure, err
 const notifyFailureColumns = `id,ts,notifier_id,notifier_name,event,title,message,
 	sent_time,attempts,next_attempt,last_error,status`
 
+// notifyRetryBackoff 返回第 attempts 次失败后的下一次重试间隔。
+// 首次失败为第 1 次，其后按 1、2、4、8 分钟退避；耗尽后为 24 小时，
+// AddNotifyFailure 与手动重发共用同一套计算，避免退避被新失败重置为 now。
+func notifyRetryBackoff(attempts int) time.Duration {
+	if attempts >= notifyRetryMax {
+		return 24 * time.Hour
+	}
+	return time.Duration(1<<minInt(maxInt(attempts-2, 0), 3)) * time.Minute
+}
+
 // AddNotifyFailure 记录一次推送失败；相同事件只更新已有待重试项。
 func (s *Store) AddNotifyFailure(n Notifier, msg NotifyMessage, sendErr error) {
 	if s.db == nil {
 		return
 	}
 	now := time.Now().Format(time.RFC3339)
-	next := now
-	var id int
-	err := s.db.QueryRow(`SELECT id FROM notify_failures
+	var id, attempts int
+	err := s.db.QueryRow(`SELECT id, attempts FROM notify_failures
 		WHERE notifier_id=? AND event=? AND title=? AND status='pending' LIMIT 1`,
-		n.ID, msg.Event, msg.Title).Scan(&id)
+		n.ID, msg.Event, msg.Title).Scan(&id, &attempts)
 	if err == nil {
-		_, _ = s.db.Exec(`UPDATE notify_failures SET ts=?, attempts=attempts+1,
-			next_attempt=?, last_error=? WHERE id=?`, now, next, sendErr.Error(), id)
+		attempts++
+		next := time.Now().Add(notifyRetryBackoff(attempts)).Format(time.RFC3339)
+		status := "pending"
+		if attempts >= notifyRetryMax {
+			status = "exhausted"
+		}
+		_, _ = s.db.Exec(`UPDATE notify_failures SET ts=?, attempts=?, next_attempt=?,
+			last_error=?, status=? WHERE id=?`, now, attempts, next, sendErr.Error(), status, id)
 		return
 	}
+	next := time.Now().Add(notifyRetryBackoff(1)).Format(time.RFC3339)
 	_, _ = s.db.Exec(`INSERT INTO notify_failures
 		(ts,notifier_id,notifier_name,event,title,message,sent_time,attempts,next_attempt,last_error,status)
 		VALUES(?,?,?,?,?,?,?,1,?,?,'pending')`,
@@ -194,11 +210,7 @@ func (e *NotifyEngine) resendNotifyFailure(ctx context.Context, f NotifyFailure)
 	if attempts >= notifyRetryMax {
 		status = "exhausted"
 	}
-	// 原发送计为第 1 次；此后按 1、2、4、8 分钟退避，累计 5 次标为耗尽。
-	next := time.Now().Add(time.Duration(1<<minInt(maxInt(attempts-2, 0), 3)) * time.Minute)
-	if status == "exhausted" {
-		next = time.Now().Add(24 * time.Hour)
-	}
+	next := time.Now().Add(notifyRetryBackoff(attempts))
 	e.store.UpdateNotifyFailure(f.ID, attempts, next, err.Error(), status)
 	return err
 }

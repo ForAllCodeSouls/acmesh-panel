@@ -37,6 +37,7 @@ func backupCounts(st State) map[string]int {
 		"notify_sent":  len(st.NotifySent),
 		"sync_seen":    len(st.SyncSeen),
 		"remote_seen":  len(st.RemoteSeen),
+		"eab_creds":    len(st.EABCreds),
 	}
 }
 
@@ -97,6 +98,13 @@ func (s *Store) ValidateRestore(st State) error {
 			return err
 		}
 	}
+	// EAB 凭证的 AAD 与 DNS 凭证隔离，必须单独验证，否则跨实例恢复后
+	// 界面显示成功但所有 EAB 凭证实际无法解密，直到签发时才暴露。
+	for name, enc := range st.EABCreds {
+		if err := openable(enc.Blob, eabAADPrefix+name+"|"+enc.Code, "EAB 凭证 "+name); err != nil {
+			return err
+		}
+	}
 	return nil
 }
 
@@ -124,7 +132,7 @@ func (s *Server) handleBackupImport(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if st.Providers == nil && st.Notifiers == nil && st.RemoteHosts == nil &&
-		st.SyncRules == nil && st.SyncEvents == nil && st.DefaultEmail == "" &&
+		st.EABCreds == nil && st.SyncRules == nil && st.SyncEvents == nil && st.DefaultEmail == "" &&
 		st.CronHour == 0 && st.RetentionDays == 0 {
 		writeErr(w, http.StatusBadRequest, "备份内容为空或已损坏，已拒绝恢复")
 		return
@@ -142,6 +150,6 @@ func (s *Server) handleBackupImport(w http.ResponseWriter, r *http.Request) {
 	s.store.Audit(sess(r).User, clientIP(r, s.cfg.TrustProxy), "backup_restore", detail)
 	writeJSON(w, http.StatusOK, map[string]any{
 		"ok": true, "restored": counts, "app_version": bf.AppVersion,
-		"message": "配置已恢复；备份不含登录账号与密码哈希，当前凭据未被覆盖。",
+		"message": "配置已恢复；备份不含登录账号与密码哈希，当前凭据未被覆盖。跨实例恢复请一并迁移 secret.key，否则加密凭证无法解开。",
 	})
 }

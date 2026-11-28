@@ -582,4 +582,15 @@ check('通用 Webhook HMAC 头可复算验签', goNotify.includes('generic_hmac'
   && goNotify.includes('X-ACMESH-Panel-Signature') && goNotify.includes('genericHMACHeaders')
   && goNotify.includes('hex.EncodeToString'));
 
+// v0.1.79：EAB 恢复校验 / 退避修复 / 备份边界说明。
+check('备份恢复校验 EAB 凭证密文并计入预览', goBackup.includes('eabAADPrefix+name+"|"+enc.Code')
+  && goBackup.includes('"eab_creds":') && goBackup.includes('st.EABCreds == nil')
+  && goBackup.includes('跨实例恢复请一并迁移 secret.key'));
+check('通知失败退避不再被新失败重置为 now', goNotifyFail.includes('func notifyRetryBackoff(')
+  && goNotifyFail.includes('next := time.Now().Add(notifyRetryBackoff(attempts))')
+  && goNotifyFail.includes('attempts++'));
+check('备份页说明数据边界并预览 EAB 计数', html.includes('通知失败重试队列')
+  && html.includes('ARI 续期建议缓存') && html.includes('不会出现「恢复成功但凭证不可用」')
+  && app.includes("['EAB 凭证', count(st.eab_creds)]"));
+
 console.log(`web UI checks: ${passed} passed`);

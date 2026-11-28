@@ -641,8 +641,9 @@
           </div>
           <button class="btn primary small" id="backup-export" type="button">⭳ 导出备份</button>
         </div>
-        <p class="tiny muted">包含：DNS 服务商凭证、通知渠道、远程主机（SSH 私钥）、同步规则与同步记录、去重摘要、证书邮箱、自动更新与清理设置。所有凭证都是加密后的密文，备份文件里没有明文私钥或 token。</p>
-        <p class="tiny muted mt8">不包含：登录账号与密码哈希、审计日志、任务记录、证书文件本身，以及 <code>secret.key</code> 主密钥。备份文件里的加密凭证需要同一份 <code>secret.key</code> 才能解开，跨机器迁移时请一并复制数据目录下的该文件，或迁移后重新填写凭证。</p>
+        <p class="tiny muted">包含：DNS 服务商凭证、EAB 凭证、通知渠道、远程主机（SSH 私钥）、同步规则与同步记录、去重摘要、证书邮箱、自动更新与清理设置。所有凭证都是加密后的密文，备份文件里没有明文私钥或 token。</p>
+        <p class="tiny muted mt8">不包含：登录账号与密码哈希、审计日志、任务记录、通知失败重试队列、自动备份文件、ARI 续期建议缓存、证书文件本身，以及 <code>secret.key</code> 主密钥。备份文件里的加密凭证需要同一份 <code>secret.key</code> 才能解开，跨机器迁移时请一并复制数据目录下的该文件，或迁移后重新填写凭证。</p>
+        <p class="tiny muted mt8">恢复前会逐项校验密文能否用当前 <code>secret.key</code> 解开；任一凭证（含 EAB）不匹配即整份拒绝，不会出现「恢复成功但凭证不可用」。</p>
         <p class="tiny muted mt8">请妥善保管备份文件：拿到它再加上 <code>secret.key</code> 就等于拿到全部凭证。</p>
       </div>
       <div class="panel mt12">

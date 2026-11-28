@@ -63,8 +63,9 @@ The full Chinese README has the detailed step-by-step explanation: [README.md](R
 | **Quiet hours (v0.1.71)** | Pause automatic notifications by weekday and time-of-day (including overnight windows); critical alerts can still pass; manual "send test" always works |
 | **ACME accounts (v0.1.71)** | Switch the panel's default CA from the UI (locked when `ACME_PANEL_CA` is set); export an account key only after re-entering the login password, with path containment checks and an audit entry |
 | **v0.1.78** | ARI suggested renewal windows (RFC 9773); import existing cert/key PEM; notification failure queue with backoff and manual resend; DNS CNAME delegation (`--challenge-alias`); Prometheus `/api/metrics`; filtered audit CSV export; HMAC-signed generic webhooks |
+| **v0.1.79** | Backup restore now verifies EAB credentials too (whole-file rejection on any key mismatch, with `secret.key` migration hint and EAB count in preview); notification failure backoff is no longer reset by repeated failures; backup page documents exactly which data is excluded |
 
-See [README.md §5.10–5.17](README.md) for details (Chinese; the tables above are the feature summary in each language). The complete HTTP API reference — authentication, read-only token scopes, all endpoints and curl examples — is in [docs/API.md](docs/API.md).
+See [README.md §5.10–5.18](README.md) for details (Chinese; the tables above are the feature summary in each language). The complete HTTP API reference — authentication, read-only token scopes, all endpoints and curl examples — is in [docs/API.md](docs/API.md).
 
 ---
 
