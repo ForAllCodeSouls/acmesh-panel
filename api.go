@@ -514,19 +514,35 @@ func (s *Server) handleCertKey(w http.ResponseWriter, r *http.Request) {
 // ---------------- 签发 / 续期 / 吊销 / 删除 ----------------
 
 type issueReq struct {
-	Domains    []string          `json:"domains"`
-	Credential string            `json:"credential"` // 已保存凭证名
-	Code       string            `json:"code"`       // 或直接指定 provider 类型
-	Env        map[string]string `json:"env"`        // 临时凭证（不落盘）
-	SaveAs     string            `json:"save_as"`    // 可选：同时保存为新凭证
-	KeyLength  string            `json:"keylength"`
-	CA         string            `json:"ca"`
-	Force      bool              `json:"force"`
-	Email      string            `json:"email"`     // 该域名专用的 ACME 通知邮箱；留空用默认
-	DNSSleep   int               `json:"dns_sleep"` // 跳过 acme.sh 公共 DNS 轮询的固定等待秒数；0 表示沿用 acme.sh 默认
-	EABKid     string            `json:"eab_kid"`   // ACME 外部账户绑定（Google / ZeroSSL 注册账户用），不回显、不落 args
-	EABHMACKey string            `json:"eab_hmac_key"`
-	EABCred    string            `json:"eab_cred"` // 已保存 EAB 凭证名；与临时 kid/hmac 二选一
+	Domains        []string          `json:"domains"`
+	Credential     string            `json:"credential"` // 已保存凭证名
+	Code           string            `json:"code"`       // 或直接指定 provider 类型
+	Env            map[string]string `json:"env"`        // 临时凭证（不落盘）
+	SaveAs         string            `json:"save_as"`    // 可选：同时保存为新凭证
+	KeyLength      string            `json:"keylength"`
+	CA             string            `json:"ca"`
+	Force          bool              `json:"force"`
+	Email          string            `json:"email"`     // 该域名专用的 ACME 通知邮箱；留空用默认
+	DNSSleep       int               `json:"dns_sleep"` // 跳过 acme.sh 公共 DNS 轮询的固定等待秒数；0 表示沿用 acme.sh 默认
+	EABKid         string            `json:"eab_kid"`   // ACME 外部账户绑定（Google / ZeroSSL 注册账户用），不回显、不落 args
+	EABHMACKey     string            `json:"eab_hmac_key"`
+	EABCred        string            `json:"eab_cred"`        // 已保存 EAB 凭证名；与临时 kid/hmac 二选一
+	ChallengeAlias string            `json:"challenge_alias"` // DNS 委托（CNAME）别名；留空表示直连验证
+}
+
+// normalizeChallengeAlias 归一化 acme.sh 的 --challenge-alias 参数。
+// 用户常直接粘贴 CNAME 记录值 "_acme-challenge.alias.example.net."，需要去掉前缀与根点。
+func normalizeChallengeAlias(v string) (string, error) {
+	v = strings.ToLower(strings.TrimSpace(v))
+	v = strings.TrimSuffix(v, ".")
+	v = strings.TrimPrefix(v, "_acme-challenge.")
+	if v == "" {
+		return "", nil
+	}
+	if len(v) > 253 || !validDomain(v) {
+		return "", fmt.Errorf("DNS 委托域名格式非法: %s", v)
+	}
+	return v, nil
 }
 
 func normalizeDomains(in []string) ([]string, error) {
@@ -611,7 +627,7 @@ func (s *Server) prepareEAB(req issueReq, env map[string]string, ca string) (map
 }
 
 // buildIssueArgs 组装 acme.sh 签发参数；单个签发与批量签发共用，避免两处漂移。
-func buildIssueArgs(code string, dnsSleep int, email, keylength, ca string, force bool, domains []string) []string {
+func buildIssueArgs(code string, dnsSleep int, email, keylength, ca string, force bool, domains []string, alias string) []string {
 	args := []string{"--issue", "--dns", code}
 	if dnsSleep > 0 {
 		// 指定秒数会让 acme.sh 跳过公共 DNS(DoH) 轮询，避免动态 DNS 长时间卡在预检。
@@ -629,8 +645,13 @@ func buildIssueArgs(code string, dnsSleep int, email, keylength, ca string, forc
 	if force {
 		args = append(args, "--force")
 	}
-	for _, d := range domains {
+	for i, d := range domains {
 		args = append(args, "-d", d)
+		// acme.sh 的 --challenge-alias 是「跟随前一个 -d」的逐域名参数；
+		// 面板整体委托到同一个别名域，因此紧跟首个域名即可覆盖本批全部域名。
+		if i == 0 && alias != "" {
+			args = append(args, "--challenge-alias", alias)
+		}
 	}
 	return args
 }
@@ -652,6 +673,11 @@ func (s *Server) handleIssue(w http.ResponseWriter, r *http.Request) {
 	}
 	if req.DNSSleep < 0 || req.DNSSleep > 600 {
 		writeErr(w, http.StatusBadRequest, "DNS 生效等待需在 0～600 秒之间")
+		return
+	}
+	alias, err := normalizeChallengeAlias(req.ChallengeAlias)
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
 	ca := req.CA
@@ -725,11 +751,14 @@ func (s *Server) handleIssue(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	args := buildIssueArgs(code, req.DNSSleep, email, req.KeyLength, ca, req.Force, domains)
+	args := buildIssueArgs(code, req.DNSSleep, email, req.KeyLength, ca, req.Force, domains, alias)
 
 	preview := "acme.sh --issue --dns " + code
 	if req.DNSSleep > 0 {
 		preview += " --dnssleep " + strconv.Itoa(req.DNSSleep)
+	}
+	if alias != "" {
+		preview += " --challenge-alias " + alias
 	}
 	for _, d := range domains {
 		preview += " -d " + d
@@ -740,7 +769,7 @@ func (s *Server) handleIssue(w http.ResponseWriter, r *http.Request) {
 		Kind: "issue", Domains: domains, Credential: req.Credential, Code: code,
 		KeyLength: req.KeyLength, CA: ca, Email: req.Email,
 		DNSSleep: req.DNSSleep, Force: req.Force, TempEnv: req.Credential == "",
-		HasEAB: req.EABKid != "" || req.EABCred != "",
+		HasEAB: req.EABKid != "" || req.EABCred != "", ChallengeAlias: alias,
 	})
 	s.store.Audit(sess(r).User, clientIP(r, s.cfg.TrustProxy), "issue", strings.Join(domains, ",")+" via "+code)
 	writeJSON(w, http.StatusAccepted, map[string]any{"job": job})

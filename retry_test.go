@@ -249,7 +249,7 @@ func TestEABEnvNeverInArgs(t *testing.T) {
 		t.Fatal("缺少 HMAC 时应拒绝")
 	}
 	// EAB 只存在 env，args 由 buildIssueArgs 构造，绝不含 kid/hmac。
-	args := buildIssueArgs("dns_duckdns", 30, "a@example.net", "ec-256", "google", false, []string{"x.example.net"})
+	args := buildIssueArgs("dns_duckdns", 30, "a@example.net", "ec-256", "google", false, []string{"x.example.net"}, "")
 	for _, a := range args {
 		if strings.Contains(a, "kid12345") || strings.Contains(a, "hmac_ABCDEF123456") {
 			t.Fatalf("args 泄漏 EAB: %v", args)

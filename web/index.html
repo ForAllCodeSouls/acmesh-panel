@@ -86,6 +86,7 @@
         <div class="stat bad"><span class="stat-num" id="st-expired">0</span><span class="stat-label">已过期</span></div>
       </div>
       <div class="toolbar">
+        <button class="btn ghost small" id="cert-import-btn">导入已有证书</button>
         <button class="btn ghost small" id="renew-all-btn">检查全部续期</button>
         <span class="grow"></span>
         <label class="sr-only" for="cert-filter">搜索证书域名</label><input id="cert-filter" class="input search" aria-label="搜索证书域名" placeholder="搜索域名…" spellcheck="false">
@@ -121,6 +122,16 @@
           <button class="btn primary small" id="add-notifier">＋ 添加渠道</button>
         </div>
         <div id="notifier-list" class="list"></div>
+      </div>
+
+      <div class="panel">
+        <div class="panel-head">
+          <h3>发送失败与自动重试</h3>
+          <span class="tiny muted" id="notify-fail-count">—</span>
+          <button class="btn ghost small" id="notify-fail-refresh">刷新</button>
+        </div>
+        <p class="tiny muted">自动通知失败后按 1 / 2 / 4 / 8 分钟退避重试，最多 5 次；手动「发送测试」不进入此队列。同一渠道 + 事件 + 标题只保留一条待重试记录。</p>
+        <div id="notify-fail-list" class="list scroll-area"></div>
       </div>
 
       <div class="panel">
@@ -307,6 +318,7 @@
             <label class="field"><span>ACME 邮箱</span><input id="batch-email" type="email" aria-label="批量签发 ACME 邮箱"></label>
             <label class="field"><span>DNS 等待（秒，0=自动）</span><input id="batch-dnssleep" type="number" min="0" max="600" value="0" aria-label="批量签发 DNS 等待秒数"></label>
             <label class="check"><input id="batch-force" type="checkbox"><span>强制签发</span></label>
+            <label class="field"><span>DNS 委托别名（可选）</span><input id="batch-alias" aria-label="DNS 委托别名" spellcheck="false" placeholder="alias.example.net"><p class="hint">主域无法开放 API 时，填已配置 CNAME 的别名域；可粘贴 _acme-challenge.alias.example.net.</p></label>
           </div>
           <div id="batch-eab" class="hidden">
             <label class="field"><span>已保存的 EAB 凭证（可选）</span><select id="batch-eab-cred" aria-label="已保存的 EAB 凭证"><option value="">临时填写 kid / HMAC</option></select></label>
@@ -373,7 +385,7 @@
       <div class="subpanel hidden" data-subpanel="expiry">
         <div class="card">
           <h3>证书到期风险看板</h3>
-          <p class="tiny muted">按剩余天数分为已过期、7 天内、30 天内与正常四档。可勾选多张证书批量续期；点击证书名可查看详情。</p>
+          <p class="tiny muted">按剩余天数分为已过期、7 天内、30 天内与正常四档。支持 CA 的 ARI 续期建议会显示在域名下方；可勾选多张证书批量续期，点击证书名可查看详情。</p>
           <div class="stats" id="expiry-stats"></div>
           <div class="row-actions">
             <button class="btn primary small" id="expiry-renew-batch" type="button" disabled>批量续期已选</button>
@@ -459,6 +471,19 @@
           <div id="token-new" class="notice hidden"></div>
           <div id="token-list" class="list scroll-area"></div>
           <details><summary class="tiny">使用方法与示例</summary><div id="token-usage" class="tiny muted"></div></details>
+          <details><summary class="tiny">Prometheus 指标端点</summary><div class="tiny muted mt8">
+            <p>创建带「概览」范围的只读令牌后，用 <code>GET /api/metrics</code> 抓取；请求头 <code>X-API-Token: &lt;令牌&gt;</code>。输出为 Prometheus 文本格式 0.0.4，仅含聚合指标，不含域名、IP 或私钥。</p>
+            <p>Prometheus 配置示例：</p>
+            <pre class="tiny">scrape_configs:
+  - job_name: acmesh-panel
+    metrics_path: /api/metrics
+    bearer_token_file: /etc/prometheus/acmesh-token.txt
+    static_configs:
+      - targets: ['acme.example.net:443']
+    scheme: https</pre>
+            <p class="hint">两种请求头都支持：<code>X-API-Token: &lt;令牌&gt;</code> 或 Prometheus 的 <code>Authorization: Bearer &lt;令牌&gt;</code>。</p>
+            <pre class="tiny">curl -H "X-API-Token: $TOKEN" https://acme.example.net/api/metrics</pre>
+          </div></details>
         </div>
       </div>
 
@@ -592,6 +617,7 @@
           <input id="audit-from" type="date" aria-label="起始日期">
           <input id="audit-to" type="date" aria-label="结束日期">
           <button class="btn small ghost" id="audit-reset" type="button">重置</button>
+          <button class="btn small ghost" id="audit-export" data-csv="audit" href="/api/export.csv?kind=audit" type="button">导出当前筛选 CSV</button>
         </div>
         <div class="table-wrap scroll-area">
           <table class="table" id="audit-table">

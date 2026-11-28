@@ -60,6 +60,15 @@ func openDB(dir string) (*sql.DB, error) {
 		`CREATE TABLE IF NOT EXISTS backups (id INTEGER PRIMARY KEY AUTOINCREMENT, ts TEXT NOT NULL,
 		 name TEXT NOT NULL, size INTEGER NOT NULL, kind TEXT NOT NULL, status TEXT NOT NULL, detail TEXT NOT NULL)`,
 		`CREATE INDEX IF NOT EXISTS idx_backups_ts ON backups(ts)`,
+		// v0.1.78：通知推送失败队列（记录类数据独立表，不塞进 State）。
+		`CREATE TABLE IF NOT EXISTS notify_failures (id INTEGER PRIMARY KEY AUTOINCREMENT,
+		 ts TEXT NOT NULL, notifier_id TEXT NOT NULL, notifier_name TEXT NOT NULL,
+		 event TEXT NOT NULL, title TEXT NOT NULL, message TEXT NOT NULL,
+		 sent_time TEXT NOT NULL, attempts INTEGER NOT NULL DEFAULT 0,
+		 next_attempt TEXT NOT NULL, last_error TEXT NOT NULL,
+		 status TEXT NOT NULL DEFAULT 'pending')`,
+		`CREATE INDEX IF NOT EXISTS idx_notify_failures_next ON notify_failures(next_attempt)`,
+		`CREATE INDEX IF NOT EXISTS idx_notify_failures_ts ON notify_failures(ts)`,
 	}
 	for _, q := range stmts {
 		if _, err := db.Exec(q); err != nil {
@@ -236,6 +245,10 @@ func (s *Store) Cleanup(days int) (map[string]int, error) {
 	if res, err := tx.Exec(`DELETE FROM audit WHERE ts < ?`, auditCutoff); err == nil {
 		n, _ := res.RowsAffected()
 		out["audit"] = int(n)
+	}
+	if res, err := tx.Exec(`DELETE FROM notify_failures WHERE ts < ?`, auditCutoff); err == nil {
+		n, _ := res.RowsAffected()
+		out["notify_failures"] = int(n)
 	}
 	if err := tx.Commit(); err != nil {
 		return out, err

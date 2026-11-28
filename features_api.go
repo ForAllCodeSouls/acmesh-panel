@@ -860,6 +860,11 @@ func (s *Server) handleIssueBatch(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "不支持的密钥类型")
 		return
 	}
+	alias, err := normalizeChallengeAlias(req.ChallengeAlias)
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
 	ca := req.CA
 	if ca == "" {
 		ca = s.effectiveCA()
@@ -911,8 +916,11 @@ func (s *Server) handleIssueBatch(w http.ResponseWriter, r *http.Request) {
 		if strings.HasPrefix(req.KeyLength, "ec-") {
 			key += "_ecc"
 		}
-		args := buildIssueArgs(code, req.DNSSleep, email, req.KeyLength, ca, req.Force, g)
+		args := buildIssueArgs(code, req.DNSSleep, email, req.KeyLength, ca, req.Force, g, alias)
 		preview := "acme.sh --issue --dns " + code
+		if alias != "" {
+			preview += " --challenge-alias " + alias
+		}
 		for _, d := range g {
 			preview += " -d " + d
 		}
@@ -925,7 +933,7 @@ func (s *Server) handleIssueBatch(w http.ResponseWriter, r *http.Request) {
 			Kind: "issue", Domains: g, Credential: req.Credential, Code: code,
 			KeyLength: req.KeyLength, CA: ca, Email: req.Email,
 			DNSSleep: req.DNSSleep, Force: req.Force, TempEnv: req.Credential == "",
-			HasEAB: req.EABKid != "" || req.EABCred != "",
+			HasEAB: req.EABKid != "" || req.EABCred != "", ChallengeAlias: alias,
 		})
 		jobs = append(jobs, map[string]any{"id": j.ID, "domain": g[0], "domains": g, "cert_name": key})
 	}
@@ -1179,8 +1187,13 @@ func (s *Server) handleCSVExport(w http.ResponseWriter, r *http.Request) {
 	switch kind {
 	case "audit":
 		header = []string{"时间", "用户", "IP", "动作", "详情"}
-		list, _ := s.store.AuditQuery(AuditFilter{Limit: 10000})
-		for _, a := range list {
+		q := r.URL.Query()
+		limit, _ := strconv.Atoi(q.Get("limit"))
+		f := AuditFilter{
+			Query: q.Get("q"), Action: q.Get("action"), User: q.Get("user"), IP: q.Get("ip"),
+			From: q.Get("from"), To: q.Get("to"), Limit: limit,
+		}
+		for _, a := range s.store.AuditExport(f) {
 			rows = append(rows, []string{
 				mapStr(a, "ts"), mapStr(a, "user"), mapStr(a, "ip"),
 				mapStr(a, "action"), mapStr(a, "detail"),

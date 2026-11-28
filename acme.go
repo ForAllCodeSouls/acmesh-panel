@@ -412,17 +412,18 @@ type Job struct {
 // ReissueInfo 是任务「重选签发」时可回显的参数快照。
 // 凭证只记录已保存凭证的名字；临时凭证的明文 env 不回显，用户需重新填写。
 type ReissueInfo struct {
-	Kind       string   `json:"kind"`
-	Domains    []string `json:"domains"`
-	Credential string   `json:"credential"`
-	Code       string   `json:"code"`
-	KeyLength  string   `json:"keylength"`
-	CA         string   `json:"ca"`
-	Email      string   `json:"email"`
-	DNSSleep   int      `json:"dns_sleep"`
-	Force      bool     `json:"force"`
-	TempEnv    bool     `json:"temp_env"` // 原任务使用临时凭证：密钥不回显
-	HasEAB     bool     `json:"has_eab"`  // 原任务使用 EAB：kid/hmac 不回显
+	Kind           string   `json:"kind"`
+	Domains        []string `json:"domains"`
+	Credential     string   `json:"credential"`
+	Code           string   `json:"code"`
+	KeyLength      string   `json:"keylength"`
+	CA             string   `json:"ca"`
+	Email          string   `json:"email"`
+	DNSSleep       int      `json:"dns_sleep"`
+	Force          bool     `json:"force"`
+	TempEnv        bool     `json:"temp_env"`        // 原任务使用临时凭证：密钥不回显
+	HasEAB         bool     `json:"has_eab"`         // 原任务使用 EAB：kid/hmac 不回显
+	ChallengeAlias string   `json:"challenge_alias"` // DNS 委托域名（非凭证，可回显）
 }
 
 type JobManager struct {

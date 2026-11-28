@@ -6,6 +6,7 @@ import (
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -63,6 +64,7 @@ type NotifierKind struct {
 var notifierKinds = []NotifierKind{
 	{"gotify", "Gotify", true, true, "服务地址", "应用 Token", "例如 https://push.example.com，面板会 POST /message?token=..."},
 	{"generic", "通用 Webhook", true, false, "完整 URL", "Bearer Token（可选）", "POST JSON：{title, message, event, time, level}"},
+	{"generic_hmac", "通用 Webhook（HMAC 签名）", true, true, "完整 URL", "HMAC 密钥", "POST JSON，附 X-ACMESH-Panel-Timestamp 与 X-ACMESH-Panel-Signature: sha256=<hex>"},
 	{"serverchan", "Server 酱³", false, true, "无需填写", "SendKey", "通过 sctapi.ftqq.com 发送微信通知"},
 	{"dingtalk", "钉钉群机器人", true, true, "Webhook 完整 URL", "加签 Secret（可选）", "支持加签与不加签两种模式"},
 	{"feishu", "飞书群机器人", true, true, "Webhook 完整 URL", "签名密钥（可选）", "支持签名校验"},
@@ -169,8 +171,10 @@ func (e *NotifyEngine) Send(event, title, message string) int {
 		cancel()
 		if err != nil {
 			log.Printf("通知渠道 %s 推送失败: %v", n.Name, err)
+			e.store.AddNotifyFailure(n, msg, err)
 		} else {
 			sent++
+			e.store.ClearNotifyFailure(n.ID, msg.Event, msg.Title)
 		}
 	}
 	return sent
@@ -244,6 +248,18 @@ func (e *NotifyEngine) sendOne(ctx context.Context, n Notifier, msg NotifyMessag
 			headers = map[string]string{"Authorization": "Bearer " + n.Secret}
 		}
 		return e.postJSON(ctx, endpoint.String(), msg, headers)
+
+	case "generic_hmac":
+		endpoint, err := safeURL(n.Target)
+		if err != nil {
+			return err
+		}
+		body, err := json.Marshal(msg)
+		if err != nil {
+			return err
+		}
+		ts := strconv.FormatInt(time.Now().Unix(), 10)
+		return e.post(ctx, endpoint.String(), body, genericHMACHeaders(n.Secret, ts, body))
 
 	case "serverchan":
 		endpoint := "https://sctapi.ftqq.com/" + url.PathEscape(n.Secret) + ".send"
@@ -384,6 +400,18 @@ func safeResolvedIP(u *url.URL) (net.IP, error) {
 		}
 	}
 	return ips[0], nil
+}
+
+// genericHMACHeaders 生成通用 Webhook 的验签头：HMAC-SHA256(timestamp + "." + body)。
+// 抽出成纯函数，便于测试接收方能否用同一密钥复算签名。
+func genericHMACHeaders(secret, ts string, body []byte) map[string]string {
+	mac := hmac.New(sha256.New, []byte(secret))
+	_, _ = mac.Write([]byte(ts + "." + string(body)))
+	return map[string]string{
+		"Content-Type":             "application/json",
+		"X-ACMESH-Panel-Timestamp": ts,
+		"X-ACMESH-Panel-Signature": "sha256=" + hex.EncodeToString(mac.Sum(nil)),
+	}
 }
 
 // signedWebhook 为钉钉/飞书追加 timestamp + sign（Secret 为空时原样返回）。

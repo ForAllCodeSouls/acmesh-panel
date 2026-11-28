@@ -472,7 +472,9 @@ func tokenScopeAllowed(scopes []string, path string) bool {
 		if sc == "audit" && strings.HasPrefix(path, "/api/audit") {
 			return true
 		}
-		if sc == "overview" && (path == "/api/overview" || path == "/api/storage" || path == "/api/health/report") {
+		if sc == "overview" && (path == "/api/overview" || path == "/api/storage" ||
+			path == "/api/health/report" || path == "/api/expiry" || path == "/api/ari" ||
+			path == "/api/metrics") {
 			return true
 		}
 	}
@@ -577,7 +579,15 @@ func (s *Server) requireIPAllowlist(next http.Handler) http.Handler {
 func (s *Server) requireRead(h http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == http.MethodGet || r.Method == http.MethodHead {
-			if raw := r.Header.Get(apiTokenHeader); raw != "" {
+			raw := r.Header.Get(apiTokenHeader)
+			if raw == "" {
+				// 兼容 Prometheus bearer_token_file 发出的 Authorization: Bearer。
+				if auth := r.Header.Get("Authorization"); len(auth) > 7 &&
+					strings.EqualFold(auth[:7], "Bearer ") {
+					raw = strings.TrimSpace(auth[7:])
+				}
+			}
+			if raw != "" {
 				for _, t := range s.store.Snapshot().APITokens {
 					if tokenMatches(t, raw) && tokenScopeAllowed(t.Scopes, r.URL.Path) {
 						s.store.MarkTokenUsed(t.ID)

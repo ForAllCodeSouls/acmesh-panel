@@ -492,7 +492,7 @@ check('凭证加载不与目录加载并发写 state.catalog', loadAllFn.indexOf
 // 批量签发：同一主域的裸域与泛域必须合并为一张证书，避免共享 TXT 记录互踩。
 check('批量签发合并同一主域的裸域与泛域', goFeaturesApi.includes('func groupBatchDomains')
   && goFeaturesApi.includes('strings.TrimPrefix(d, "*.")')
-  && goApi.includes('args := buildIssueArgs(code, req.DNSSleep, email, req.KeyLength, ca, req.Force, domains)')
+  && goApi.includes('args := buildIssueArgs(code, req.DNSSleep, email, req.KeyLength, ca, req.Force, domains, alias)')
   && html.includes('合并为一张证书'));
 
 // 证书抽屉提供「合并签发」入口：预填现有域名，主域名保持首行。
@@ -513,16 +513,16 @@ check('重选弹窗预填非敏感参数', app.includes('reissued ? \'重选参�
   && app.includes('preset.temp_env')
   && app.includes("esc(Array.isArray(preset.domains) ? preset.domains.join('\\n') : (preset.domains || ''))")
   && app.includes('preset.dns_sleep'));
-check('重选接口不序列化凭证', goAcme.includes('TempEnv    bool')
+check('重选接口不序列化凭证', goAcme.includes('json:"temp_env"')
   && !goAcme.includes('Env        map[string]string `json:"env"`'));
 
 // EAB：签发弹窗/批量向导按 CA 能力显示输入，凭证明文只走加密 env。
 check('签发弹窗与批量向导支持 EAB', app.includes('id="iss-eab"')
   && app.includes('body.eab_kid = kid') && app.includes('body.eab_hmac_key = hmac')
   && html.includes('id="batch-eab"') && html.includes('id="batch-eab-kid"')
-  && goApi.includes('EABKid     string') && goAcme.includes('eabKidEnv'));
+  && goApi.includes('json:"eab_kid"') && goAcme.includes('eabKidEnv'));
 check('EAB 不进入任务参数与重选快照', goAcme.includes('full = append(full, "--eab-kid", kid)')
-  && !goApi.includes('--eab-kid")') && goAcme.includes('HasEAB     bool'));
+  && !goApi.includes('--eab-kid")') && goAcme.includes('json:"has_eab"'));
 check('CA 目录携带 EAB 能力标注', goApi.includes('RequiresEAB bool')
   && goApi.includes('SupportsEAB bool') && app.includes('c.supports_eab'));
 check('DuckDNS 单 TXT 多域名风险提示', app.includes('id="iss-duckdns-hint"')
@@ -543,5 +543,43 @@ check('EAB 凭证可加密保存并在签发/批量中选用', html.includes('id
   && app.includes('function eabGuideHTML(') && app.includes('Certificate Manager')
   && goApi.includes('handleSaveEABCred') && goMain.includes('POST /api/eab-creds')
   && goStore.includes('func (s *Store) PutEAB'));
+
+// v0.1.78：ARI / 证书导入 / 通知重试 / DNS 委托 / 指标 / 审计导出 / HMAC 签名。
+const goAri = fs.readFileSync(path.join(root, 'ari.go'), 'utf8');
+const goMetrics = fs.readFileSync(path.join(root, 'metrics.go'), 'utf8');
+const goNotifyFail = fs.readFileSync(path.join(root, 'notify_failure.go'), 'utf8');
+const goCertImport = fs.readFileSync(path.join(root, 'cert_import.go'), 'utf8');
+const goDB = fs.readFileSync(path.join(root, 'db.go'), 'utf8');
+
+check('ARI 使用未认证 GET 并按 RFC 9773 拼接证书标识', goAri.includes('func ariCertID(')
+  && goAri.includes('AuthorityKeyId') && goAri.includes('RawURLEncoding')
+  && goAri.includes('http.MethodGet') && !goAri.includes('POST-as-GET')
+  && goMain.includes('GET /api/ari') && app.includes("api('/api/ari')"));
+check('ARI 不改变续期调度且不支持时自动降级', goAri.includes('item["error"] = e.Error()')
+  && html.includes('支持 CA 的 ARI 续期建议') && app.includes('CA 建议')
+  && goFeatures.includes('path == "/api/ari"'));
+check('证书导入校验私钥匹配并限制路径与权限', goCertImport.includes('tls.X509KeyPair')
+  && goCertImport.includes('safeImportDir(') && goCertImport.includes('0o600')
+  && goMain.includes('POST /api/certs/import') && html.includes('id="cert-import-btn"')
+  && app.includes("api('/api/certs/import'"));
+check('通知失败独立表 + 退避重试 + 手动重发', goDB.includes('CREATE TABLE IF NOT EXISTS notify_failures')
+  && goNotifyFail.includes('func (s *Store) DueNotifyFailures')
+  && goNotifyFail.includes('notifyRetryMax') && goMain.includes('notifyRetryLoop')
+  && goMain.includes('POST /api/notify/failures/{id}/resend')
+  && html.includes('id="notify-fail-list"') && app.includes('loadNotifyFailures()'));
+check('DNS 委托走 acme.sh challenge-alias 且可重选', goApi.includes('func normalizeChallengeAlias(')
+  && goApi.includes('"--challenge-alias", alias') && goAcme.includes('json:"challenge_alias"')
+  && html.includes('id="batch-alias"') && app.includes('id="iss-alias"')
+  && app.includes('body.challenge_alias = alias'));
+check('Prometheus 指标端点挂只读令牌且不暴露域名', goMain.includes('GET /api/metrics')
+  && goMetrics.includes('text/plain; version=0.0.4') && goMetrics.includes('acmesh_panel_certificates')
+  && !goMetrics.includes('c.Domain') && goFeatures.includes('path == "/api/metrics"')
+  && html.includes('Prometheus 指标端点'));
+check('审计导出按当前筛选生效且突破分页上限', goStore.includes('func (s *Store) AuditExport')
+  && goFeaturesApi.includes('s.store.AuditExport(f)') && html.includes('id="audit-export"')
+  && app.includes("kind: 'audit'"));
+check('通用 Webhook HMAC 头可复算验签', goNotify.includes('generic_hmac')
+  && goNotify.includes('X-ACMESH-Panel-Signature') && goNotify.includes('genericHMACHeaders')
+  && goNotify.includes('hex.EncodeToString'));
 
 console.log(`web UI checks: ${passed} passed`);

@@ -1,6 +1,6 @@
 # acmesh-panel HTTP API 参考
 
-本文描述 acmesh-panel v0.1.77 的全部 HTTP 接口。面板是单二进制服务，默认监听容器内 `0.0.0.0:8080`，通常由 nginx / Caddy 反向代理对外提供 HTTPS。所有路径均以 `/api` 开头。
+本文描述 acmesh-panel v0.1.78 的全部 HTTP 接口。面板是单二进制服务，默认监听容器内 `0.0.0.0:8080`，通常由 nginx / Caddy 反向代理对外提供 HTTPS。所有路径均以 `/api` 开头。
 
 > 仅限管理你拥有或已获明确授权的域名与服务器。详见 [DISCLAIMER.md](../DISCLAIMER.md)。
 
@@ -34,6 +34,8 @@ Content-Type: application/json
 curl -H "X-API-Token: acmp_xxxxxxxx" https://acme.example.com/api/certs
 ```
 
+Prometheus 的 `bearer_token_file` 会发送 `Authorization: Bearer <token>`，面板同样接受该请求头（仅对 GET/HEAD 生效）。
+
 Token 仅允许 `GET` / `HEAD`，且必须落在授权的 scope 内：
 
 | Scope | 可访问的只读端点 |
@@ -42,7 +44,7 @@ Token 仅允许 `GET` / `HEAD`，且必须落在授权的 scope 内：
 | `jobs` | `/api/jobs` |
 | `sync` | `/api/sync/*`、`/api/remote/*`（仅 GET） |
 | `audit` | `/api/audit` |
-| `overview` | `/api/overview`、`/api/storage`、`/api/health/report` |
+| `overview` | `/api/overview`、`/api/storage`、`/api/health/report`、`/api/expiry`、`/api/ari`、`/api/metrics` |
 
 创建时不选 scope 表示允许全部只读端点。Token 不能访问令牌管理、改密、备份导出、私钥读取等敏感端点；即使携带会话 Cookie，只要请求头出现 `X-API-Token`，就按 Token 权限判定，避免会话掩盖越权。Token 同时受 IP 白名单与「仅允许 HTTPS」策略约束。
 
@@ -64,6 +66,8 @@ Token 仅允许 `GET` / `HEAD`，且必须落在授权的 scope 内：
 | GET | `/api/overview` | 读 | 首页概览统计 |
 | GET | `/api/storage` | 读 | 存储使用量 |
 | GET | `/api/certs` | 读 | 证书列表 |
+| POST | `/api/certs/import` | 会话 | 导入已有证书 PEM + 私钥 PEM；同名目录需 `force: true` 才覆盖 |
+| GET | `/api/ari?name=...` | 读 | CA 建议续期窗口（RFC 9773），`name` 省略时查询全部 |
 | GET | `/api/certs/{name}` | 会话 | 证书详情（含 SAN、签发者、有效期、文件清单） |
 | GET | `/api/certs/{name}/pem/{kind}` | 会话 | 读取证书 PEM；`kind` 为 `cert` / `chain` / `fullchain` / `key` |
 | POST | `/api/certs/{name}/key` | 会话 | 查看私钥，需二次确认；60 秒后前端清屏并记审计 |
@@ -98,6 +102,8 @@ Content-Type: application/json
 
 **EAB（外部账户绑定）**：`POST /api/issue` 与 `/api/issue/batch` 可附 `eab_cred`（已保存的 EAB 凭证名，见第 4 节），或临时填 `eab_kid` + `eab_hmac_key`（必须成对）。Google Trust Services 注册新账户必填，ZeroSSL 可选；HMAC 若为标准 base64（含 `+` `/` `=`），会自动转换为 acme.sh 需要的无 padding base64url。已保存凭证的 CA 必须与本次签发一致，否则返回 `400`。凭据经加密后随任务存储，仅在调用 acme.sh 前转为命令行参数，不出现在任务预览、日志或重选接口中。DuckDNS 每个域名只有一条共享 TXT，不能同时为同一域名签多个条目，请在签发前确认。
 
+**DNS 委托（CNAME alias）**：单签发与批量均可附 `challenge_alias`（如 `alias.example.net`，也可填 `_acme-challenge.alias.example.net.`）。需先把 `_acme-challenge.主域` CNAME 指向别名域；参数以 acme.sh 的 `--challenge-alias` 紧跟首个 `-d` 传入，并写入证书配置供续期复用，重选快照会保留该值。多个域名共用同一别名 TXT 槽位时仍需避免并行签发互踩。
+
 `GET /api/catalog` 的 `cas` 项带 `requires_eab`、`supports_eab`、`hint` 字段，前端据此显示 EAB 输入框和 CA 提示。
 
 ### 2.2 批量续期
@@ -110,6 +116,25 @@ Content-Type: application/json
 ```
 
 `names` 为到期看板返回的证书 `name` 字段；自动去重、最多 50 个、非法证书名直接拒绝。不存在的证书会被跳过并在 `skipped` 中列出。返回 `202` 与 `{"jobs": [{"id": "...", "domain": "...", "name": "..."}], "queued": 2, "skipped": []}`。
+
+### 2.3 证书导入与 ARI
+
+导入请求体：
+
+```json
+{
+  "cert_pem": "-----BEGIN CERTIFICATE-----\n...",
+  "key_pem": "-----BEGIN PRIVATE KEY-----\n...",
+  "chain_pem": "",
+  "name": "example.com",
+  "ca": "letsencrypt",
+  "force": false
+}
+```
+
+服务端用 `tls.X509KeyPair` 校验私钥与证书匹配，按 CN/SAN 推导目录名（可用 `name` 覆盖），私钥以 `0600` 写入 acme.sh 目录。响应 `{"ok": true, "name": "...", "domain": "...", "expires": "...", "note": "..."}`。导入证书不会被 acme.sh 自动续期。
+
+`GET /api/ari` 逐张证书向 CA 目录的 `renewalInfo` 发未认证 GET：路径为 `<base>/<base64url(AKI keyIdentifier)>.<base64url(serial DER)>`。响应项含 `supported`、`phase`（`early` / `window` / `late`）、`start`、`end` 与可选 `explanation_url`；不支持或查询失败时返回 `supported: false` 与 `error`，不影响其它接口。该接口只提供建议，不改变续期调度，结果按 `Retry-After` 缓存 1 分钟～24 小时。
 
 ## 3. 任务
 
@@ -154,6 +179,9 @@ EAB 凭证同样以 AES-256-GCM 加密落盘，明文不出现在接口响应中
 | POST | `/api/notify/default-email` | 会话 | 设置全局默认 ACME 邮箱 |
 | GET | `/api/notify/quiet` | 会话 | 静默窗口配置与 `active` 状态 |
 | POST | `/api/notify/quiet` | 会话 | 保存静默窗口 |
+| GET | `/api/notify/failures` | 会话 | 发送失败队列（`{"failures": [...], "pending": n}`） |
+| POST | `/api/notify/failures/{id}/resend` | 会话 | 立即重发；成功即清除记录 |
+| DELETE | `/api/notify/failures/{id}` | 会话 | 忽略该失败记录 |
 
 静默窗口 body：
 
@@ -169,6 +197,17 @@ EAB 凭证同样以 AES-256-GCM 加密落盘，明文不出现在接口响应中
 
 `days` 为 `0`（周日）至 `6`（周六），空数组表示每天。`start_hour > end_hour` 表示跨午夜窗口。`allow_critical` 为 `true` 时，安全告警与签发 / 续期失败仍会推送。
 
+自动通知失败进入独立表，按 1 / 2 / 4 / 8 分钟退避，最多 5 次；同一「渠道 + 事件 + 标题」只保留一条。`send test` 不进入队列。
+
+`kind: "generic_hmac"` 使用 `secret` 作为 HMAC 密钥，对**原始 JSON body** 计算 `HMAC-SHA256(timestamp + "." + body)`，并发送：
+
+```http
+X-ACMESH-Panel-Timestamp: 1700000000
+X-ACMESH-Panel-Signature: sha256=<hex>
+```
+
+接收方按同一公式复算并做定时常量比较；时间戳可用于限制重放窗口。原有 `generic` 的 Bearer Token 行为保持不变。
+
 ## 6. 运维中心
 
 | 方法 | 路径 | 认证 | 说明 |
@@ -176,6 +215,7 @@ EAB 凭证同样以 AES-256-GCM 加密落盘，明文不出现在接口响应中
 | POST | `/api/health/check` | 会话 | 立即执行健康自检并保存快照 |
 | GET | `/api/health/report` | 读 | 最近 20 次自检结果 |
 | GET | `/api/expiry` | 读 | 到期看板四档分组与计数 |
+| GET | `/api/metrics` | 读 | Prometheus 文本指标（0.0.4），仅聚合数据 |
 | GET | `/api/backups/config` | 会话 | 自动备份策略 |
 | POST | `/api/backups/config` | 会话 | 保存备份策略 |
 | GET | `/api/backups` | 会话 | 备份记录列表 |
@@ -183,7 +223,9 @@ EAB 凭证同样以 AES-256-GCM 加密落盘，明文不出现在接口响应中
 | GET | `/api/backups/{id}/content` | 会话 | 读取备份内容摘要（不下载文件） |
 | DELETE | `/api/backups/{id}` | 会话 | 删除备份 |
 | GET | `/api/schedules` | 会话 | 统一计划任务与下次执行时间 |
-| GET | `/api/export.csv?kind=audit\|jobs\|sync\|diff` | 会话 | CSV 导出，带 UTF-8 BOM |
+| GET | `/api/export.csv?kind=audit\|jobs\|sync\|diff` | 会话 | CSV 导出，带 UTF-8 BOM；`kind=audit` 另接受 `q` / `action` / `user` / `ip` / `from` / `to` 筛选，上限 5000 条 |
+
+`GET /api/metrics` 输出 `acmesh_panel_up`、`acmesh_panel_build_info`、`acmesh_panel_certificates{status=...}`、`acmesh_panel_cert_min_days_left`、`acmesh_panel_jobs{status=...}`、`acmesh_panel_sync_events_total{result="fail"}`、`acmesh_panel_notify_failures_total`。不含域名、IP、私钥与任务标题。
 
 ## 7. 安全中心
 

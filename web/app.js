@@ -796,6 +796,48 @@
     }, 60000);
   }
 
+  // ---------------- 导入已有证书 ----------------
+  $('#cert-import-btn')?.addEventListener('click', () => {
+    const caList = state.catalog?.cas || [];
+    const defCA = state.catalog?.default_ca || 'letsencrypt';
+    openModal('导入已有证书', `
+      <div class="callout info">导入的证书会被面板纳管与同步，但不会由 acme.sh 自动续期；到期后请用面板重新签发。私钥仅在此次请求中传输，并以 0600 落到证书目录。</div>
+      <div class="field">
+        <label for="imp-cert">证书 PEM（含 leaf，可为 fullchain）</label>
+        <textarea id="imp-cert" rows="6" spellcheck="false" placeholder="-----BEGIN CERTIFICATE-----&#10;...&#10;-----END CERTIFICATE-----"></textarea>
+      </div>
+      <div class="field">
+        <label for="imp-key">私钥 PEM</label>
+        <textarea id="imp-key" rows="6" spellcheck="false" placeholder="-----BEGIN PRIVATE KEY-----&#10;...&#10;-----END PRIVATE KEY-----"></textarea>
+      </div>
+      <div class="field">
+        <label for="imp-chain">中间证书链 PEM（可选）</label>
+        <textarea id="imp-chain" rows="3" spellcheck="false"></textarea>
+      </div>
+      <div class="grid2">
+        <label class="field"><span>证书目录名（可选）</span><input id="imp-name" spellcheck="false" placeholder="留空则取首个 SAN"></label>
+        <label class="field"><span>CA 标记</span><select id="imp-ca">${caList.map((c) => `<option value="${esc(c.code)}"${c.code === defCA ? ' selected' : ''}>${esc(c.name)}</option>`).join('')}</select></label>
+      </div>
+      <label class="check"><input id="imp-force" type="checkbox"><span>同名证书已存在时覆盖</span></label>
+    `, '<button class="btn ghost" id="imp-cancel">取消</button><button class="btn primary" id="imp-go">导入</button>');
+    $('#imp-cancel').addEventListener('click', closeModal);
+    $('#imp-go').addEventListener('click', async () => {
+      const body = {
+        cert_pem: $('#imp-cert').value.trim(), key_pem: $('#imp-key').value.trim(),
+        chain_pem: $('#imp-chain').value.trim(), name: $('#imp-name').value.trim(),
+        ca: $('#imp-ca').value, force: $('#imp-force').checked,
+      };
+      if (!body.cert_pem || !body.key_pem) { toast('证书与私钥 PEM 都必须填写', 'err'); return; }
+      const restore = busyButton($('#imp-go'), '导入中…');
+      if (!restore) return;
+      try {
+        const r = await api('/api/certs/import', { method: 'POST', body });
+        closeModal(); toast('已导入 ' + r.name, 'ok');
+        await loadCerts();
+      } catch (e) { restore(); toast(e.message, 'err'); }
+    });
+  });
+
   // ---------------- 签发 ----------------
   $('#issue-btn').addEventListener('click', () => openIssueModal());
 
@@ -882,6 +924,11 @@
         <label for="iss-dnssleep">DNS 生效等待（秒）</label>
         <input id="iss-dnssleep" type="number" min="0" max="600" value="${Number.isInteger(preset.dns_sleep) ? preset.dns_sleep : 30}">
         <p class="hint">默认 30 秒：跳过 acme.sh 的公共 DNS 轮询，避免动态 DNS（如 DuckDNS）一直卡在「Not valid yet」检查。填 0 则沿用 acme.sh 默认行为。</p>
+      </div>
+      <div class="field">
+        <label for="iss-alias">DNS 委托别名（可选）</label>
+        <input id="iss-alias" spellcheck="false" placeholder="alias.example.net" value="${esc(preset.challenge_alias || '')}">
+        <p class="hint">主域不开放 DNS API 时使用：先在 _acme-challenge.主域 配置 CNAME 指向 _acme-challenge.别名域，并在此填别名域（可直接粘贴 CNAME 目标）。acme.sh 会把委托写入证书配置，续期自动复用。</p>
       </div>
       <div class="grid2">
         <div class="field">
@@ -985,6 +1032,8 @@
         force: $('#iss-force').checked,
         dns_sleep: parseInt($('#iss-dnssleep').value, 10) || 0,
       };
+      const alias = $('#iss-alias').value.trim();
+      if (alias) body.challenge_alias = alias;
       const certEmail = $('#iss-email').value.trim();
       if (certEmail) body.email = certEmail;
       if (!eabBox.classList.contains('hidden')) {
@@ -1278,6 +1327,42 @@
     return k ? k.name : code;
   };
 
+  async function loadNotifyFailures() {
+    try {
+      const r = await api('/api/notify/failures');
+      const list = r.failures || [];
+      const cnt = $('#notify-fail-count');
+      if (cnt) cnt.textContent = `待重试 ${r.pending || 0} 条`;
+      const box = $('#notify-fail-list');
+      if (!box) return;
+      box.innerHTML = list.length ? list.map((f) => `
+        <div class="row">
+          <span class="grow">
+            <strong>${esc(f.title || '(无标题)')}</strong>
+            <div class="tiny muted">${esc(kindLabel(f.event))} · ${esc(f.notifier_name)} · ${f.attempts} 次失败 · 下次 ${esc(fmtTime(f.next_attempt))}${f.status === 'exhausted' ? ' · 已耗尽' : ''}</div>
+            <div class="tiny muted">${esc(f.last_error || '')}</div>
+          </span>
+          <button class="btn small ghost" data-fail-action="resend" data-fail-id="${f.id}" type="button">重发</button>
+          <button class="btn small ghost" data-fail-action="delete" data-fail-id="${f.id}" type="button">忽略</button>
+        </div>`).join('') : '<p class="tiny muted">暂无发送失败记录。</p>';
+    } catch (e) { /* ignore */ }
+  }
+  $('#notify-fail-refresh')?.addEventListener('click', () => loadNotifyFailures());
+  $('#notify-fail-list')?.addEventListener('click', async (e) => {
+    const btn = e.target.closest('[data-fail-action]');
+    if (!btn) return;
+    const action = btn.dataset.failAction;
+    if (action === 'delete' && !confirm('忽略这条失败记录？后续自动重试也会取消。')) return;
+    const restore = busyButton(btn, '处理中…');
+    if (!restore) return;
+    try {
+      await api(`/api/notify/failures/${encodeURIComponent(btn.dataset.failId)}/${action}`,
+        { method: action === 'delete' ? 'DELETE' : 'POST' });
+      toast(action === 'delete' ? '已忽略' : '重发成功', 'ok');
+      await loadNotifyFailures();
+    } catch (err) { restore(); toast(err.message, 'err'); }
+  });
+
   async function loadNotify() {
     try {
       // 每次打开通知页都重新拉目录，避免旧页面缓存导致新事件（如证书同步）不显示
@@ -1295,6 +1380,7 @@
       $('#event-help').innerHTML = (cat?.events || []).map((e) =>
         `<span class="chip" title="${esc(e.code)}">${esc(e.name)}</span>`).join('');
       await loadQuietHours();
+      await loadNotifyFailures();
     } catch (e) { toast(e.message, 'err'); }
   }
 
@@ -1793,6 +1879,12 @@
     if (resetPage) state.auditPage = 0;
     const seq = state.auditSeq = (state.auditSeq || 0) + 1;
     const f = auditFilters();
+    const exportBtn = $('#audit-export');
+    if (exportBtn) {
+      const ep = new URLSearchParams({ kind: 'audit' });
+      Object.entries(f).forEach(([k, v]) => { if (v) ep.set(k, v); });
+      exportBtn.setAttribute('href', '/api/export.csv?' + ep.toString());
+    }
     const p = new URLSearchParams();
     Object.entries(f).forEach(([k, v]) => { if (v) p.set(k, v); });
     p.set('limit', String(AUDIT_PAGE_SIZE));
@@ -2811,6 +2903,7 @@
         ca: $('#batch-ca').value, email: $('#batch-email').value.trim(),
         dns_sleep: parseInt($('#batch-dnssleep').value || '0', 10),
         force: $('#batch-force').checked,
+        challenge_alias: $('#batch-alias').value.trim(),
       };
       if (!$('#batch-eab').classList.contains('hidden')) {
         const chosenEAB = $('#batch-eab-cred').value;
@@ -2878,18 +2971,32 @@
     try {
       const r = await api('/api/expiry');
       state.expiry = r;
+      // ARI 是可选能力：查询失败只隐藏建议，不影响到期看板本身。
+      const ariMap = {};
+      try {
+        const ar = await api('/api/ari');
+        (ar.items || []).forEach((x) => { ariMap[x.name] = x; });
+      } catch (e) { /* ignore */ }
       const c = r.counts || {};
       $('#expiry-stats').innerHTML = [
         ['总数', r.total, ''], ['已过期', c.expired || 0, 'bad'], ['7 天内', c.critical || 0, 'warn'],
         ['30 天内', c.warning || 0, 'warn'], ['正常', c.valid || 0, 'ok'],
       ].map(([label, n, cls]) => `<div class="stat ${cls}"><span class="stat-num">${n}</span><span class="stat-label">${label}</span></div>`).join('');
+      const ariHint = (cert) => {
+        const a = ariMap[cert.name];
+        if (!a) return '';
+        if (!a.supported) return a.error ? ` · ARI: ${esc(a.error)}` : '';
+        if (a.phase === 'early') return ` · CA 建议 ${esc(fmtTime(a.start))} 后续期`;
+        if (a.phase === 'window') return ' · CA 建议窗口已开启';
+        return ' · CA 建议窗口已过';
+      };
       const groups = r.groups || {};
       const rows = [];
       ['expired', 'critical', 'warning', 'valid'].forEach((k) => {
         (groups[k] || []).forEach((cert) => rows.push(`<div class="row">
           <label class="check" title="勾选以批量续期"><input type="checkbox" data-expiry-pick="${esc(cert.name)}" aria-label="选择 ${esc(cert.domain)} 进行批量续期"></label>
           <span class="chip ${k === 'expired' ? 'bad' : (k === 'valid' ? 'ok' : 'warn')}">${cert.days_left < 0 ? '已过期' : cert.days_left + ' 天'}</span>
-          <span class="grow"><strong><a href="#" data-expiry-cert="${esc(cert.name)}">${esc(cert.domain)}</a></strong><div class="tiny muted">${esc(cert.issuer || '-')} · ${esc(cert.key_type || '')}</div></span>
+          <span class="grow"><strong><a href="#" data-expiry-cert="${esc(cert.name)}">${esc(cert.domain)}</a></strong><div class="tiny muted">${esc(cert.issuer || '-')} · ${esc(cert.key_type || '')}${ariHint(cert)}</div></span>
         </div>`));
       });
       $('#expiry-list').innerHTML = rows.length ? rows.join('') : '<p class="tiny muted">尚未识别到证书。</p>';

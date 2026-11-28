@@ -393,7 +393,7 @@ docker compose up -d
 docker compose ps
 ```
 
-固定版本：把 `.env` 的 `ACMESH_IMAGE_TAG` 改成具体 tag（如 `0.1.77`）。升级不会动数据卷。
+固定版本：把 `.env` 的 `ACMESH_IMAGE_TAG` 改成具体 tag（如 `0.1.78`）。升级不会动数据卷。
 
 「设置 → 面板版本」会自动查询 GitHub 最新 Release：有新版本时版本号后会出现「可更新 vX」按钮，点击跳转到项目主页；网络不通或检测失败时只显示提示，不影响面板使用。
 
@@ -783,6 +783,20 @@ curl -H 'X-API-Token: acmp_你的令牌' https://acme.example.com/api/expiry
 「通知 → 维护窗口 / 通知静默」可按星期与时段暂停自动通知：设置开始 / 结束小时（如 22:00—07:00，开始大于结束即为跨午夜），星期留空表示每天。「放行关键告警」默认开启，静默期仍会推送安全告警、签发失败与续期失败；关闭后所有事件静默。手动点渠道的「发送测试」永远不受窗口影响。顶部会显示当前是否处于静默期。
 
 「证书生命周期 → ACME 账户」可直接切换面板默认 CA（letsencrypt / zerossl / buypass / google / letsencrypt_test），对新签发证书生效；若已设置 `ACME_PANEL_CA`，该下拉框锁定并提示到部署配置修改。账户私钥需输入当前登录密码二次确认后才能一次性下载，路径严格限制在 `ACME_HOME` 内（含符号链接校验），导出会写入审计日志。
+
+### 5.17 ARI 建议、证书导入、通知重试与监控（v0.1.78）
+
+**ARI 续期建议（RFC 9773）**：到期看板会向 CA 目录声明的 `renewalInfo` 发起一次未认证 GET（证书标识 = `base64url(AKI keyIdentifier).base64url(serial DER)`），在域名下方显示 CA 建议窗口与「建议 X 后再续期」提示。结果按 `Retry-After` 本地缓存 1 分钟～24 小时，证书已过期或 CA 不支持 ARI 时自动降级，不改变原有续期调度。
+
+**导入已有证书**：证书页「导入已有证书」可粘贴 leaf/fullchain PEM、私钥 PEM 与可选中间链，面板校验私钥匹配后写入 acme.sh 证书目录（私钥 `0600`），随后可被同步、查看与纳管。导入证书不会被 acme.sh 自动续期，到期请用面板签发。同名目录默认拒绝覆盖，勾选强制导入才覆盖。
+
+**通知失败重试**：自动通知失败会进入独立 SQLite 队列，按 1 / 2 / 4 / 8 分钟退避，最多 5 次；同一「渠道 + 事件 + 标题」只保留一条，成功后自动清除。通知页可手动「重发」或「忽略」。手动发送测试不进入队列。
+
+**DNS 委托（CNAME alias）**：签发弹窗与批量向导新增「DNS 委托别名」。主域无法开放 DNS API 时，先把 `_acme-challenge.主域` CNAME 指向 `_acme-challenge.别名域`，再在面板填别名域（可直接粘贴 CNAME 目标）。参数以 `--challenge-alias` 传给 acme.sh，并写入证书配置供续期复用；重选快照保留该值。若多个域名共用一个别名 TXT 槽位（如 DuckDNS），仍需避免并行签发互踩。
+
+**Prometheus 指标**：`GET /api/metrics` 输出 `text/plain; version=0.0.4`，含证书数量/状态、最小剩余天数、任务状态、近期同步失败与待重试通知数；只含聚合指标，不含域名、IP 或私钥。需带只读令牌（「概览」scope），支持 `X-API-Token` 或 Prometheus 的 `Authorization: Bearer`；仍受 IP 白名单与 HTTPS 开关约束。
+
+**审计导出与验签**：审计日志「导出当前筛选 CSV」会把关键词、动作、用户、日期筛选一并带到导出（上限 5000 条，突破原分页 50 条限制）。新增「通用 Webhook（HMAC 签名）」渠道：对原始 JSON body 计算 `HMAC-SHA256(timestamp + "." + body)`，接收方可用同一密钥复算 `X-ACMESH-Panel-Signature` 与 `X-ACMESH-Panel-Timestamp` 验签。
 
 ---
 

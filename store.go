@@ -1048,6 +1048,33 @@ func (s *Store) AuditQuery(f AuditFilter) ([]map[string]any, int) {
 	return out, total
 }
 
+// AuditExport 按筛选条件导出审计记录；上限 5000 条，避免一次请求拖垮面板。
+// 注意 AuditQuery 会把 Limit 限制到 500（分页用），导出必须走独立查询。
+func (s *Store) AuditExport(f AuditFilter) []map[string]any {
+	if s.db == nil {
+		return []map[string]any{}
+	}
+	where, args := auditWhere(f)
+	qargs := append(append([]any{}, args...), 5000)
+	rows, err := s.db.Query(`SELECT ts,user,ip,action,detail FROM audit WHERE `+where+
+		` ORDER BY id DESC LIMIT ?`, qargs...)
+	if err != nil {
+		return []map[string]any{}
+	}
+	defer rows.Close()
+	out := []map[string]any{}
+	for rows.Next() {
+		var ts, user, ip, action, detail string
+		if err := rows.Scan(&ts, &user, &ip, &action, &detail); err != nil {
+			continue
+		}
+		out = append(out, map[string]any{
+			"ts": ts, "user": user, "ip": ip, "action": action, "detail": detail,
+		})
+	}
+	return out
+}
+
 // AuditCount 返回审计记录总数。
 func (s *Store) AuditCount() int {
 	if s.db == nil {

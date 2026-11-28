@@ -92,6 +92,7 @@ type Server struct {
 	notify *NotifyEngine
 	sync   *SyncEngine
 	retry  *RetryScheduler
+	ari    *ARIService
 	boot   time.Time
 	static http.Handler
 }
@@ -176,6 +177,7 @@ func main() {
 		certs:  NewCertScanner(cfg.AcmeHome),
 		acme:   acme,
 		notify: NewNotifyEngine(store),
+		ari:    NewARIService(),
 		boot:   time.Now(),
 	}
 	srv.sync = NewSyncEngine(store, srv.certs, srv.notify, cfg.SyncDirs)
@@ -214,6 +216,7 @@ func main() {
 	go srv.cronLoop(ctx)
 	go srv.updateLoop(ctx)
 	go srv.backupLoop(ctx)
+	go srv.notifyRetryLoop(ctx)
 	defer srv.retry.Close()
 
 	go func() {
@@ -476,6 +479,7 @@ func (s *Server) routes() *http.ServeMux {
 	mux.HandleFunc("POST /api/certs/{name}/remove", s.requireAuth(s.handleRemove))
 	mux.HandleFunc("POST /api/certs/{name}/install", s.requireAuth(s.handleInstall))
 	mux.HandleFunc("POST /api/issue", s.requireAuth(s.handleIssue))
+	mux.HandleFunc("POST /api/certs/import", s.requireAuth(s.handleCertImport))
 	mux.HandleFunc("POST /api/renew-all", s.requireAuth(s.handleRenewAll))
 	mux.HandleFunc("GET /api/providers", s.requireAuth(s.handleProviders))
 	mux.HandleFunc("POST /api/providers", s.requireAuth(s.handleSaveProvider))
@@ -506,6 +510,9 @@ func (s *Server) routes() *http.ServeMux {
 	mux.HandleFunc("POST /api/notify", s.requireAuth(s.handleNotifySave))
 	mux.HandleFunc("DELETE /api/notify/{id}", s.requireAuth(s.handleNotifyDelete))
 	mux.HandleFunc("POST /api/notify/{id}/test", s.requireAuth(s.handleNotifyTest))
+	mux.HandleFunc("GET /api/notify/failures", s.requireAuth(s.handleNotifyFailures))
+	mux.HandleFunc("POST /api/notify/failures/{id}/resend", s.requireAuth(s.handleNotifyFailureResend))
+	mux.HandleFunc("DELETE /api/notify/failures/{id}", s.requireAuth(s.handleNotifyFailureDelete))
 	mux.HandleFunc("POST /api/notify/default-email", s.requireAuth(s.handleDefaultEmail))
 	mux.HandleFunc("POST /api/certs/{name}/email", s.requireAuth(s.handleCertEmail))
 
@@ -539,6 +546,8 @@ func (s *Server) routes() *http.ServeMux {
 	mux.HandleFunc("POST /api/health/check", s.requireAuth(s.handleHealthCheck))
 	mux.HandleFunc("GET /api/health/report", s.requireRead(s.handleHealthHistory))
 	mux.HandleFunc("GET /api/expiry", s.requireRead(s.handleExpiry))
+	mux.HandleFunc("GET /api/ari", s.requireRead(s.handleARI))
+	mux.HandleFunc("GET /api/metrics", s.requireRead(s.handleMetrics))
 	mux.HandleFunc("GET /api/backups/config", s.requireAuth(s.handleBackupSettings))
 	mux.HandleFunc("POST /api/backups/config", s.requireAuth(s.handleBackupSettingsSave))
 	mux.HandleFunc("GET /api/backups", s.requireAuth(s.handleBackupList))

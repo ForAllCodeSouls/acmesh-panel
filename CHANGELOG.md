@@ -2,6 +2,19 @@
 
 本文件遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)。
 
+## [0.1.78] - 2026-11-28
+
+### 新增
+- **ARI 续期建议（RFC 9773）**：到期看板按 CA 目录的 `renewalInfo` 查询建议窗口，在域名下方显示「建议 X 后再续期 / 窗口已开启 / 窗口已过」。未认证 GET、证书标识按 `base64url(AKI).base64url(serial DER)` 构造，按 `Retry-After` 缓存 1 分钟～24 小时；CA 不支持或证书已过期时自动降级，不改变原续期调度。新增 `GET /api/ari`（只读，overview scope）。
+- **导入已有证书**：证书页可粘贴 leaf/fullchain、私钥与可选中间链 PEM；`tls.X509KeyPair` 校验匹配、路径越界校验、私钥 `0600` 落盘，导入后可被同步与查看；同名目录默认拒绝覆盖。新增 `POST /api/certs/import`。
+- **通知失败重试与手动重发**：失败推送写入独立 SQLite 表，按 1 / 2 / 4 / 8 分钟退避最多 5 次，同类事件去重、成功自动清除；通知页可重发或忽略。新增 `GET /api/notify/failures`、`POST /api/notify/failures/{id}/resend`、`DELETE /api/notify/failures/{id}`。
+- **DNS 委托（CNAME alias）**：签发弹窗与批量向导支持 `challenge_alias`，以 `--challenge-alias` 传给 acme.sh 并写入证书配置供续期复用；重选快照保留该值。
+- **Prometheus 指标端点**：新增 `GET /api/metrics`（text/plain 0.0.4），输出证书/任务/同步/通知失败聚合指标，不暴露域名或私钥；挂只读 Token（overview scope），兼容 `X-API-Token` 与 `Authorization: Bearer`，仍受 IP 白名单和 HTTPS 开关约束。
+- **通用 Webhook HMAC 签名**：新增 `generic_hmac` 渠道，附 `X-ACMESH-Panel-Timestamp` 与 `X-ACMESH-Panel-Signature: sha256=<hex>`，接收方可复算验签。
+
+### 修复
+- **审计 CSV 导出忽略筛选且只导 50 条**：导出未透传页面上的 q/action/user/ip/from/to 条件，且 `AuditQuery` 的分页上限把 `limit=10000` 压到 50。新增 `AuditExport` 独立查询，应用同一筛选条件、上限 5000 条，前端导出按钮按当前筛选生成 URL。
+
 ## [0.1.77] - 2026-11-28
 
 ### 新增
